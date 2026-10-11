@@ -1452,9 +1452,8 @@ Kirigami.ApplicationWindow {
         id: overviewAnimation
         target: root
         property: "overviewProgress"
-        duration: 320
-        easing.type: Easing.BezierSpline
-        easing.bezierCurve: [0, 0.45, 0.50, 1, 1, 1]
+        duration: 300
+        easing.type: Easing.OutCubic
         onFinished: {
             if (root.overviewClosing)
                 overviewFinishTimer.start()
