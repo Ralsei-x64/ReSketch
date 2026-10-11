@@ -10,6 +10,8 @@ Kirigami.ApplicationWindow {
     objectName: "exportHistoryWindow"
     readonly property int chromeHeight: Math.max(40, Math.round(Kirigami.Units.gridUnit * 2.25))
     readonly property bool framelessControls: appSettings.windowControlsInTabBar && !appSettings.keepWindowDecorations
+    property int activeRemovals: 0
+    readonly property int removalDuration: 350
     width: 740
     height: 560
     minimumWidth: 500
@@ -17,6 +19,49 @@ Kirigami.ApplicationWindow {
     flags: framelessControls ? Qt.Window | Qt.FramelessWindowHint : Qt.Window | Qt.CustomizeWindowHint | Qt.WindowTitleHint | Qt.WindowCloseButtonHint
     title: qsTr("ReSketch — Export History")
     pageStack.globalToolBar.style: Kirigami.ApplicationHeaderStyle.None
+
+    ListModel { id: historyModel }
+
+    // Keep delegates stable when the persisted QVariantList changes.
+    function syncHistory(animateRemovals) {
+        const query = exportSearch.text.trim().toLowerCase()
+        const items = appSettings.exportHistory.filter(item => !query ||
+            [item.name, item.fileType, item.originName, item.path].join(" ").toLowerCase().includes(query))
+        const paths = new Set(items.map(item => item.path))
+        for (let i = historyModel.count - 1; i >= 0; --i) {
+            if (paths.has(historyModel.get(i).modelData.path)) continue
+            const entry = exportsList.itemAtIndex(i)
+            if (entry)
+                entry.animateRemoval = animateRemovals && historyWindow.visible &&
+                    entry.y + entry.height > exportsList.contentY && entry.y < exportsList.contentY + exportsList.height
+            if (items.length) historyModel.remove(i)
+        }
+        if (!items.length) historyModel.clear()
+        for (let i = 0; i < items.length; ++i) {
+            let existing = i
+            while (existing < historyModel.count && historyModel.get(existing).modelData.path !== items[i].path) ++existing
+            if (existing === historyModel.count) historyModel.insert(i, {modelData: items[i]})
+            else {
+                if (existing !== i) historyModel.move(existing, i, 1)
+                historyModel.set(i, {modelData: items[i]})
+            }
+        }
+    }
+
+    function clearHistory() {
+        const visibleEntries = exportsList.contentItem.children.filter(entry =>
+            entry.objectName === "exportHistoryEntry" && !entry.ListView.delayRemove &&
+            entry.y + entry.height > exportsList.contentY && entry.y < exportsList.contentY + exportsList.height)
+        visibleEntries.sort((a, b) => a.y - b.y)
+        visibleEntries.forEach((entry, index) => entry.removalDelay = index * 50)
+        appSettings.clearExports()
+    }
+
+    Component.onCompleted: syncHistory(false)
+    Connections {
+        target: appSettings
+        function onExportHistoryChanged() { historyWindow.syncHistory(true) }
+    }
 
     pageStack.initialPage: Kirigami.Page {
         globalToolBarStyle: Kirigami.ApplicationHeaderStyle.None
@@ -30,12 +75,21 @@ Kirigami.ApplicationWindow {
                 Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Controls.Label {
+                    Row {
                         anchors.left: parent.left
                         anchors.leftMargin: Kirigami.Units.largeSpacing + Kirigami.Units.smallSpacing
                         anchors.verticalCenter: parent.verticalCenter
-                        text: qsTr("Export History")
-                        font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.25
+                        spacing: Kirigami.Units.smallSpacing
+                        Kirigami.Icon {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: Kirigami.Units.iconSizes.smallMedium
+                            height: width
+                            source: "document-export"
+                        }
+                        Controls.Label {
+                            text: qsTr("Export History")
+                            font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.15
+                        }
                     }
                     MouseArea {
                         anchors.fill: parent
@@ -54,7 +108,7 @@ Kirigami.ApplicationWindow {
                     Accessible.name: qsTr("Clear exports")
                     Controls.ToolTip.text: qsTr("Clear the history without deleting exported files")
                     Controls.ToolTip.visible: hovered
-                    onClicked: appSettings.clearExports()
+                    onClicked: historyWindow.clearHistory()
                 }
                 WindowControls {
                     targetWindow: historyWindow
@@ -104,6 +158,8 @@ Kirigami.ApplicationWindow {
                     placeholderText: qsTr("Search exports")
                     leftPadding: 12 + Kirigami.Units.iconSizes.small + Kirigami.Units.smallSpacing
                     selectByMouse: true
+                    enabled: historyWindow.activeRemovals === 0
+                    onTextChanged: historyWindow.syncHistory(false)
                     Kirigami.Icon {
                         anchors.left: parent.left
                         anchors.leftMargin: 12
@@ -123,13 +179,12 @@ Kirigami.ApplicationWindow {
                 Layout.fillHeight: true
                 spacing: Kirigami.Units.smallSpacing
                 clip: true
-                model: {
-                    const query = exportSearch.text.trim().toLowerCase()
-                    return query ? appSettings.exportHistory.filter(item =>
-                        [item.name, item.fileType, item.originName, item.path].join(" ").toLowerCase().includes(query))
-                                 : appSettings.exportHistory
-                }
+                model: historyModel
                 boundsBehavior: Flickable.StopAtBounds
+                interactive: historyWindow.activeRemovals === 0
+                removeDisplaced: Transition {
+                    NumberAnimation { properties: "y"; duration: appSettings.reduceMotion ? 0 : 180; easing.type: Easing.OutCubic }
+                }
                 Controls.ScrollBar.vertical: Controls.ScrollBar {
                     id: exportsScrollBar
                 }
@@ -137,6 +192,26 @@ Kirigami.ApplicationWindow {
                     id: entry
                     objectName: "exportHistoryEntry"
                     required property var modelData
+                    property bool animateRemoval: false
+                    property int removalDelay: 0
+                    property real slideOffset: 0
+                    // Release all removed rows together so staggered exits cannot shift later rows.
+                    ListView.delayRemove: animateRemoval && historyWindow.activeRemovals > 0
+                    ListView.onRemove: {
+                        if (animateRemoval && !appSettings.reduceMotion) removalAnimation.start()
+                    }
+                    enabled: !animateRemoval
+                    transform: Translate { x: entry.slideOffset }
+                    SequentialAnimation {
+                        id: removalAnimation
+                        onStarted: historyWindow.activeRemovals++
+                        onFinished: historyWindow.activeRemovals--
+                        PauseAnimation { duration: entry.removalDelay }
+                        ParallelAnimation {
+                            NumberAnimation { target: entry; property: "slideOffset"; to: entry.width; duration: historyWindow.removalDuration; easing.type: Easing.OutCubic }
+                            NumberAnimation { target: entry; property: "opacity"; to: 0; duration: historyWindow.removalDuration; easing.type: Easing.InQuad }
+                        }
+                    }
                     width: exportsList.width - (exportsScrollBar.visible ? exportsScrollBar.width + Kirigami.Units.smallSpacing : 0)
                     padding: Kirigami.Units.largeSpacing
                     hoverEnabled: true
@@ -238,11 +313,11 @@ Kirigami.ApplicationWindow {
                         RowLayout {
                             spacing: 0
                             Controls.ToolButton {
-                                Layout.preferredWidth: 32
-                                Layout.preferredHeight: 32
+                                Layout.preferredWidth: 36
+                                Layout.preferredHeight: 36
                                 icon.name: "folder-open"
-                                icon.width: Kirigami.Units.iconSizes.small
-                                icon.height: Kirigami.Units.iconSizes.small
+                                icon.width: Kirigami.Units.iconSizes.smallMedium
+                                icon.height: Kirigami.Units.iconSizes.smallMedium
                                 Accessible.name: qsTr("Open export folder")
                                 Controls.ToolTip.text: Accessible.name
                                 Controls.ToolTip.visible: hovered
@@ -252,11 +327,11 @@ Kirigami.ApplicationWindow {
                                 }
                             }
                             Controls.ToolButton {
-                                Layout.preferredWidth: 32
-                                Layout.preferredHeight: 32
+                                Layout.preferredWidth: 36
+                                Layout.preferredHeight: 36
                                 icon.name: "document-open"
-                                icon.width: Kirigami.Units.iconSizes.small
-                                icon.height: Kirigami.Units.iconSizes.small
+                                icon.width: Kirigami.Units.iconSizes.smallMedium
+                                icon.height: Kirigami.Units.iconSizes.smallMedium
                                 Accessible.name: qsTr("Open exported file")
                                 Controls.ToolTip.text: Accessible.name
                                 Controls.ToolTip.visible: hovered
@@ -266,11 +341,12 @@ Kirigami.ApplicationWindow {
                                 }
                             }
                             Controls.ToolButton {
-                                Layout.preferredWidth: 32
-                                Layout.preferredHeight: 32
+                                objectName: "deleteExportButton"
+                                Layout.preferredWidth: 36
+                                Layout.preferredHeight: 36
                                 icon.name: "edit-delete"
-                                icon.width: Kirigami.Units.iconSizes.small
-                                icon.height: Kirigami.Units.iconSizes.small
+                                icon.width: Kirigami.Units.iconSizes.smallMedium
+                                icon.height: Kirigami.Units.iconSizes.smallMedium
                                 Accessible.name: qsTr("Delete exported file")
                                 Controls.ToolTip.text: Accessible.name
                                 Controls.ToolTip.visible: hovered
@@ -296,13 +372,14 @@ Kirigami.ApplicationWindow {
                     }
                 }
                 Kirigami.PlaceholderMessage {
+                    objectName: "exportsPlaceholder"
                     anchors.centerIn: parent
                     width: parent.width - 48
-                    visible: exportsList.count === 0
+                    visible: exportsList.count === 0 && historyWindow.activeRemovals === 0 && exportsList.contentHeight <= 0
                     icon.name: "document-export"
-                text: exportSearch.text.trim() ? qsTr("No matching exports") : qsTr("No exports yet")
-                explanation: exportSearch.text.trim() ? qsTr("Try another filename, file type, or Figma file.")
-                                                     : qsTr("Export a document or object to see it here.")
+                    text: exportSearch.text.trim() ? qsTr("No matching exports") : qsTr("No exports yet")
+                    explanation: exportSearch.text.trim() ? qsTr("Try another filename, file type, or Figma file.")
+                                                         : qsTr("Export a document or object to see it here.")
                 }
             }
         }

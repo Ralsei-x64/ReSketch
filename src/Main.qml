@@ -1775,12 +1775,21 @@ Kirigami.ApplicationWindow {
                         width: parent.width - googleControls.width
                         height: parent.height
 
-                        Controls.Label {
+                        Row {
                             anchors.left: parent.left
                             anchors.leftMargin: Kirigami.Units.largeSpacing + Kirigami.Units.smallSpacing
                             anchors.verticalCenter: parent.verticalCenter
-                            text: qsTr("Google sign in")
-                            font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.25
+                            spacing: Kirigami.Units.smallSpacing
+                            Kirigami.Icon {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: Kirigami.Units.iconSizes.smallMedium
+                                height: width
+                                source: "dialog-password"
+                            }
+                            Controls.Label {
+                                text: qsTr("Google sign in")
+                                font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.15
+                            }
                         }
                         MouseArea {
                             anchors.fill: parent

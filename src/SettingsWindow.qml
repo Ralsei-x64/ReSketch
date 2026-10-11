@@ -34,12 +34,21 @@ Kirigami.ApplicationWindow {
                     width: parent.width - settingsControls.width
                     height: parent.height
 
-                    Controls.Label {
+                    Row {
                         anchors.left: parent.left
                         anchors.leftMargin: Kirigami.Units.largeSpacing + Kirigami.Units.smallSpacing
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Settings"
-                        font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.25
+                        spacing: Kirigami.Units.smallSpacing
+                        Kirigami.Icon {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: Kirigami.Units.iconSizes.smallMedium
+                            height: width
+                            source: "configure"
+                        }
+                        Controls.Label {
+                            text: "Settings"
+                            font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.15
+                        }
                     }
                     MouseArea {
                         anchors.fill: parent

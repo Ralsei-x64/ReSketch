@@ -31,12 +31,21 @@ Kirigami.ApplicationWindow {
                     width: parent.width - aboutControls.width
                     height: parent.height
 
-                    Controls.Label {
+                    Row {
                         anchors.left: parent.left
-                        anchors.leftMargin: Kirigami.Units.largeSpacing
+                        anchors.leftMargin: Kirigami.Units.largeSpacing + Kirigami.Units.smallSpacing
                         anchors.verticalCenter: parent.verticalCenter
-                        text: qsTr("About")
-                        font.pixelSize: Kirigami.Units.gridUnit
+                        spacing: Kirigami.Units.smallSpacing
+                        Kirigami.Icon {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: Kirigami.Units.iconSizes.smallMedium
+                            height: width
+                            source: "help-about"
+                        }
+                        Controls.Label {
+                            text: qsTr("About")
+                            font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.15
+                        }
                     }
                     MouseArea {
                         anchors.fill: parent

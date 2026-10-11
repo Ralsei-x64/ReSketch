@@ -38,6 +38,7 @@ Item {
         property string recordedExport: ""
         property string recordedOrigin: ""
         property string copiedText: ""
+        property bool exportDeletionSucceeds: true
         signal changed()
         signal effectiveThemeChanged()
         signal figmaAppearanceChanged()
@@ -55,7 +56,11 @@ Item {
         }
         function clearExports() { exportHistory = [] }
         function openExport(path, folder) { return true }
-        function deleteExport(path) { return true }
+        function deleteExport(path) {
+            if (!exportDeletionSucceeds) return false
+            exportHistory = exportHistory.filter(item => item.path !== path)
+            return true
+        }
     }
 
     WebEngineProfile { id: testProfile; offTheRecord: true }
@@ -211,6 +216,81 @@ Item {
             search.text = ""
             appSettings.clearExports()
             tryCompare(list, "count", 0)
+            window.close()
+        }
+
+        function test_export_history_removal_animations() {
+            appSettings.exportHistory = Array.from({length: 20}, (_, i) => ({
+                name: "Export" + i + ".png", fileType: "PNG", path: "/tmp/Export" + i + ".png",
+                originName: "Design", exportedAt: "2026-10-11T12:00:00Z",
+                url: Qt.resolvedUrl("../Branding/SketchbookPNG/Folder-48.png")
+            }))
+            app.openExportHistory()
+            const window = findChild(app, "exportHistoryWindow")
+            const list = findChild(window, "exportsList")
+            tryCompare(list, "count", 20)
+            tryVerify(() => list.itemAtIndex(0)?.height > 0)
+            waitForRendering(window.contentItem)
+            const first = list.itemAtIndex(0)
+            const second = list.itemAtIndex(1)
+            const deleteButton = findChild(first, "deleteExportButton")
+            appSettings.exportDeletionSucceeds = false
+            mouseClick(deleteButton)
+            compare(list.count, 20)
+            compare(first.slideOffset, 0, "A failed deletion must stay in place")
+            appSettings.exportDeletionSucceeds = true
+            mouseClick(deleteButton)
+            tryCompare(list, "count", 19)
+            waitForRendering(window.contentItem)
+            compare(list.itemAtIndex(0), second, "Other rows must keep their delegate")
+            tryVerify(() => first.slideOffset > 0, 200)
+            const secondPosition = second.mapToItem(list, 0, 0).y
+            wait(180)
+            fuzzyCompare(second.mapToItem(list, 0, 0).y, secondPosition, 1, "Older rows must wait for the slide to finish")
+            tryCompare(window, "activeRemovals", 0)
+            wait(200)
+            list.positionViewAtIndex(5, ListView.Beginning)
+            waitForRendering(window.contentItem)
+            const visible = list.contentItem.children.filter(entry =>
+                entry.objectName === "exportHistoryEntry" && entry.y + entry.height > list.contentY && entry.y < list.contentY + list.height)
+            visible.sort((a, b) => a.y - b.y)
+            verify(visible.length > 1 && visible.length < list.count)
+            const offscreen = list.contentItem.children.filter(entry =>
+                entry.objectName === "exportHistoryEntry" && (entry.y + entry.height <= list.contentY || entry.y >= list.contentY + list.height))
+            const positions = visible.map(entry => entry.mapToItem(list, 0, 0).y)
+            window.clearHistory()
+            const placeholder = findChild(window, "exportsPlaceholder")
+            compare(appSettings.exportHistory.length, 0)
+            tryCompare(window, "activeRemovals", visible.length)
+            compare(placeholder.visible, false)
+            for (let i = 0; i < visible.length; ++i) {
+                compare(visible[i].animateRemoval, true)
+                compare(visible[i].removalDelay, i * 50)
+            }
+            for (const entry of offscreen)
+                verify(!entry || !entry.animateRemoval, "Cached offscreen rows must not animate")
+            waitForRendering(window.contentItem)
+            for (let i = 0; i < visible.length; ++i)
+                fuzzyCompare(visible[i].mapToItem(list, 0, 0).y, positions[i], 1, "Clearing must slide visible rows from their original positions")
+            tryVerify(() => visible[0].slideOffset > 0, 200)
+            wait(window.removalDuration + 10)
+            verify(window.activeRemovals > 0, "Later staggered rows must still be exiting")
+            compare(placeholder.visible, false)
+            for (let i = 0; i < visible.length; ++i)
+                fuzzyCompare(visible[i].mapToItem(list, 0, 0).y, positions[i], 1, "Completed exits must not shift the remaining rows")
+            tryCompare(window, "activeRemovals", 0)
+            compare(list.count, 0)
+            tryCompare(placeholder, "visible", true)
+            appSettings.reduceMotion = true
+            appSettings.exportHistory = [{name: "NoMotion.png", path: "/tmp/NoMotion.png", fileType: "PNG",
+                                          originName: "Design", exportedAt: "2026-10-11T12:00:00Z", url: ""}]
+            tryCompare(list, "count", 1)
+            waitForRendering(window.contentItem)
+            window.clearHistory()
+            tryCompare(list, "count", 0)
+            wait(50)
+            compare(list.contentItem.children.filter(entry => entry.objectName === "exportHistoryEntry").length, 0)
+            appSettings.reduceMotion = false
             window.close()
         }
 
