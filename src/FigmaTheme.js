@@ -135,7 +135,7 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
         controller.schedule();
         return;
     }
-    const selector = '[data-testid="navigation-bar"], [data-onboarding-key="unified-design-onboarding-left-panel"], [data-testid="properties-panel"], [class*="sidebar--navDefault--"]';
+    const selector = '[data-testid="navigation-bar"], [data-onboarding-key="unified-design-onboarding-left-panel"], [data-testid="properties-panel"], [class*="sidebar--navDefault--"], .fb-sidebar';
     let panels = [], ancestors = new Set(), canvases = [], frame = 0;
     const underlay = document.createElement('div');
     underlay.id = 'resketch-sidebar-underlay';
@@ -143,6 +143,8 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
     stylesheet('resketch-sidebars',
         '[data-resketch-sidebar], [data-resketch-sidebar] [data-preferred-theme] { --color-bg:transparent !important; }'
         + '[data-resketch-sidebar] { background-color:var(--resketch-sidebar-tint) !important; }'
+        // Search suggestions float beyond the sidebar and need an opaque surface.
+        + '[data-resketch-sidebar] [data-testid="facetedSearchModal"], [data-resketch-sidebar] [data-testid="facetedSearchModal"] [data-preferred-theme] { --color-bg:var(--resketch-sidebar-surface) !important; }'
         + '[data-resketch-sidebar-ancestor] { background-color:transparent !important; }'
         + '[data-resketch-sidebar-canvas] { clip-path:var(--resketch-sidebar-clip) !important; }'
         + '#resketch-sidebar-underlay { position:fixed; inset:0; z-index:-1; pointer-events:none; }');
@@ -150,6 +152,7 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
         for (const panel of panels) {
             panel.removeAttribute('data-resketch-sidebar');
             panel.style.removeProperty('--resketch-sidebar-tint');
+            panel.style.removeProperty('--resketch-sidebar-surface');
         }
         for (const ancestor of ancestors) ancestor.removeAttribute('data-resketch-sidebar-ancestor');
         for (const canvas of canvases) {
@@ -169,7 +172,10 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
         canvases = Array.from(document.querySelectorAll('.gpu-view-content'));
         const options = controller.options;
         const bg = getComputedStyle(document.body).getPropertyValue('--color-bg').trim() || (options.theme === 'dark' ? '#2c2c2c' : '#ffffff');
-        const tint = 'color-mix(in srgb, ' + bg + ' ' + options.opacity + '%, transparent)';
+        // Desktop tint is already drawn by the native window background.
+        // Applying it again here makes 85% opacity effectively 98%.
+        const tint = options.sidebarBackdrop === 'desktop' ? 'transparent'
+            : 'color-mix(in srgb, ' + bg + ' ' + options.opacity + '%, transparent)';
         const rects = panels.map(panel => panel.getBoundingClientRect()).filter(rect => rect.width && rect.height);
         underlay.style.backgroundColor = options.sidebarBackdrop === 'canvas' && canvases.length
             ? getComputedStyle(canvases[0]).backgroundColor : bg;
@@ -177,6 +183,7 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
             ? sidebarMask({left:0, top:0, width:innerWidth, height:innerHeight}, rects) : 'none';
         for (const panel of panels) {
             panel.style.setProperty('--resketch-sidebar-tint', tint);
+            panel.style.setProperty('--resketch-sidebar-surface', bg);
             panel.setAttribute('data-resketch-sidebar', '');
             for (let node = panel.parentElement; node; node = node.parentElement) ancestors.add(node);
         }

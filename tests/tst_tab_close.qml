@@ -2,6 +2,7 @@ import QtQuick
 import QtTest
 import QtWebEngine
 import "../src" as App
+import "../src/FigmaTheme.js" as FigmaTheme
 
 Item {
     width: 1280
@@ -22,8 +23,9 @@ Item {
         property bool keepWindowDecorations: true
         property bool ignoreToolbarBlur: false
         property int minimumLoadedTabs: 5
+        property int maximumLoadedTabs: 5
         property int sleepMinutes: 5
-        property int maxMemoryGb: 5
+        property bool sleepingTabPreviews: false
         property bool highRefreshRate: true
         property bool gpuRasterization: true
         property bool zeroCopyRasterization: true
@@ -39,6 +41,8 @@ Item {
         property string recordedOrigin: ""
         property string copiedText: ""
         property bool exportDeletionSucceeds: true
+        property bool nativeTabDragSupported: false
+        function cursorPosition() { return Qt.point(0, 0) }
         signal changed()
         signal effectiveThemeChanged()
         signal figmaAppearanceChanged()
@@ -64,13 +68,21 @@ Item {
     }
 
     WebEngineProfile { id: testProfile; offTheRecord: true }
-    App.Main { id: app; sharedProfile: testProfile }
+    App.Main {
+        id: app
+        sharedProfile: testProfile
+        property int systemMoveRequests: 0
+        function startSystemMove() {
+            ++systemMoveRequests
+            return true
+        }
+    }
 
     TestCase {
         name: "TabCloseSelection"
         when: windowShown && app.visible
 
-        function tabButton(index) {
+        function tabButton(index, window) {
             function find(item) {
                 if (item.index === index && item.closePending !== undefined)
                     return item
@@ -80,10 +92,11 @@ Item {
                 }
                 return null
             }
-            return find(app.contentItem)
+            return find((window || app).contentItem)
         }
 
         function init() {
+            app.dismissOverview()
             appSettings.reduceMotion = true
             appSettings.changed()
             for (const view of app.views.slice())
@@ -110,6 +123,223 @@ Item {
                 compare(button.tabView, app.views[index])
                 compare(button.selected, app.views[index] === view)
             }
+        }
+
+        function cleanup() {
+            nativeDropEvents.stop()
+            nativeDropEvents.callback = null
+            appSettings.nativeTabDragSupported = false
+            app.cancelItemDrag()
+            appSettings.sleepingTabPreviews = false
+            appSettings.translucentSidebars = false
+            appSettings.toolbarOpacity = 100
+            appSettings.sidebarBackdrop = "desktop"
+            appSettings.sleepMinutes = 5
+            appSettings.maximumLoadedTabs = 5
+            appSettings.minimumLoadedTabs = 5
+            appSettings.changed()
+            transferLoads.target = null
+            for (const window of app.detachedWindows.slice()) window.close()
+            app.dismissOverview()
+            app.show()
+        }
+
+        function test_sidebar_transparency_uses_native_tint_once() {
+            appSettings.reduceMotion = true
+            appSettings.translucentSidebars = true
+            appSettings.toolbarOpacity = 85
+            app.activateTab(0)
+            const view = app.activeView
+            const fixture = '<style>body { --color-bg:#eeeeee; margin:0 }'
+                          + '.fb-sidebar { position:absolute; left:0; top:0; width:200px; height:100vh; background:white }'
+                          + '.gpu-view-content { position:absolute; inset:0; background:#444 }</style>'
+                          + '<div class="gpu-view-content"></div><nav class="fb-sidebar">'
+                          + '<div data-testid="facetedSearchModal" style="background:var(--color-bg)">'
+                          + '<div data-preferred-theme="light" style="background:var(--color-bg)">Suggestions</div>'
+                          + '</div></nav>'
+            let initialized = false
+            view.runJavaScript('document.body.innerHTML=' + JSON.stringify(fixture), () => initialized = true)
+            tryVerify(() => initialized)
+            function applySidebar() {
+                const options = {theme:"light", translucentSidebars:appSettings.translucentSidebars,
+                                 opacity:appSettings.toolbarOpacity, sidebarBackdrop:appSettings.sidebarBackdrop}
+                // Exercise the real sidebar controller against a local DOM fixture.
+                view.runJavaScript(FigmaTheme.sidebarMaskSource + ';' + FigmaTheme.sidebarSource
+                    + ';sidebarAppearance(' + JSON.stringify(options) + ', (id,css)=>{'
+                    + 'let s=document.getElementById(id);if(!css){s?.remove();return}'
+                    + 'if(!s){s=document.createElement("style");s.id=id;document.head.appendChild(s)}'
+                    + 's.textContent=css;});')
+            }
+            applySidebar()
+            let result = null
+            function inspect() {
+                view.runJavaScript('(()=>{const p=document.querySelector(".fb-sidebar");'
+                    + 'return p ? {bg:getComputedStyle(p).backgroundColor,'
+                    + 'marked:p.hasAttribute("data-resketch-sidebar"),'
+                    + 'search:getComputedStyle(document.querySelector("[data-testid=facetedSearchModal]")).backgroundColor,'
+                    + 'suggestions:getComputedStyle(document.querySelector("[data-preferred-theme]")).backgroundColor,'
+                    + 'clip:getComputedStyle(document.querySelector(".gpu-view-content")).clipPath}:null})()',
+                    value => { result = value })
+            }
+            tryVerify(() => { inspect(); return result && result.marked })
+            compare(result.bg, "rgba(0, 0, 0, 0)")
+            compare(result.search, "rgb(238, 238, 238)")
+            compare(result.suggestions, result.search)
+            verify(result.clip.indexOf("polygon") === 0)
+            compare(view.backgroundColor.a, 0)
+            const background = findChild(app.contentItem, "browserBackground")
+            fuzzyCompare(background.color.a, 0.85, 0.01)
+
+            appSettings.sidebarBackdrop = "canvas"
+            applySidebar()
+            tryVerify(() => { inspect(); return result && result.bg.indexOf("0.85") >= 0 })
+            compare(result.clip, "none")
+            compare(view.backgroundColor.a, 1)
+            compare(result.search, "rgb(238, 238, 238)")
+
+            view.runJavaScript('document.body.style.setProperty("--color-bg", "#222222")')
+            applySidebar()
+            tryVerify(() => { inspect(); return result && result.search === "rgb(34, 34, 34)" })
+            compare(result.suggestions, result.search)
+
+            appSettings.translucentSidebars = false
+            applySidebar()
+            tryVerify(() => { inspect(); return result && !result.marked })
+            compare(result.bg, "rgb(255, 255, 255)")
+            compare(result.clip, "none")
+        }
+
+        function test_maximum_loaded_tabs_sleeps_oldest_without_waiting() {
+            appSettings.reduceMotion = true
+            appSettings.sleepMinutes = 240
+            appSettings.maximumLoadedTabs = 2
+            app.homeView.lastUsedAt = Date.now() - 4000
+            for (let i = 0; i < app.views.length; ++i)
+                app.views[i].lastUsedAt = Date.now() - (4 - i) * 500
+            const selected = app.activeView
+            app.updateTabLifecycle()
+            tryCompare(app.views[0], "lifecycleState", WebEngineView.LifecycleState.Frozen)
+            tryCompare(app.views[1], "lifecycleState", WebEngineView.LifecycleState.Frozen)
+            compare(selected.lifecycleState, WebEngineView.LifecycleState.Active)
+            compare(app.views[3].lifecycleState, WebEngineView.LifecycleState.Active)
+            compare(app.homeView.lifecycleState, WebEngineView.LifecycleState.Frozen)
+            app.toggleOverview()
+            wait(100)
+            const awake = [app.homeView].concat(app.views).filter(view =>
+                view.lifecycleState === WebEngineView.LifecycleState.Active)
+            compare(awake.length, 2)
+            compare(findChild(app.views[0].frameContainer.parent, "sleepingTabIcon").visible, true)
+            compare(app.activeView, selected)
+            appSettings.maximumLoadedTabs = 1
+            appSettings.changed()
+            tryCompare(app.views[3], "lifecycleState", WebEngineView.LifecycleState.Frozen)
+            compare(selected.lifecycleState, WebEngineView.LifecycleState.Active)
+        }
+
+        function test_titlebar_double_click_does_not_start_window_move() {
+            // Keep blank titlebar space on the smaller offscreen test display too.
+            appSettings.reduceMotion = true
+            for (const view of app.views.slice(1)) app.closeTab(app.views.indexOf(view))
+            tryCompare(app.views, "length", 1)
+            appSettings.reduceMotion = false
+            const titlebar = findChild(app, "blankTabStripDrag")
+            verify(titlebar && titlebar.width > 0)
+            const oldWidth = app.width
+            const oldHeight = app.height
+            app.systemMoveRequests = 0
+            mouseDoubleClickSequence(titlebar, titlebar.width / 2, titlebar.height / 2)
+            tryCompare(app, "visibility", Window.Maximized)
+            compare(app.systemMoveRequests, 0)
+            wait(500) // Separate the next double-click from the previous tap sequence.
+            mouseDoubleClickSequence(titlebar, titlebar.width / 2, titlebar.height / 2)
+            tryCompare(app, "visibility", Window.Windowed)
+            tryCompare(app, "width", oldWidth)
+            tryCompare(app, "height", oldHeight)
+            compare(app.systemMoveRequests, 0)
+            mousePress(titlebar, 20, titlebar.height / 2)
+            mouseMove(titlebar, 55, titlebar.height / 2, 20)
+            mouseRelease(titlebar, 55, titlebar.height / 2)
+            compare(app.systemMoveRequests, 1, "An actual drag must still move the window")
+        }
+
+        function test_sleeping_tab_keeps_blurred_snapshot_in_overview_data() {
+            return [{tag: "frozen", state: WebEngineView.LifecycleState.Frozen},
+                    {tag: "unloaded", state: WebEngineView.LifecycleState.Discarded}]
+        }
+
+        function test_sleeping_tab_keeps_blurred_snapshot_in_overview(data) {
+            appSettings.sleepingTabPreviews = true
+            appSettings.sleepMinutes = 1
+            appSettings.minimumLoadedTabs = 1
+            appSettings.reduceMotion = true
+            const view = app.views[0]
+            app.activateTab(0, false)
+            let painted = false
+            view.runJavaScript("document.body.style.background='#2a7fdb'; document.documentElement.style.background='#2a7fdb'",
+                               result => painted = true)
+            tryVerify(() => painted)
+            view.hasLoadedFrame = true
+            waitForRendering(app.contentItem)
+            wait(100)
+            app.activateTab(2, false)
+            view.lastUsedAt = Date.now() - 120000
+            app.updateTabLifecycle()
+            tryCompare(view, "lifecycleState", WebEngineView.LifecycleState.Frozen)
+            verify(view.sleepPreview)
+            verify(view.sleepPreview.url)
+            if (data.state === WebEngineView.LifecycleState.Discarded) {
+                app.sleepTab(view, data.state)
+                compare(view.hasLoadedFrame, false)
+            }
+            transferLoads.target = view
+            transferLoads.clear()
+            app.toggleOverview()
+            compare(view.lifecycleState, data.state)
+            compare(view.visible, false, "Overview must not wake the sleeping page")
+            const snapshot = findChild(view.frameContainer, "sleepingTabPreview")
+            verify(snapshot)
+            tryCompare(snapshot, "status", Image.Ready)
+            compare(snapshot.visible, true)
+            compare(snapshot.parent, view.frameContainer)
+            const sleepIcon = findChild(view.frameContainer.parent, "sleepingTabIcon")
+            verify(sleepIcon)
+            compare(sleepIcon.visible, true)
+            // A hidden webview must still provide its last rendered content.
+            const pixels = grabImage(snapshot)
+            verify(pixels.pixel(20, 20).b > pixels.pixel(20, 20).r)
+            compare(transferLoads.count, 0, "Opening overview must not reload sleeping tabs")
+            app.selectOverviewView(view)
+            compare(app.activeView, view)
+            compare(view.lifecycleState, WebEngineView.LifecycleState.Active)
+            compare(view.sleepPreview, null)
+            compare(snapshot.visible, false)
+            compare(sleepIcon.visible, false)
+        }
+
+        function test_sleeping_previews_can_be_disabled() {
+            appSettings.sleepingTabPreviews = false
+            const view = app.views[0]
+            view.hasLoadedFrame = true
+            app.sleepTab(view, WebEngineView.LifecycleState.Discarded)
+            compare(view.lifecycleState, WebEngineView.LifecycleState.Discarded)
+            compare(view.sleepCapturePending, false)
+            compare(view.sleepPreview, null)
+            app.toggleOverview()
+            compare(view.lifecycleState, WebEngineView.LifecycleState.Active)
+            compare(findChild(view.frameContainer, "sleepingTabPreview").visible, false)
+        }
+
+        function test_pending_sleep_does_not_unload_reselected_tab() {
+            appSettings.sleepingTabPreviews = true
+            const view = app.views[0]
+            view.hasLoadedFrame = true
+            app.sleepTab(view, WebEngineView.LifecycleState.Discarded)
+            verify(view.sleepCapturePending)
+            app.activateTab(0, false)
+            tryCompare(view, "sleepCapturePending", false)
+            compare(app.activeView, view)
+            compare(view.lifecycleState, WebEngineView.LifecycleState.Active)
+            compare(view.sleepPreview, null)
         }
 
         function test_native_menu_integration_can_be_disabled() {
@@ -379,6 +609,340 @@ Item {
             wait(250)
             compare(app.activeIndex, 1)
             verifyBar()
+        }
+
+        function overviewCard(view, window) {
+            function find(item) {
+                if (item.objectName === "overviewCard" && item.previewView === view) return item
+                for (const child of item.children || []) {
+                    const result = find(child)
+                    if (result) return result
+                }
+                return null
+            }
+            return find((window || app).contentItem)
+        }
+
+        function test_overview_drag_reorders_whole_card() {
+            const selected = app.activeView
+            app.toggleOverview()
+            tryCompare(app, "overviewProgress", 1)
+            wait(260)
+            const view = app.views[0]
+            const card = overviewCard(view)
+            const destination = overviewCard(app.views[2])
+            verify(card && destination)
+            const frame = view.frameContainer
+            const start = card.mapToItem(app.contentItem, card.width / 2, card.height / 2)
+            const end = destination.mapToItem(app.contentItem, destination.width / 2, destination.height / 2)
+            mousePress(app.contentItem, start.x, start.y)
+            mouseMove(app.contentItem, start.x + 30, start.y, 20)
+            mouseMove(app.contentItem, end.x, end.y, 20)
+            tryCompare(app, "overviewDraggedView", view)
+            tryVerify(() => !!app.dragSnapshot)
+            compare(findChild(app, "tabDragPreview").visible, false)
+            compare(app.overviewDropIndex, 2)
+            compare(frame.parent, card)
+            compare(frame.previewCard, card)
+            mouseRelease(app.contentItem, end.x, end.y)
+            tryCompare(app, "overviewDraggedView", null)
+            compare(app.views[2], view)
+            compare(overviewCard(view), card, "Reordering must keep the same card")
+            compare(frame.parent, card, "The preview must stay inside its card")
+            wait(260)
+            compare(card.dragOffsetX, 0)
+            compare(card.dragOffsetY, 0)
+            compare(app.activeView, selected)
+            app.selectOverviewView(view)
+            tryCompare(app, "overviewVisible", false)
+            compare(app.activeView, view)
+        }
+
+        function test_overview_background_keeps_configured_transparency() {
+            appSettings.translucentSidebars = true
+            appSettings.toolbarOpacity = 50
+            app.activeView.hasLoadedFrame = true
+            const background = findChild(app, "browserBackground")
+            compare(background.opacity, 1)
+            fuzzyCompare(background.color.a, 0.5, 0.01)
+            app.toggleOverview()
+            tryCompare(app, "overviewProgress", 1)
+            app.selectOverviewView(app.activeView)
+            wait(150)
+            compare(background.opacity, 1)
+            tryCompare(app, "overviewVisible", false)
+            wait(180)
+            compare(background.opacity, 1)
+            fuzzyCompare(background.color.a, 0.5, 0.01)
+            appSettings.translucentSidebars = false
+            appSettings.toolbarOpacity = 100
+        }
+
+        SignalSpy { id: transferLoads; signalName: "loadingChanged" }
+
+        function test_transfer_preserves_page_and_survives_source_window() {
+            const view = app.activeView
+            view.runJavaScript("document.open(); document.write(\"<html><title>Transfer test</title><body style='height:5000px'><input id='field'></body></html>\"); document.close(); window.keepMe = {value: 123};")
+            tryCompare(view, "title", "Transfer test")
+            tryCompare(view, "loading", false)
+            let prepared = false
+            view.runJavaScript("document.getElementById('field').value = 'unsaved'; window.scrollTo(0, 700); true", result => prepared = result)
+            tryVerify(() => prepared)
+            transferLoads.target = view
+            transferLoads.clear()
+            const frame = view.frameContainer
+            const profile = view.profile
+            const window = app.moveTabToNewWindow(app.activeIndex)
+            verify(window)
+            window.homeView.stop()
+            compare(window.activeView, view)
+            compare(window.views.length, 1)
+            compare(app.views.includes(view), false)
+            compare(view.ownerWindow, window)
+            compare(view.profile, profile)
+            compare(view.frameContainer, frame)
+            compare(frame.parent, window.browserContent)
+            let state = ""
+            view.runJavaScript("JSON.stringify([keepMe.value, document.getElementById('field').value, scrollY])", result => state = result)
+            tryVerify(() => state !== "")
+            compare(state, '[123,"unsaved",700]')
+            wait(200)
+            compare(transferLoads.count, 0, "Moving the live view must not start another load")
+            window.openTab("about:blank")
+            const childView = window.activeView
+            tryCompare(childView, "title", "about:blank")
+            tryCompare(childView, "loading", false)
+            childView.runJavaScript("document.open(); document.write('<html><title>Child tab</title></html>'); document.close(); window.keepChild = 456;")
+            tryCompare(childView, "title", "Child tab")
+            tryCompare(childView, "loading", false)
+            const other = window.moveTabToNewWindow(window.activeIndex)
+            verify(other)
+            window.close()
+            wait(100)
+            let childState = 0
+            childView.runJavaScript("document.title = 'Still alive'; keepChild", result => childState = result)
+            tryVerify(() => childState === 456)
+            compare(childView.ownerWindow, other)
+            tryCompare(childView, "title", "Still alive")
+            childView.url = "https://www.figma.com/design/TransferTest/Test"
+            childView.stop()
+            tryCompare(tabButton(0, other), "filePage", true)
+            other.width = 900
+            tryCompare(childView, "width", other.browserWidth)
+            transferLoads.target = null
+            other.close()
+        }
+
+        function test_drag_out_tabs_and_cards_transfers_views() {
+            const view = app.views[0]
+            const button = tabButton(0)
+            const start = button.mapToItem(app.contentItem, 80, 20)
+            mousePress(app.contentItem, start.x, start.y)
+            mouseMove(app.contentItem, start.x + 30, start.y, 20)
+            mouseMove(app.contentItem, start.x + 30, -50, 20)
+            mouseRelease(app.contentItem, start.x + 30, -50)
+            tryVerify(() => app.detachedWindows.length === 1)
+            const window = app.detachedWindows[0]
+            compare(window.activeView, view)
+            compare(app.views.includes(view), false)
+            window.close()
+            tryVerify(() => app.detachedWindows.length === 0)
+            app.toggleOverview()
+            tryCompare(app, "overviewProgress", 1)
+            wait(260)
+            const cardView = app.views[0]
+            const card = overviewCard(cardView)
+            const cardStart = card.mapToItem(app.contentItem, card.width / 2, card.height / 2)
+            mousePress(app.contentItem, cardStart.x, cardStart.y)
+            mouseMove(app.contentItem, cardStart.x + 30, cardStart.y, 20)
+            mouseMove(app.contentItem, app.width + 1, cardStart.y, 20)
+            mouseRelease(app.contentItem, app.width + 1, cardStart.y)
+            tryVerify(() => app.detachedWindows.length === 1)
+            compare(app.detachedWindows[0].activeView, cardView)
+            compare(cardView.ownerWindow, app.detachedWindows[0])
+            compare(app.overviewVisible, true)
+            app.detachedWindows[0].close()
+            app.dismissOverview()
+        }
+
+        function test_single_tab_cannot_detach_but_can_drop_in_existing_window() {
+            const view = app.views[0]
+            const source = app.moveTabToNewWindow(0)
+            verify(source)
+            source.homeView.stop()
+            compare(source.views.length, 1)
+            compare(source.moveTabToNewWindow(0), null)
+            compare(app.detachedWindows.length, 1)
+            source.x = app.x + app.width + 100
+            source.y = app.y
+            waitForRendering(source.contentItem)
+            wait(100)
+            const button = tabButton(0, source)
+            const start = button.mapToItem(source.contentItem, 80, 20)
+            const globalEnd = app.contentItem.mapToGlobal(150, 100)
+            const end = source.contentItem.mapFromGlobal(globalEnd.x, globalEnd.y)
+            transferLoads.target = view
+            transferLoads.clear()
+            mousePress(source.contentItem, start.x, start.y)
+            mouseMove(source.contentItem, start.x + 30, start.y, 20)
+            mouseMove(source.contentItem, start.x + 60, start.y, 20)
+            tryCompare(source, "dragView", view)
+            tryCompare(findChild(source, "tabDragPreview"), "visible", true)
+            mouseMove(source.contentItem, end.x, end.y, 20)
+            mouseRelease(source.contentItem, end.x, end.y)
+            tryCompare(view, "ownerWindow", app)
+            tryVerify(() => app.detachedWindows.length === 0)
+            compare(app.activeView, view)
+            compare(app.views.length, 4)
+            compare(view.frameContainer.parent, app.browserContent)
+            compare(transferLoads.count, 0)
+        }
+
+        function test_single_card_can_drop_into_existing_overview() {
+            const view = app.views[0]
+            const source = app.moveTabToNewWindow(0)
+            verify(source)
+            source.homeView.stop()
+            source.x = app.x + app.width + 100
+            source.y = app.y
+            app.toggleOverview()
+            source.toggleOverview()
+            tryCompare(source, "overviewProgress", 1)
+            tryCompare(app, "overviewProgress", 1)
+            wait(260)
+            const card = overviewCard(view, source)
+            const start = card.mapToItem(source.contentItem, card.width / 2, card.height / 2)
+            const globalEnd = app.contentItem.mapToGlobal(400, 200)
+            const end = source.contentItem.mapFromGlobal(globalEnd.x, globalEnd.y)
+            mousePress(source.contentItem, start.x, start.y)
+            mouseMove(source.contentItem, start.x + 30, start.y, 20)
+            tryVerify(() => !!source.dragSnapshot)
+            compare(findChild(source, "tabDragPreview").visible, false)
+            mouseMove(source.contentItem, end.x, end.y, 20)
+            mouseRelease(source.contentItem, end.x, end.y)
+            tryCompare(view, "ownerWindow", app)
+            tryVerify(() => app.detachedWindows.length === 0)
+            compare(app.overviewVisible, true)
+            compare(view.frameContainer.parent, overviewCard(view))
+            compare(view.frameContainer.previewCard, overviewCard(view))
+        }
+
+        function test_native_drop_session_validates_and_transfers_last_tab() {
+            const view = app.views[0]
+            const source = app.moveTabToNewWindow(0)
+            verify(source)
+            source.homeView.stop()
+            source.beginItemDrag(view, tabButton(0, source), Qt.point(80, 20))
+            compare(source.canAcceptTabDrop(source.dragToken), true)
+            compare(app.canAcceptTabDrop("unrelated-drag"), false)
+            compare(app.canAcceptTabDrop(source.dragToken), true)
+            compare(app.acceptTabDrop(source.dragToken), true)
+            source.finishNativeTabDrag(Qt.MoveAction)
+            tryCompare(view, "ownerWindow", app)
+            tryVerify(() => app.detachedWindows.length === 0)
+            compare(app.tabDragSession, null)
+            compare(app.activeView, view)
+        }
+
+        function test_native_drop_back_in_source_keeps_tab() {
+            const view = app.views[0]
+            app.beginItemDrag(view, tabButton(0), Qt.point(80, 20))
+            compare(app.acceptTabDrop(app.dragToken), true)
+            app.finishNativeTabDrag(Qt.MoveAction)
+            wait(100)
+            compare(app.detachedWindows.length, 0)
+            compare(app.views.length, 4)
+            compare(view.ownerWindow, app)
+            compare(app.tabDragSession, null)
+        }
+
+        Timer {
+            id: nativeDropEvents
+            interval: 60
+            property var callback: null
+            onTriggered: if (callback) callback()
+        }
+
+        SignalSpy { id: nativeDragStarted; signalName: "dragStarted" }
+        SignalSpy { id: nativeDragFinished; signalName: "dragFinished" }
+
+        function test_native_card_drop_without_app_target_detaches() {
+            app.toggleOverview()
+            tryCompare(app, "overviewProgress", 1)
+            wait(260)
+            const view = app.views[1]
+            app.beginItemDrag(view, overviewCard(view), Qt.point(app.width + 1, 200))
+            tryVerify(() => !!app.dragSnapshot)
+            tryCompare(findChild(app, "tabDragPreview"), "visible", true)
+            // A desktop drop can report MoveAction without a ReSketch destination.
+            app.finishNativeTabDrag(Qt.MoveAction)
+            tryVerify(() => app.detachedWindows.length === 1)
+            compare(app.detachedWindows[0].activeView, view)
+            compare(view.ownerWindow, app.detachedWindows[0])
+        }
+
+        function test_native_card_drag_out_detaches_correct_view() {
+            app.toggleOverview()
+            tryCompare(app, "overviewProgress", 1)
+            wait(260)
+            const view = app.views[1]
+            const card = overviewCard(view)
+            const start = card.mapToItem(app.contentItem, card.width / 2, card.height / 2)
+            mousePress(app.contentItem, start.x, start.y)
+            mouseMove(app.contentItem, start.x + 30, start.y, 20)
+            tryCompare(app, "dragView", view)
+            tryVerify(() => !!app.dragSnapshot)
+            const proxy = findChild(app, "nativeDragProxy")
+            nativeDragStarted.target = proxy.Drag
+            nativeDragFinished.target = proxy.Drag
+            nativeDragStarted.clear()
+            nativeDragFinished.clear()
+            appSettings.nativeTabDragSupported = true
+            nativeDropEvents.callback = () => mouseRelease(app.contentItem, app.width + 60, start.y)
+            nativeDropEvents.start()
+            mouseMove(app.contentItem, app.width + 60, start.y, 20)
+            tryVerify(() => app.detachedWindows.length === 1)
+            compare(app.detachedWindows[0].activeView, view)
+            compare(view.ownerWindow, app.detachedWindows[0])
+            compare(nativeDragStarted.count, 1)
+            compare(nativeDragFinished.count, 1)
+        }
+
+        function test_native_drag_starts_with_preview() {
+            const view = app.views[0]
+            const source = app.moveTabToNewWindow(0)
+            verify(source)
+            source.homeView.stop()
+            source.x = app.x + app.width + 100
+            source.y = app.y
+            waitForRendering(source.contentItem)
+            wait(100)
+            const button = tabButton(0, source)
+            const start = button.mapToItem(source.contentItem, 80, 20)
+            const globalEnd = app.contentItem.mapToGlobal(150, 100)
+            const end = source.contentItem.mapFromGlobal(globalEnd.x, globalEnd.y)
+            mousePress(source.contentItem, start.x, start.y)
+            source.beginItemDrag(view, button, Qt.point(start.x, start.y))
+            tryVerify(() => !!source.dragSnapshot)
+            const proxy = findChild(source, "nativeDragProxy")
+            nativeDragStarted.target = proxy.Drag
+            nativeDragFinished.target = proxy.Drag
+            nativeDragStarted.clear()
+            nativeDragFinished.clear()
+            appSettings.nativeTabDragSupported = true
+            nativeDropEvents.callback = () => {
+                mouseMove(source.contentItem, end.x, end.y, 10)
+                mouseRelease(source.contentItem, end.x, end.y)
+            }
+            nativeDropEvents.start()
+            source.updateItemDrag(Qt.point(-50, 20))
+            tryCompare(view, "ownerWindow", app)
+            tryVerify(() => app.detachedWindows.length === 0)
+            compare(app.tabDragSession, null)
+            compare(nativeDragStarted.count, 1)
+            compare(nativeDragFinished.count, 1)
+            // Offscreen has no desktop drag backend, but must start and finish without errors.
+            verify([Qt.IgnoreAction, Qt.MoveAction].includes(nativeDragFinished.signalArguments[0][0]))
         }
     }
 }

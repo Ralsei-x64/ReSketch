@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QClipboard>
+#include <QCursor>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
@@ -7,7 +8,6 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QHash>
 #include <QIcon>
 #include <QLocalServer>
 #include <QLocalSocket>
@@ -28,7 +28,6 @@
 #include <algorithm>
 #include <cstdio>
 #include <QtWebEngineQuick/qtwebenginequickglobal.h>
-#include <unistd.h>
 
 class AppSettings : public QObject
 {
@@ -48,8 +47,9 @@ class AppSettings : public QObject
     Q_PROPERTY(bool keepWindowDecorations READ keepWindowDecorations WRITE setKeepWindowDecorations NOTIFY changed)
     Q_PROPERTY(bool ignoreToolbarBlur READ ignoreToolbarBlur WRITE setIgnoreToolbarBlur NOTIFY changed)
     Q_PROPERTY(int minimumLoadedTabs READ minimumLoadedTabs WRITE setMinimumLoadedTabs NOTIFY changed)
+    Q_PROPERTY(int maximumLoadedTabs READ maximumLoadedTabs WRITE setMaximumLoadedTabs NOTIFY changed)
     Q_PROPERTY(int sleepMinutes READ sleepMinutes WRITE setSleepMinutes NOTIFY changed)
-    Q_PROPERTY(int maxMemoryGb READ maxMemoryGb WRITE setMaxMemoryGb NOTIFY changed)
+    Q_PROPERTY(bool sleepingTabPreviews READ sleepingTabPreviews WRITE setSleepingTabPreviews NOTIFY changed)
     Q_PROPERTY(bool highRefreshRate READ highRefreshRate WRITE setHighRefreshRate NOTIFY changed)
     Q_PROPERTY(bool gpuRasterization READ gpuRasterization WRITE setGpuRasterization NOTIFY changed)
     Q_PROPERTY(bool zeroCopyRasterization READ zeroCopyRasterization WRITE setZeroCopyRasterization NOTIFY changed)
@@ -58,6 +58,7 @@ class AppSettings : public QObject
     Q_PROPERTY(QString chromiumFlags READ chromiumFlags WRITE setChromiumFlags NOTIFY changed)
     Q_PROPERTY(QString profileStoragePath READ profileStoragePath CONSTANT)
     Q_PROPERTY(QVariantList exportHistory READ exportHistory NOTIFY exportHistoryChanged)
+    Q_PROPERTY(bool nativeTabDragSupported READ nativeTabDragSupported CONSTANT)
 
 public:
     explicit AppSettings(QObject *parent = nullptr)
@@ -112,8 +113,9 @@ public:
     bool keepWindowDecorations() const { return store.value(QStringLiteral("keepWindowDecorations"), false).toBool(); }
     bool ignoreToolbarBlur() const { return store.value(QStringLiteral("ignoreToolbarBlur"), false).toBool(); }
     int minimumLoadedTabs() const { return qBound(1, store.value(QStringLiteral("minimumLoadedTabs"), 1).toInt(), 5); }
+    int maximumLoadedTabs() const { return qBound(1, store.value(QStringLiteral("maximumLoadedTabs"), 5).toInt(), 100); }
     int sleepMinutes() const { return qBound(1, store.value(QStringLiteral("sleepMinutes"), 5).toInt(), 240); }
-    int maxMemoryGb() const { return qBound(1, store.value(QStringLiteral("maxMemoryGb"), 5).toInt(), 64); }
+    bool sleepingTabPreviews() const { return store.value(QStringLiteral("sleepingTabPreviews"), false).toBool(); }
     bool highRefreshRate() const { return store.value(QStringLiteral("highRefreshRate"), true).toBool(); }
     bool gpuRasterization() const { return store.value(QStringLiteral("gpuRasterization"), true).toBool(); }
     bool zeroCopyRasterization() const { return store.value(QStringLiteral("zeroCopyRasterization"), true).toBool(); }
@@ -134,6 +136,12 @@ public:
                + QStringLiteral("/QtWebEngine/resketch");
     }
     Q_INVOKABLE void copyToClipboard(const QString &text) const { QGuiApplication::clipboard()->setText(text); }
+    bool nativeTabDragSupported() const
+    {
+        const auto platform = QGuiApplication::platformName();
+        return platform != QStringLiteral("offscreen") && platform != QStringLiteral("minimal");
+    }
+    Q_INVOKABLE QPoint cursorPosition() const { return QCursor::pos(); }
     QVariantList exportHistory() const { return store.value(QStringLiteral("exportHistory")).toList(); }
     Q_INVOKABLE void recordExport(const QString &directory, const QString &fileName,
                                  const QString &originName, const QUrl &originUrl)
@@ -339,6 +347,14 @@ public:
         store.setValue(QStringLiteral("minimumLoadedTabs"), value);
         emit changed();
     }
+    void setMaximumLoadedTabs(int value)
+    {
+        value = qBound(1, value, 100);
+        if (maximumLoadedTabs() == value)
+            return;
+        store.setValue(QStringLiteral("maximumLoadedTabs"), value);
+        emit changed();
+    }
     void setSleepMinutes(int value)
     {
         value = qBound(1, value, 240);
@@ -347,12 +363,11 @@ public:
         store.setValue(QStringLiteral("sleepMinutes"), value);
         emit changed();
     }
-    void setMaxMemoryGb(int value)
+    void setSleepingTabPreviews(bool value)
     {
-        value = qBound(1, value, 64);
-        if (maxMemoryGb() == value)
+        if (sleepingTabPreviews() == value)
             return;
-        store.setValue(QStringLiteral("maxMemoryGb"), value);
+        store.setValue(QStringLiteral("sleepingTabPreviews"), value);
         emit changed();
     }
     void setHighRefreshRate(bool value)
@@ -423,62 +438,6 @@ private:
     QSettings store;
     QSet<QWindow *> registeredWindows;
 };
-
-static qint64 processMemory(qint64 pid)
-{
-    QFile smaps(QStringLiteral("/proc/%1/smaps_rollup").arg(pid));
-    if (smaps.open(QIODevice::ReadOnly)) {
-        while (!smaps.atEnd()) {
-            const QByteArray line = smaps.readLine();
-            if (line.startsWith("Pss:"))
-                return line.mid(4).trimmed().split(' ').first().toLongLong() * 1024;
-        }
-    }
-
-    QFile statm(QStringLiteral("/proc/%1/statm").arg(pid));
-    if (statm.open(QIODevice::ReadOnly)) {
-        const QList<QByteArray> fields = statm.readAll().simplified().split(' ');
-        if (fields.size() > 1)
-            return fields[1].toLongLong() * sysconf(_SC_PAGESIZE);
-    }
-    return 0;
-}
-
-static qint64 appMemory()
-{
-    QHash<qint64, QList<qint64>> childrenByParent;
-    const QDir proc(QStringLiteral("/proc"));
-    for (const QString &entry : proc.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
-        bool valid = false;
-        const qint64 pid = entry.toLongLong(&valid);
-        if (!valid)
-            continue;
-        QFile status(proc.filePath(entry + QStringLiteral("/status")));
-        if (!status.open(QIODevice::ReadOnly))
-            continue;
-        while (!status.atEnd()) {
-            const QByteArray line = status.readLine();
-            if (line.startsWith("PPid:")) {
-                const qint64 parent = line.mid(5).trimmed().toLongLong();
-                childrenByParent[parent].append(pid);
-                break;
-            }
-        }
-    }
-
-    QList<qint64> pending{QCoreApplication::applicationPid()};
-    QSet<qint64> seen;
-    qint64 bytes = 0;
-    while (!pending.isEmpty()) {
-        const qint64 pid = pending.takeLast();
-        if (seen.contains(pid))
-            continue;
-        seen.insert(pid);
-        bytes += processMemory(pid);
-        pending.append(childrenByParent.value(pid));
-    }
-    return bytes;
-}
 
 int main(int argc, char *argv[])
 {
@@ -560,18 +519,6 @@ int main(int argc, char *argv[])
     }
 
     QObject *window = engine.rootObjects().first();
-    QTimer memoryTimer;
-    memoryTimer.setInterval(10000);
-    const auto updateMemory = [] {
-        const qint64 bytes = appMemory();
-        for (QWindow *candidate : QGuiApplication::allWindows()) {
-            if (candidate->property("tabStripHeight").isValid())
-                candidate->setProperty("appMemoryBytes", bytes);
-        }
-    };
-    QObject::connect(&memoryTimer, &QTimer::timeout, &app, updateMemory);
-    memoryTimer.start();
-    updateMemory();
     const auto deliverUrl = [window](const QString &url) {
         window->setProperty("externalUrl", QString());
         window->setProperty("externalUrl", url);

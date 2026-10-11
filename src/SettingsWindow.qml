@@ -262,7 +262,7 @@ Kirigami.ApplicationWindow {
                             Layout.preferredWidth: Kirigami.Units.iconSizes.small
                             Layout.preferredHeight: Kirigami.Units.iconSizes.small
                         }
-                        Kirigami.Heading { text: "Tabs and memory"; level: 3 }
+                        Kirigami.Heading { text: "Tabs"; level: 3 }
                     }
 
                     Kirigami.Separator { Layout.fillWidth: true }
@@ -279,6 +279,17 @@ Kirigami.ApplicationWindow {
                         }
 
                         Controls.SpinBox {
+                            Kirigami.FormData.label: "Maximum loaded tabs:"
+                            from: 1
+                            to: 100
+                            editable: true
+                            value: appSettings.maximumLoadedTabs
+                            onValueModified: appSettings.maximumLoadedTabs = value
+                            Controls.ToolTip.text: "Sleep the least recently used tabs immediately when this limit is exceeded, including in the overview."
+                            Controls.ToolTip.visible: hovered
+                        }
+
+                        Controls.SpinBox {
                             Kirigami.FormData.label: "Sleep after (minutes):"
                             from: 1
                             to: 240
@@ -287,19 +298,18 @@ Kirigami.ApplicationWindow {
                             onValueModified: appSettings.sleepMinutes = value
                         }
 
-                        Controls.SpinBox {
-                            Kirigami.FormData.label: "Maximum memory (GB):"
-                            from: 1
-                            to: 64
-                            editable: true
-                            value: appSettings.maxMemoryGb
-                            onValueModified: appSettings.maxMemoryGb = value
+                        Controls.CheckBox {
+                            text: "Keep previews of sleeping tabs"
+                            checked: appSettings.sleepingTabPreviews
+                            onToggled: appSettings.sleepingTabPreviews = checked
+                            Controls.ToolTip.text: "Save a lightly blurred preview before tabs sleep. They stay asleep in the overview until selected."
+                            Controls.ToolTip.visible: hovered
                         }
                     }
 
                     Controls.Label {
                         Layout.fillWidth: true
-                        text: "The memory limit takes priority over the minimum loaded tabs."
+                        text: "The maximum tab count takes priority over the minimum loaded tabs."
                         opacity: 0.72
                         wrapMode: Text.WordWrap
                     }
