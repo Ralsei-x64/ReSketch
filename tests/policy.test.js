@@ -44,6 +44,15 @@ assert.equal(policy.isGoogleSignInUrl('https://accounts.google.com:443/signin/v2
 assert.equal(policy.isGoogleSignInUrl('https://accounts.google.com.evil.test/'), false)
 assert.equal(policy.isGoogleSignInUrl('http://accounts.google.com/'), false)
 assert.equal(policy.isGoogleSignInUrl('https://www.google.com/'), false)
+for (const address of ['https://example.com/path', 'http://example.com/',
+                      'https://figma.com.evil.test/', 'https://accounts.google.com.evil.test/',
+                      'https://example.com/start_google_sso'])
+    assert.equal(policy.isExternalWebUrl(address), true)
+for (const address of ['https://www.figma.com/design/abc', 'https://help.figma.com/',
+                      'https://accounts.google.com/o/oauth2/v2/auth', 'about:blank',
+                      'file:///etc/passwd', 'javascript:alert(1)', 'data:text/html,hello',
+                      'blob:https://www.figma.com/example', 'figma://file/abc/name'])
+    assert.equal(policy.isExternalWebUrl(address), false)
 assert.equal(policy.tabTitle('12345678901234567890'), '12345678901234567890')
 assert.equal(policy.tabTitle('123456789012345678901'), '1234567890123456789…')
 assert.equal(policy.deepLink('figma://file/abc/name'), 'https://www.figma.com/file/abc/name')

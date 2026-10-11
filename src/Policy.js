@@ -53,6 +53,11 @@ function isGoogleSignInUrl(address) {
     return /^https:\/\/accounts\.google\.com(?::443)?(?:[/?#]|$)/i.test(String(address))
 }
 
+function isExternalWebUrl(address) {
+    return /^https?:\/\//i.test(String(address))
+           && !isFigmaUrl(address) && !isGoogleSignInUrl(address)
+}
+
 function tabTitle(title) {
     return title.length > 20 ? title.slice(0, 19) + "…" : title
 }

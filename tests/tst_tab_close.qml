@@ -82,6 +82,10 @@ Item {
         id: app
         sharedProfile: testProfile
         property int systemMoveRequests: 0
+        property var externalLinks: []
+        function openExternalLink(address) {
+            externalLinks = externalLinks.concat(String(address))
+        }
         function startSystemMove() {
             ++systemMoveRequests
             return true
@@ -106,6 +110,7 @@ Item {
         }
 
         function init() {
+            app.externalLinks = []
             app.dismissOverview()
             appSettings.reduceMotion = true
             appSettings.changed()
@@ -135,7 +140,7 @@ Item {
             }
         }
 
-        function test_new_tabs_append_except_links_from_selected_tab() {
+        function test_new_tabs_append_except_links_next_to_source_tab() {
             appSettings.reduceMotion = true
             appSettings.changed()
             app.activateTab(1)
@@ -145,12 +150,12 @@ Item {
             compare(app.activeIndex, 4)
             app.activateTab(1)
             app.openTab("about:blank", null, true, selected)
-            compare(app.views[2], selected)
+            compare(app.views[1], selected)
             compare(app.activeView, selected)
-            compare(app.activeIndex, 2)
+            compare(app.activeIndex, 1)
             app.openTab("about:blank", null, false, selected)
             compare(app.activeIndex, 2)
-            compare(app.views[3], selected)
+            compare(app.views[1], selected)
             app.activateTab(0)
             const first = app.activeView
             app.toggleOverview()
@@ -166,6 +171,63 @@ Item {
             app.activateHome()
             app.openTab("about:blank")
             compare(app.activeIndex, 9)
+            // A delayed popup still belongs next to its original source.
+            app.openTab("about:blank", null, false, selected)
+            compare(app.views[1], selected)
+            compare(app.activeIndex, 2)
+        }
+
+        function test_pending_popups_keep_content_when_promoted_to_tabs_or_signin() {
+            const source = app.activeView
+            source.runJavaScript("window.pendingTest = window.open('about:blank', '_blank'); pendingTest.keepContent = 123")
+            tryVerify(() => app.pendingPopups.length === 1)
+            const pending = app.pendingPopups[0]
+            const count = app.views.length
+            let value = null
+            pending.runJavaScript("keepContent", result => value = result)
+            tryCompare({get content() { return value }}, "content", 123)
+            app.commitPendingPopup(pending)
+            compare(app.views.length, count + 1)
+            compare(app.activeView, pending)
+            compare(app.activeIndex, app.views.indexOf(source) + 1)
+            value = null
+            pending.runJavaScript("keepContent", result => value = result)
+            tryVerify(() => value === 123)
+
+            source.runJavaScript("window.signinTest = window.open('about:blank', '_blank'); signinTest.keepSignin = 456")
+            tryVerify(() => app.pendingPopups.length === 1)
+            const signin = app.pendingPopups[0]
+            app.openGoogleSignInWindow(null, "", signin)
+            compare(app.pendingPopups.length, 0)
+            compare(app.views.length, count + 1)
+            compare(signin.authWindow.authView, signin)
+            value = null
+            signin.runJavaScript("keepSignin", result => value = result)
+            tryVerify(() => value === 456)
+            signin.authWindow.close()
+            tryVerify(() => findChild(app, "googleSignInWindow") === null)
+        }
+
+        function test_external_links_leave_the_webview_and_do_not_create_tabs() {
+            const view = app.activeView
+            const count = app.views.length
+            view.url = "https://example.com/resketch-external-link"
+            tryCompare(app, "externalLinks", ["https://example.com/resketch-external-link"])
+            compare(app.views.length, count)
+            compare(app.activeView, view)
+            view.runJavaScript("window.open('https://example.com/start_google_sso', '_blank')")
+            tryCompare(app, "externalLinks", ["https://example.com/resketch-external-link",
+                                             "https://example.com/start_google_sso"])
+            compare(app.views.length, count)
+            compare(app.activeView, view)
+            view.runJavaScript("var externalPopup = window.open('about:blank', '_blank'); externalPopup.location = 'https://example.com/blank-popup'")
+            tryCompare(app, "externalLinks", ["https://example.com/resketch-external-link",
+                                             "https://example.com/start_google_sso",
+                                             "https://example.com/blank-popup"])
+            tryCompare(app, "pendingPopups", [])
+            compare(app.views.length, count)
+            compare(app.activeView, view)
+            compare(findChild(app, "googleSignInWindow"), null)
         }
 
         function cleanup() {
@@ -454,19 +516,65 @@ Item {
             compare(bar.window, null)
         }
 
-        function test_overview_sidebar_background_fades() {
+        function test_overview_transparency_changes_immediately_then_fades_after_scaling() {
+            appSettings.translucentSidebars = true
+            appSettings.toolbarOpacity = 50
+            app.activeView.hasLoadedFrame = true
+            const background = findChild(app, "browserBackground")
             compare(app.overviewSidebarBackdrop, 0)
             app.toggleOverview()
             compare(app.overviewVisible, true)
-            verify(app.overviewSidebarBackdrop < 1, "Overview background must not appear instantly")
-            tryCompare(app, "overviewSidebarBackdrop", 1, 300)
-            app.dismissOverview()
+            compare(app.overviewSidebarBackdrop, 1)
+            tryCompare(app, "overviewProgress", 1)
+            app.selectOverviewView(app.activeView)
+            wait(150)
+            compare(app.overviewVisible, true)
+            compare(app.overviewSidebarBackdrop, 1, "Keep the backdrop until scaling finishes")
+            tryCompare(app, "overviewVisible", false)
+            verify(app.overviewSidebarBackdrop > 0, "Fade starts after scaling finishes")
+            verify(background.color.a > 0.5, "The restored frame retains the fading backdrop")
             tryCompare(app, "overviewSidebarBackdrop", 0, 300)
-            appSettings.reduceMotion = true
+            fuzzyCompare(background.color.a, 0.5, 0.01)
+            // Reopening interrupts the fade and restores the backdrop immediately.
+            app.toggleOverview()
+            app.dismissOverview()
+            wait(50)
+            verify(app.overviewSidebarBackdrop > 0 && app.overviewSidebarBackdrop < 1)
             app.toggleOverview()
             compare(app.overviewSidebarBackdrop, 1)
+            appSettings.reduceMotion = true
             app.dismissOverview()
             compare(app.overviewSidebarBackdrop, 0)
+        }
+
+        function test_overview_hover_only_darkens_border() {
+            appSettings.translucentSidebars = true
+            appSettings.toolbarOpacity = 50
+            const view = app.views[0]
+            view.hasLoadedFrame = true
+            app.toggleOverview()
+            tryCompare(app, "overviewProgress", 1)
+            const card = overviewCard(view)
+            const background = findChild(card, "overviewCardBackground")
+            const border = findChild(card, "overviewCardBorder")
+            const hover = findChild(card, "overviewCardMouse")
+            mouseMove(app.contentItem, app.width - 10, app.height - 10)
+            tryCompare(hover, "containsMouse", false)
+            const idleBorder = String(border.border.color)
+            const backgroundColor = String(background.color)
+            mouseMove(card, card.width / 2, card.height / 2)
+            tryCompare(hover, "containsMouse", true)
+            compare(background.opacity, 1)
+            compare(String(background.color), backgroundColor)
+            compare(app.overviewSidebarBackdrop, 1)
+            compare(view.opacity, 1)
+            compare(border.color, "#00000000")
+            compare(border.border.width, 1)
+            verify(String(border.border.color) !== idleBorder)
+            fuzzyCompare(border.border.color.r, 0, 0.01)
+            mouseMove(app.contentItem, app.width - 10, app.height - 10)
+            tryCompare(hover, "containsMouse", false)
+            compare(String(border.border.color), idleBorder)
         }
 
         function test_export_uses_originating_file_and_cancel() {

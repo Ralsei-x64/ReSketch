@@ -65,6 +65,7 @@ Kirigami.ApplicationWindow {
         opacity: appSettings.toolbarOpacity
     }, FigmaMenu.storeSource)
     property var views: []
+    property var pendingPopups: []
     property var homeView: null
     property var activeView: null
     property var outgoingView: null
@@ -103,7 +104,8 @@ Kirigami.ApplicationWindow {
     property bool overviewVisible: false
     property real overviewSidebarBackdrop: overviewVisible ? 1 : 0
     Behavior on overviewSidebarBackdrop {
-        enabled: !appSettings.reduceMotion
+        id: overviewBackdropFade
+        enabled: overviewBackdropFade.targetValue === 0 && !appSettings.reduceMotion
         NumberAnimation { duration: 150 }
     }
     property bool overviewClosing: false
@@ -124,6 +126,7 @@ Kirigami.ApplicationWindow {
     title: Policy.windowTitle(activeView ? activeView.url : "", activeView ? activeView.title : "")
     onChromiumFrameLoadedChanged: appSettings.refreshWindowBlur(root)
     onClosing: {
+        for (const view of pendingPopups.slice()) discardPendingPopup(view)
         for (const loader of [settingsWindowLoader, aboutWindowLoader, exportHistoryWindowLoader])
             if (loader.item) loader.item.close()
         if (primaryWindow) {
@@ -1007,7 +1010,10 @@ Kirigami.ApplicationWindow {
                 anchors.fill: parent
                 color: Qt.rgba(Kirigami.Theme.backgroundColor.r,
                                Kirigami.Theme.backgroundColor.g,
-                               Kirigami.Theme.backgroundColor.b, root.toolbarAlpha)
+                               Kirigami.Theme.backgroundColor.b,
+                               root.desktopSidebars && root.chromiumFrameLoaded
+                               ? root.toolbarAlpha + (1 - root.toolbarAlpha) * root.overviewSidebarBackdrop
+                               : root.toolbarAlpha)
             }
 
             Rectangle {
@@ -1205,6 +1211,7 @@ Kirigami.ApplicationWindow {
                             }
 
                             Rectangle {
+                                objectName: "overviewCardBackground"
                                 anchors.fill: parent
                                 color: Kirigami.Theme.backgroundColor
                                 opacity: root.desktopSidebars && overviewCard.previewView
@@ -1213,12 +1220,14 @@ Kirigami.ApplicationWindow {
                             }
 
                             Rectangle {
+                                objectName: "overviewCardBorder"
                                 anchors.fill: parent
                                 z: 3
                                 radius: Kirigami.Units.smallSpacing + 3
                                 color: "transparent"
                                 border.width: 1
-                                border.color: Qt.rgba(Kirigami.Theme.textColor.r,
+                                border.color: overviewCardMouse.containsMouse ? Qt.rgba(0, 0, 0, 0.55)
+                                              : Qt.rgba(Kirigami.Theme.textColor.r,
                                                       Kirigami.Theme.textColor.g,
                                                       Kirigami.Theme.textColor.b, 0.3)
                             }
@@ -1361,6 +1370,7 @@ Kirigami.ApplicationWindow {
 
                             MouseArea {
                                 id: overviewCardMouse
+                                objectName: "overviewCardMouse"
                                 anchors.fill: parent
                                 z: 1
                                 hoverEnabled: true
@@ -1434,17 +1444,6 @@ Kirigami.ApplicationWindow {
                                 acceptedButtons: Qt.MiddleButton
                                 enabled: root.overviewProgress > 0.95
                                 onTapped: root.closeTab(root.views.indexOf(overviewCard.previewView))
-                            }
-                            Rectangle {
-                                anchors.fill: parent
-                                z: 0
-                                radius: Kirigami.Units.smallSpacing + 3
-                                color: Qt.rgba(Kirigami.Theme.highlightColor.r,
-                                               Kirigami.Theme.highlightColor.g,
-                                               Kirigami.Theme.highlightColor.b, 0.1)
-                                visible: overviewCardMouse.containsMouse
-                                border.width: 1
-                                border.color: Kirigami.Theme.highlightColor
                             }
                             Rectangle {
                                 anchors.fill: parent
@@ -1854,6 +1853,14 @@ Kirigami.ApplicationWindow {
             property bool tabOpening: false
             property bool dedicatedHome: false
             property bool googleSignIn: false
+            property bool pendingPopup: false
+            property var popupSource: null
+            property bool popupBackground: false
+            Timer {
+                interval: 30000
+                running: webView.pendingPopup
+                onTriggered: webView.ownerWindow.discardPendingPopup(webView)
+            }
             property bool hasLoadedFrame: false
             property var sleepPreview: null
             property bool sleepCapturePending: false
@@ -1941,7 +1948,7 @@ Kirigami.ApplicationWindow {
             }]
             transform: Translate { x: webView.frameContainer ? 0 : webView.slideX }
 
-            onLoadingChanged: {
+            onLoadingChanged: function(loadInfo) {
                 if (!loading) {
                     if (lifecycleState !== WebEngineView.LifecycleState.Discarded
                             && String(url) && String(url) !== "about:blank")
@@ -1953,6 +1960,9 @@ Kirigami.ApplicationWindow {
                 if (webView.ownerWindow.allFrozen && !loading)
                     webView.ownerWindow.sleepTab(webView, WebEngineView.LifecycleState.Frozen)
                 Qt.callLater(webView.ownerWindow.updateTabLifecycle)
+                if (pendingPopup && loadInfo.status === WebEngineView.LoadSucceededStatus
+                        && Policy.isFigmaUrl(url))
+                    Qt.callLater(() => webView.ownerWindow.commitPendingPopup(webView))
             }
 
             onLoadProgressChanged: {
@@ -1970,7 +1980,9 @@ Kirigami.ApplicationWindow {
                     webView.ownerWindow.attachOverviewFrame(webView)
             }
             onWindowCloseRequested: {
-                if (authWindow)
+                if (pendingPopup)
+                    webView.ownerWindow.discardPendingPopup(webView)
+                else if (authWindow)
                     Qt.callLater(() => authWindow.close())
             }
             onUrlChanged: {
@@ -1989,24 +2001,31 @@ Kirigami.ApplicationWindow {
 
             onNewWindowRequested: function(request) {
                 const address = String(request.requestedUrl)
-                if (Policy.isAuthGrantUrl(address))
+                if (Policy.isExternalWebUrl(address))
+                    webView.ownerWindow.openExternalLink(address)
+                else if (Policy.isAuthGrantUrl(address))
                     webView.ownerWindow.openWebSignIn(webView)
                 else if (!webView.googleSignIn && Policy.isFigmaUrl(address)
                          && address.includes("start_google_sso")
                          && !String(webView.url).startsWith(String(webView.ownerWindow.loginUrl)))
                     webView.ownerWindow.openWebSignIn(webView)
-                else if (Policy.isGoogleSignInUrl(address) || address === "about:blank"
-                         || address.includes("start_google_sso"))
+                else if (Policy.isGoogleSignInUrl(address)
+                         || (Policy.isFigmaUrl(address) && address.includes("start_google_sso")))
                     webView.ownerWindow.openGoogleSignInWindow(request, "")
+                else if (!address || address === "about:blank")
+                    webView.ownerWindow.openPendingPopup(request, webView)
                 else if (!webView.dedicatedHome
                          && (Policy.isFileBrowserUrl(webView.url)
                              || Policy.isNewFileTabUrl(webView.url))
                          && Policy.isFileUrl(address))
                     webView.url = address
-                else if (Policy.isFigmaUrl(address) || address === "about:blank")
+                else if (Policy.isFileUrl(address) || Policy.isFileBrowserUrl(address)
+                         || Policy.isNewFileTabUrl(address))
                     webView.ownerWindow.openTab("", request,
                                  request.destination === WebEngineNewWindowRequest.InNewBackgroundTab,
                                  webView)
+                else if (Policy.isFigmaUrl(address))
+                    webView.ownerWindow.openPendingPopup(request, webView)
             }
 
             onNavigationRequested: function(request) {
@@ -2022,12 +2041,20 @@ Kirigami.ApplicationWindow {
                     request.reject()
                     webView.ownerWindow.openWebSignIn(webView)
                 } else if (Policy.isGoogleSignInUrl(address) && !webView.googleSignIn) {
-                    request.reject()
-                    webView.ownerWindow.openGoogleSignInWindow(null, address)
+                    if (pendingPopup)
+                        Qt.callLater(() => webView.ownerWindow.openGoogleSignInWindow(null, "", webView))
+                    else {
+                        request.reject()
+                        webView.ownerWindow.openGoogleSignInWindow(null, address)
+                    }
                 } else if (Policy.isGoogleSignInUrl(address)) {
                     return
                 } else if (!Policy.isFigmaUrl(address) && address !== "about:blank") {
                     request.reject()
+                    if (Policy.isExternalWebUrl(address))
+                        webView.ownerWindow.openExternalLink(address)
+                    if (pendingPopup)
+                        webView.ownerWindow.discardPendingPopup(webView)
                 } else if (webView.dedicatedHome && Policy.isFileUrl(address)) {
                     request.reject()
                     webView.ownerWindow.openTab(address, null, false, webView)
@@ -2050,6 +2077,7 @@ Kirigami.ApplicationWindow {
 
         Window {
             id: googleWindow
+            objectName: "googleSignInWindow"
             readonly property bool framelessControls: appSettings.windowControlsInTabBar && !appSettings.keepWindowDecorations
             property alias webContent: googleContent
             width: 520
@@ -2131,30 +2159,67 @@ Kirigami.ApplicationWindow {
             }
 
             onClosing: {
+                if (authView && authView.frameContainer) authView.frameContainer.destroy()
                 signInRefreshTimer.restart()
                 Qt.callLater(() => googleWindow.destroy())
             }
         }
     }
 
-    function openGoogleSignInWindow(request, address) {
+    function openGoogleSignInWindow(request, address, existingView) {
+        if (existingView && !existingView.pendingPopup) return
         const window = googleWindowComponent.createObject(root)
         if (!window)
             return
-        const view = webViewComponent.createObject(window.webContent,
+        const view = existingView || webViewComponent.createObject(window.webContent,
                                                    {googleSignIn: true, authWindow: window, visible: true})
         if (!view) {
             window.destroy()
             return
         }
         window.authView = view
+        if (existingView) {
+            pendingPopups = pendingPopups.filter(popup => popup !== view)
+            view.pendingPopup = false
+            view.googleSignIn = true
+            view.authWindow = window
+            view.frameContainer.parent = window.webContent
+            view.frameContainer.visible = true
+            view.frameContainer.width = Qt.binding(() => window.webContent.width)
+            view.frameContainer.height = Qt.binding(() => window.webContent.height)
+            view.visible = true
+        }
         if (request)
             view.acceptAsNewWindow(request)
-        else
+        else if (!existingView)
             view.url = address
         window.show()
         window.raise()
         window.requestActivate()
+    }
+
+    function openPendingPopup(request, sourceView) {
+        const view = createBrowserView()
+        if (!view) return
+        view.pendingPopup = true
+        view.popupSource = sourceView
+        view.popupBackground = request.destination === WebEngineNewWindowRequest.InNewBackgroundTab
+        pendingPopups = pendingPopups.concat(view)
+        view.acceptAsNewWindow(request)
+    }
+
+    function discardPendingPopup(view) {
+        if (!view || !view.pendingPopup) return
+        view.pendingPopup = false
+        pendingPopups = pendingPopups.filter(popup => popup !== view)
+        view.frameContainer.destroy()
+    }
+
+    function commitPendingPopup(view) {
+        if (!view || !view.pendingPopup) return
+        view.pendingPopup = false
+        pendingPopups = pendingPopups.filter(popup => popup !== view)
+        openTab("", null, view.popupBackground, view.popupSource, view)
     }
 
     function openWebSignIn(sourceView) {
@@ -2647,6 +2712,11 @@ Kirigami.ApplicationWindow {
         settingsWindowLoader.openWindow()
     }
 
+    function openExternalLink(address) {
+        if (Policy.isExternalWebUrl(address))
+            Qt.openUrlExternally(address)
+    }
+
     function openExportHistory() {
         exportHistoryWindowLoader.openWindow()
     }
@@ -3077,10 +3147,10 @@ Kirigami.ApplicationWindow {
         return view
     }
 
-    function openTab(address, request, background, sourceView) {
+    function openTab(address, request, background, sourceView, existingView) {
         const keepOverview = overviewVisible
-        const insertIndex = sourceView && sourceView === activeView && activeIndex >= 0
-                            ? activeIndex : views.length
+        const sourceIndex = sourceView ? views.indexOf(sourceView) : -1
+        const insertIndex = sourceIndex >= 0 ? sourceIndex + 1 : views.length
         if (keepOverview)
             overviewSearch.text = ""
         if (keepOverview && overviewClosing) {
@@ -3089,7 +3159,7 @@ Kirigami.ApplicationWindow {
             overviewClosing = false
             overviewProgress = 1
         }
-        const view = createBrowserView()
+        const view = existingView || createBrowserView()
         if (!view)
             return
         if (keepOverview && !appSettings.reduceMotion)
@@ -3113,9 +3183,10 @@ Kirigami.ApplicationWindow {
         }
         if (request)
             view.acceptAsNewWindow(request)
-        else
+        else if (!existingView)
             view.url = address || newTabUrl
         syncTab(view)
+        if (existingView) syncTabLoading(view)
         if (background || keepOverview)
             tabBar.currentIndex = activeIndex
         if (background || keepOverview)
