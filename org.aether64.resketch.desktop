@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=ReSketch
+Comment=Open-source Figma client for Linux!
+Exec=resketch %u
+Icon=org.aether64.resketch
+Categories=Graphics;2DGraphics;
+Terminal=false
+MimeType=x-scheme-handler/figma;
