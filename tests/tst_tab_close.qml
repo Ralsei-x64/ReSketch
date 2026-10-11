@@ -26,7 +26,11 @@ Item {
         property int maximumLoadedTabs: 5
         property int sleepMinutes: 5
         property bool sleepingTabPreviews: false
-        property bool highRefreshRate: true
+        property bool keepHomeAwake: true
+        property bool releaseClosedWindows: true
+        property bool cullOffscreenOverviewEffects: true
+        property bool compactPreviewTextures: true
+        property int overviewPreviewQuality: 100
         property bool gpuRasterization: true
         property bool zeroCopyRasterization: true
         property bool experimentalCanvasFeatures: false
@@ -131,13 +135,23 @@ Item {
             appSettings.nativeTabDragSupported = false
             app.cancelItemDrag()
             appSettings.sleepingTabPreviews = false
+            appSettings.keepHomeAwake = true
             appSettings.translucentSidebars = false
             appSettings.toolbarOpacity = 100
             appSettings.sidebarBackdrop = "desktop"
             appSettings.sleepMinutes = 5
             appSettings.maximumLoadedTabs = 5
             appSettings.minimumLoadedTabs = 5
+            appSettings.releaseClosedWindows = true
+            appSettings.cullOffscreenOverviewEffects = true
+            appSettings.compactPreviewTextures = true
+            appSettings.overviewPreviewQuality = 100
+            appSettings.figmaCustomCss = ""
             appSettings.changed()
+            for (const name of ["settingsWindow", "aboutWindow", "exportHistoryWindow"]) {
+                const window = findChild(app, name)
+                if (window) window.close()
+            }
             transferLoads.target = null
             for (const window of app.detachedWindows.slice()) window.close()
             app.dismissOverview()
@@ -210,6 +224,7 @@ Item {
         }
 
         function test_maximum_loaded_tabs_sleeps_oldest_without_waiting() {
+            appSettings.keepHomeAwake = false
             appSettings.reduceMotion = true
             appSettings.sleepMinutes = 240
             appSettings.maximumLoadedTabs = 2
@@ -223,6 +238,7 @@ Item {
             compare(selected.lifecycleState, WebEngineView.LifecycleState.Active)
             compare(app.views[3].lifecycleState, WebEngineView.LifecycleState.Active)
             compare(app.homeView.lifecycleState, WebEngineView.LifecycleState.Frozen)
+            appSettings.sleepingTabPreviews = true
             app.toggleOverview()
             wait(100)
             const awake = [app.homeView].concat(app.views).filter(view =>
@@ -234,6 +250,34 @@ Item {
             appSettings.changed()
             tryCompare(app.views[3], "lifecycleState", WebEngineView.LifecycleState.Frozen)
             compare(selected.lifecycleState, WebEngineView.LifecycleState.Active)
+        }
+
+        function test_home_stays_awake_until_toggle_is_disabled() {
+            appSettings.reduceMotion = true
+            appSettings.sleepingTabPreviews = true
+            appSettings.maximumLoadedTabs = 1
+            appSettings.minimumLoadedTabs = 1
+            appSettings.sleepMinutes = 1
+            const home = app.homeView
+            home.lastUsedAt = Date.now() - 120000
+            app.updateTabLifecycle()
+            compare(home.lifecycleState, WebEngineView.LifecycleState.Active)
+            app.sleepTab(home, WebEngineView.LifecycleState.Discarded)
+            compare(home.lifecycleState, WebEngineView.LifecycleState.Active)
+            app.freezeAllTabs()
+            compare(home.lifecycleState, WebEngineView.LifecycleState.Active)
+            tryCompare(app.activeView, "lifecycleState", WebEngineView.LifecycleState.Frozen)
+            app.wakeCurrentTab()
+
+            appSettings.keepHomeAwake = false
+            appSettings.changed()
+            tryCompare(home, "lifecycleState", WebEngineView.LifecycleState.Frozen)
+            appSettings.keepHomeAwake = true
+            appSettings.changed()
+            compare(home.lifecycleState, WebEngineView.LifecycleState.Active)
+            app.toggleOverview()
+            compare(home.visible, true)
+            compare(findChild(home.frameContainer.parent, "sleepingTabIcon").visible, false)
         }
 
         function test_titlebar_double_click_does_not_start_window_move() {
@@ -318,6 +362,7 @@ Item {
 
         function test_sleeping_previews_can_be_disabled() {
             appSettings.sleepingTabPreviews = false
+            appSettings.maximumLoadedTabs = 1
             const view = app.views[0]
             view.hasLoadedFrame = true
             app.sleepTab(view, WebEngineView.LifecycleState.Discarded)
@@ -327,6 +372,21 @@ Item {
             app.toggleOverview()
             compare(view.lifecycleState, WebEngineView.LifecycleState.Active)
             compare(findChild(view.frameContainer, "sleepingTabPreview").visible, false)
+            for (const page of [app.homeView].concat(app.views)) {
+                compare(page.lifecycleState, WebEngineView.LifecycleState.Active)
+                compare(page.visible, true)
+                compare(findChild(page.frameContainer.parent, "sleepingTabIcon").visible, false)
+            }
+            appSettings.sleepingTabPreviews = true
+            appSettings.changed()
+            tryCompare(view, "lifecycleState", WebEngineView.LifecycleState.Frozen)
+            appSettings.sleepingTabPreviews = false
+            appSettings.changed()
+            compare(view.lifecycleState, WebEngineView.LifecycleState.Active)
+            compare(view.visible, true)
+            compare(findChild(view.frameContainer.parent, "sleepingTabIcon").visible, false)
+            app.dismissOverview()
+            tryCompare(view, "lifecycleState", WebEngineView.LifecycleState.Frozen)
         }
 
         function test_pending_sleep_does_not_unload_reselected_tab() {
@@ -623,6 +683,120 @@ Item {
             return find((window || app).contentItem)
         }
 
+        function test_secondary_windows_release_and_reopen_without_losing_settings() {
+            verify(!findChild(app, "settingsWindow"))
+            verify(!findChild(app, "aboutWindow"))
+            app.openSettings()
+            const settings = findChild(app, "settingsWindow")
+            verify(settings && settings.visible)
+            settings.width = 620
+            const editor = findChild(settings, "customCssEditor")
+            editor.text = "body { color: red; }"
+            const slider = findChild(settings, "overviewPreviewQuality")
+            slider.value = 60
+            slider.moved()
+            compare(appSettings.overviewPreviewQuality, 60)
+            settings.close()
+            compare(appSettings.figmaCustomCss, "body { color: red; }", "Closing must flush pending CSS edits")
+            tryVerify(() => !findChild(app, "settingsWindow"))
+            app.openSettings()
+            const reopened = findChild(app, "settingsWindow")
+            compare(reopened.width, 620)
+            compare(findChild(reopened, "customCssEditor").text, appSettings.figmaCustomCss)
+            compare(findChild(reopened, "overviewPreviewQuality").value, 60)
+            reopened.close()
+            app.openSettings() // A queued release from close must not destroy a reopened window.
+            wait(50)
+            verify(findChild(app, "settingsWindow").visible)
+            findChild(app, "settingsWindow").close()
+            tryVerify(() => !findChild(app, "settingsWindow"))
+
+            appSettings.releaseClosedWindows = false
+            appSettings.changed()
+            app.openAbout()
+            const about = findChild(app, "aboutWindow")
+            about.close()
+            wait(50)
+            compare(findChild(app, "aboutWindow"), about, "Disabling release keeps closed windows ready")
+            appSettings.releaseClosedWindows = true
+            appSettings.changed()
+            tryVerify(() => !findChild(app, "aboutWindow"))
+            app.openExportHistory()
+            const history = findChild(app, "exportHistoryWindow")
+            verify(history && history.visible)
+            history.close()
+            tryVerify(() => !findChild(app, "exportHistoryWindow"))
+        }
+
+        function test_overview_releases_only_offscreen_effects() {
+            appSettings.reduceMotion = true
+            appSettings.maximumLoadedTabs = 100
+            for (let i = 0; i < 8; ++i) {
+                app.openTab("about:blank", null, true)
+                app.views[app.views.length - 1].stop()
+            }
+            const first = overviewCard(app.homeView)
+            compare(first.layer.enabled, false)
+            compare(findChild(first, "overviewCardMask").layer.enabled, false,
+                    "Closed overview must not retain mask textures")
+            app.toggleOverview()
+            tryCompare(app, "overviewProgress", 1)
+            const last = overviewCard(app.views[app.views.length - 1])
+            const flickable = findChild(app, "overviewFlickable")
+            compare(first.layer.enabled, true)
+            compare(last.layer.enabled, false)
+            const owner = last.previewView.ownerWindow
+            const frame = last.previewView.frameContainer
+            flickable.contentY = flickable.contentHeight - flickable.height
+            tryCompare(last.layer, "enabled", true)
+            compare(first.layer.enabled, false)
+            compare(last.previewView.ownerWindow, owner)
+            compare(last.previewView.frameContainer, frame, "Culling effects must keep the live frame")
+            appSettings.cullOffscreenOverviewEffects = false
+            appSettings.changed()
+            compare(first.layer.enabled, true, "Disabling culling retains offscreen effects")
+            appSettings.cullOffscreenOverviewEffects = true
+            appSettings.changed()
+            last.dragOffsetY = -flickable.contentHeight
+            compare(last.layer.enabled, false)
+            last.dragOffsetY = flickable.contentY - last.y + 20
+            compare(last.layer.enabled, true, "Dragging into the viewport must restore clipping")
+            last.dragOffsetY = 0
+            app.dismissOverview()
+            compare(last.layer.enabled, false)
+        }
+
+        function test_overview_quality_changes_textures_without_recreating_frames() {
+            appSettings.reduceMotion = true
+            const view = app.activeView
+            const frame = view.frameContainer
+            const card = overviewCard(view)
+            appSettings.overviewPreviewQuality = 50
+            appSettings.changed()
+            app.toggleOverview()
+            tryCompare(app, "overviewProgress", 1)
+            const halfSize = card.layer.textureSize
+            const halfWidth = halfSize.width
+            const halfHeight = halfSize.height
+            verify(halfSize.width > 0 && halfSize.height > 0)
+            compare(findChild(card, "overviewCardMask").layer.textureSize, halfSize)
+            appSettings.overviewPreviewQuality = 25
+            appSettings.changed()
+            fuzzyCompare(card.layer.textureSize.width, halfWidth / 2, 1)
+            fuzzyCompare(card.layer.textureSize.height, halfHeight / 2, 1)
+            compare(view.frameContainer, frame)
+            compare(frame.parent, card)
+            appSettings.overviewPreviewQuality = 100
+            appSettings.changed()
+            compare(card.layer.textureSize, Qt.size(0, 0), "Full quality uses the native display resolution")
+            appSettings.overviewPreviewQuality = 25
+            app.dismissOverview()
+            compare(card.layer.enabled, false)
+            compare(frame.parent, app.browserContent)
+            compare(frame.width, app.browserWidth)
+            compare(view.frameContainer, frame)
+        }
+
         function test_overview_drag_reorders_whole_card() {
             const selected = app.activeView
             app.toggleOverview()
@@ -640,6 +814,14 @@ Item {
             mouseMove(app.contentItem, end.x, end.y, 20)
             tryCompare(app, "overviewDraggedView", view)
             tryVerify(() => !!app.dragSnapshot)
+            compare(findChild(app, "tabDragPreview").visible, false)
+            app.nativeTabDragRequested = true
+            app.startNativeTabDrag()
+            wait(20)
+            compare(app.nativeTabDragRunning, false, "Native previews must not start inside the window")
+            app.updateItemDrag(Qt.point(app.width + 1, end.y))
+            tryCompare(findChild(app, "tabDragPreview"), "visible", true)
+            app.updateItemDrag(Qt.point(end.x, end.y))
             compare(findChild(app, "tabDragPreview").visible, false)
             compare(app.overviewDropIndex, 2)
             compare(frame.parent, card)
@@ -787,8 +969,9 @@ Item {
             mouseMove(source.contentItem, start.x + 30, start.y, 20)
             mouseMove(source.contentItem, start.x + 60, start.y, 20)
             tryCompare(source, "dragView", view)
-            tryCompare(findChild(source, "tabDragPreview"), "visible", true)
+            compare(findChild(source, "tabDragPreview").visible, false)
             mouseMove(source.contentItem, end.x, end.y, 20)
+            tryCompare(findChild(source, "tabDragPreview"), "visible", true)
             mouseRelease(source.contentItem, end.x, end.y)
             tryCompare(view, "ownerWindow", app)
             tryVerify(() => app.detachedWindows.length === 0)

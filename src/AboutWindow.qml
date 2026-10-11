@@ -5,6 +5,7 @@ import org.kde.kirigami as Kirigami
 
 Kirigami.ApplicationWindow {
     id: aboutWindow
+    objectName: "aboutWindow"
     readonly property int chromeHeight: Math.max(40, Math.round(Kirigami.Units.gridUnit * 2.25))
     readonly property bool framelessControls: appSettings.windowControlsInTabBar && !appSettings.keepWindowDecorations
 

@@ -5,6 +5,11 @@ import org.kde.kirigami as Kirigami
 
 Kirigami.ApplicationWindow {
     id: settingsWindow
+    objectName: "settingsWindow"
+    onClosing: {
+        cssSaveTimer.stop()
+        appSettings.figmaCustomCss = customCssEditor.text
+    }
     readonly property int chromeHeight: Math.max(40, Math.round(Kirigami.Units.gridUnit * 2.25))
     readonly property bool framelessControls: appSettings.windowControlsInTabBar && !appSettings.keepWindowDecorations
     readonly property color cardBorder: Qt.rgba(Kirigami.Theme.textColor.r,
@@ -155,6 +160,7 @@ Kirigami.ApplicationWindow {
                             visible: appSettings.figmaCustomCssEnabled
                             Controls.TextArea {
                                 id: customCssEditor
+                                objectName: "customCssEditor"
                                 text: appSettings.figmaCustomCss
                                 placeholderText: "/* Custom CSS for Figma's interface */"
                                 font.family: "monospace"
@@ -299,10 +305,18 @@ Kirigami.ApplicationWindow {
                         }
 
                         Controls.CheckBox {
-                            text: "Keep previews of sleeping tabs"
+                            text: "Keep Home running"
+                            checked: appSettings.keepHomeAwake
+                            onToggled: appSettings.keepHomeAwake = checked
+                            Controls.ToolTip.text: "Keep Home awake regardless of the sleep timer or loaded-tab limit. Turn off to let Home sleep like other tabs."
+                            Controls.ToolTip.visible: hovered
+                        }
+
+                        Controls.CheckBox {
+                            text: "Show sleeping tabs in overview"
                             checked: appSettings.sleepingTabPreviews
                             onToggled: appSettings.sleepingTabPreviews = checked
-                            Controls.ToolTip.text: "Save a lightly blurred preview before tabs sleep. They stay asleep in the overview until selected."
+                            Controls.ToolTip.text: "Show saved, blurred previews with a sleep icon. When disabled, opening the overview wakes tabs to show normal live previews; the tab limit resumes when the overview closes."
                             Controls.ToolTip.visible: hovered
                         }
                     }
@@ -344,19 +358,55 @@ Kirigami.ApplicationWindow {
                         Layout.fillWidth: true
 
                         Controls.Switch {
+                            Kirigami.FormData.label: "UI memory:"
+                            text: "Release closed secondary windows"
+                            checked: appSettings.releaseClosedWindows
+                            onToggled: appSettings.releaseClosedWindows = checked
+                            Controls.ToolTip.text: "Free Settings, About, and Export History after closing them. They are created again when opened; settings and window size are preserved."
+                            Controls.ToolTip.visible: hovered
+                        }
+
+                        Controls.Switch {
+                            text: "Release effects for offscreen overview cards"
+                            checked: appSettings.cullOffscreenOverviewEffects
+                            onToggled: appSettings.cullOffscreenOverviewEffects = checked
+                            Controls.ToolTip.text: "Allocate clipping and blur textures only for visible cards. Tabs continue running normally."
+                            Controls.ToolTip.visible: hovered
+                        }
+
+                        Controls.Switch {
+                            text: "Use compact sleeping-preview textures"
+                            checked: appSettings.compactPreviewTextures
+                            onToggled: appSettings.compactPreviewTextures = checked
+                            Controls.ToolTip.text: "Limit sleeping-preview effects to 640 × 480 pixels. Turn off for full display resolution during animations."
+                            Controls.ToolTip.visible: hovered
+                        }
+
+                        RowLayout {
+                            Kirigami.FormData.label: "Overview preview quality:"
+                            Layout.fillWidth: true
+                            Controls.Slider {
+                                id: overviewQualitySlider
+                                objectName: "overviewPreviewQuality"
+                                Layout.fillWidth: true
+                                from: 25
+                                to: 100
+                                stepSize: 5
+                                value: appSettings.overviewPreviewQuality
+                                onMoved: appSettings.overviewPreviewQuality = Math.round(value)
+                                Controls.ToolTip.text: "Lower quality uses less memory for live and sleeping previews. Normal tabs stay at full resolution."
+                                Controls.ToolTip.visible: hovered
+                            }
+                            Controls.Label { text: Math.round(overviewQualitySlider.value) + "%" }
+                        }
+
+                        Controls.Switch {
                             Kirigami.FormData.label: "Menus:"
                             text: "Integrate Figma menus with Plasma"
                             checked: appSettings.menuIntegration
                             onToggled: appSettings.menuIntegration = checked
                             Controls.ToolTip.text: "Export Figma actions to the global menu. Changes apply immediately."
                             Controls.ToolTip.visible: hovered
-                        }
-
-                        Controls.Switch {
-                            Kirigami.FormData.label: "Display:"
-                            text: "High refresh interface animations"
-                            checked: appSettings.highRefreshRate
-                            onToggled: appSettings.highRefreshRate = checked
                         }
 
                         Controls.Switch {
@@ -402,7 +452,7 @@ Kirigami.ApplicationWindow {
 
                     Controls.Label {
                         Layout.fillWidth: true
-                        text: "Interface animations follow the display; web page animation depends on Qt WebEngine. Extra switches override the Chromium toggles. Restart ReSketch to apply performance changes."
+                        text: "UI memory options apply immediately. Extra switches override the Chromium toggles. Restart ReSketch to apply Chromium changes."
                         opacity: 0.72
                         wrapMode: Text.WordWrap
                     }

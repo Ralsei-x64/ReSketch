@@ -50,7 +50,11 @@ class AppSettings : public QObject
     Q_PROPERTY(int maximumLoadedTabs READ maximumLoadedTabs WRITE setMaximumLoadedTabs NOTIFY changed)
     Q_PROPERTY(int sleepMinutes READ sleepMinutes WRITE setSleepMinutes NOTIFY changed)
     Q_PROPERTY(bool sleepingTabPreviews READ sleepingTabPreviews WRITE setSleepingTabPreviews NOTIFY changed)
-    Q_PROPERTY(bool highRefreshRate READ highRefreshRate WRITE setHighRefreshRate NOTIFY changed)
+    Q_PROPERTY(bool keepHomeAwake READ keepHomeAwake WRITE setKeepHomeAwake NOTIFY changed)
+    Q_PROPERTY(bool releaseClosedWindows READ releaseClosedWindows WRITE setReleaseClosedWindows NOTIFY changed)
+    Q_PROPERTY(bool cullOffscreenOverviewEffects READ cullOffscreenOverviewEffects WRITE setCullOffscreenOverviewEffects NOTIFY changed)
+    Q_PROPERTY(bool compactPreviewTextures READ compactPreviewTextures WRITE setCompactPreviewTextures NOTIFY changed)
+    Q_PROPERTY(int overviewPreviewQuality READ overviewPreviewQuality WRITE setOverviewPreviewQuality NOTIFY changed)
     Q_PROPERTY(bool gpuRasterization READ gpuRasterization WRITE setGpuRasterization NOTIFY changed)
     Q_PROPERTY(bool zeroCopyRasterization READ zeroCopyRasterization WRITE setZeroCopyRasterization NOTIFY changed)
     Q_PROPERTY(bool experimentalCanvasFeatures READ experimentalCanvasFeatures WRITE setExperimentalCanvasFeatures NOTIFY changed)
@@ -116,7 +120,11 @@ public:
     int maximumLoadedTabs() const { return qBound(1, store.value(QStringLiteral("maximumLoadedTabs"), 5).toInt(), 100); }
     int sleepMinutes() const { return qBound(1, store.value(QStringLiteral("sleepMinutes"), 5).toInt(), 240); }
     bool sleepingTabPreviews() const { return store.value(QStringLiteral("sleepingTabPreviews"), false).toBool(); }
-    bool highRefreshRate() const { return store.value(QStringLiteral("highRefreshRate"), true).toBool(); }
+    bool keepHomeAwake() const { return store.value(QStringLiteral("keepHomeAwake"), true).toBool(); }
+    bool releaseClosedWindows() const { return store.value(QStringLiteral("releaseClosedWindows"), true).toBool(); }
+    bool cullOffscreenOverviewEffects() const { return store.value(QStringLiteral("cullOffscreenOverviewEffects"), true).toBool(); }
+    bool compactPreviewTextures() const { return store.value(QStringLiteral("compactPreviewTextures"), true).toBool(); }
+    int overviewPreviewQuality() const { return qBound(25, store.value(QStringLiteral("overviewPreviewQuality"), 100).toInt(), 100); }
     bool gpuRasterization() const { return store.value(QStringLiteral("gpuRasterization"), true).toBool(); }
     bool zeroCopyRasterization() const { return store.value(QStringLiteral("zeroCopyRasterization"), true).toBool(); }
     bool experimentalCanvasFeatures() const { return store.value(QStringLiteral("experimentalCanvasFeatures"), false).toBool(); }
@@ -370,11 +378,40 @@ public:
         store.setValue(QStringLiteral("sleepingTabPreviews"), value);
         emit changed();
     }
-    void setHighRefreshRate(bool value)
+    void setKeepHomeAwake(bool value)
     {
-        if (highRefreshRate() == value)
+        if (keepHomeAwake() == value)
             return;
-        store.setValue(QStringLiteral("highRefreshRate"), value);
+        store.setValue(QStringLiteral("keepHomeAwake"), value);
+        emit changed();
+    }
+    void setReleaseClosedWindows(bool value)
+    {
+        if (releaseClosedWindows() == value)
+            return;
+        store.setValue(QStringLiteral("releaseClosedWindows"), value);
+        emit changed();
+    }
+    void setCullOffscreenOverviewEffects(bool value)
+    {
+        if (cullOffscreenOverviewEffects() == value)
+            return;
+        store.setValue(QStringLiteral("cullOffscreenOverviewEffects"), value);
+        emit changed();
+    }
+    void setCompactPreviewTextures(bool value)
+    {
+        if (compactPreviewTextures() == value)
+            return;
+        store.setValue(QStringLiteral("compactPreviewTextures"), value);
+        emit changed();
+    }
+    void setOverviewPreviewQuality(int value)
+    {
+        value = qBound(25, value, 100);
+        if (overviewPreviewQuality() == value)
+            return;
+        store.setValue(QStringLiteral("overviewPreviewQuality"), value);
         emit changed();
     }
     void setGpuRasterization(bool value)
@@ -452,17 +489,6 @@ int main(int argc, char *argv[])
             break;
         }
     }
-    // Keep Qt Quick's animations in step with the display, including mixed-rate
-    // monitor setups. Vsync stays enabled; none of these uncaps Chromium.
-    if (startupSettings.value(QStringLiteral("highRefreshRate"), true).toBool()) {
-        if (!qEnvironmentVariableIsSet("QSG_RENDER_LOOP"))
-            qputenv("QSG_RENDER_LOOP", QByteArrayLiteral("threaded"));
-        if (!qEnvironmentVariableIsSet("QSG_USE_SIMPLE_ANIMATION_DRIVER"))
-            qputenv("QSG_USE_SIMPLE_ANIMATION_DRIVER", QByteArrayLiteral("1"));
-        if (!qEnvironmentVariableIsSet("QT_QPA_UPDATE_IDLE_TIME"))
-            qputenv("QT_QPA_UPDATE_IDLE_TIME", QByteArrayLiteral("0"));
-    }
-
     QByteArray chromiumFlags = startupSettings.value(QStringLiteral("gpuRasterization"), true).toBool()
                                    ? QByteArrayLiteral("--enable-gpu-rasterization")
                                    : QByteArrayLiteral("--disable-gpu-rasterization");

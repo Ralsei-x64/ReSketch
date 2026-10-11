@@ -74,7 +74,6 @@ Kirigami.ApplicationWindow {
     property var detachedWindows: []
     property var tabDragSession: null
     property var dragView: null
-    property bool dragFromOverview: false
     property var dragSnapshot: null
     property string dragToken: ""
     property point dragScenePosition: Qt.point(0, 0)
@@ -122,9 +121,8 @@ Kirigami.ApplicationWindow {
     title: Policy.windowTitle(activeView ? activeView.url : "", activeView ? activeView.title : "")
     onChromiumFrameLoadedChanged: appSettings.refreshWindowBlur(root)
     onClosing: {
-        settingsWindow.close()
-        aboutWindow.close()
-        exportHistoryWindow.close()
+        for (const loader of [settingsWindowLoader, aboutWindowLoader, exportHistoryWindowLoader])
+            if (loader.item) loader.item.close()
         if (primaryWindow) {
             for (const view of [homeView].concat(views, retiredOverviewViews))
                 if (view && view.frameContainer) view.frameContainer.destroy()
@@ -1045,7 +1043,7 @@ Kirigami.ApplicationWindow {
                     spacing: Kirigami.Units.largeSpacing
 
                     Controls.Label {
-                        text: "All tabs are frozen"
+                        text: appSettings.keepHomeAwake ? qsTr("File tabs are frozen") : qsTr("All tabs are frozen")
                         horizontalAlignment: Text.AlignHCenter
                     }
                     Controls.Button {
@@ -1063,6 +1061,7 @@ Kirigami.ApplicationWindow {
 
                 Flickable {
                     id: overviewFlickable
+                    objectName: "overviewFlickable"
                     property real wheelTargetY: 0
                     property bool smoothWheel: false
                     function scrollBy(distance, direct) {
@@ -1140,20 +1139,37 @@ Kirigami.ApplicationWindow {
                             id: overviewCard
                             objectName: "overviewCard"
                             clip: true
+                            readonly property bool inOverviewViewport: visible
+                                && x + dragOffsetX + width > 0
+                                && x + dragOffsetX < overviewFlickable.width
+                                && y + dragOffsetY + height > overviewFlickable.contentY
+                                && y + dragOffsetY < overviewFlickable.contentY + overviewFlickable.height
                             layer.enabled: root.overviewVisible
+                                           && (!appSettings.cullOffscreenOverviewEffects || inOverviewViewport)
+                            readonly property real textureScale: Screen.devicePixelRatio
+                                * (zooming ? 1 - (1 - appSettings.overviewPreviewQuality / 100) * root.overviewProgress
+                                           : appSettings.overviewPreviewQuality / 100)
+                            layer.textureSize: appSettings.overviewPreviewQuality < 100
+                                               ? Qt.size(Math.max(1, Math.ceil(width * textureScale)),
+                                                         Math.max(1, Math.ceil(height * textureScale)))
+                                               : Qt.size(0, 0)
+                            layer.smooth: true
                             layer.effect: MultiEffect {
                                 maskEnabled: true
                                 maskSource: overviewCardMask
                             }
                             Rectangle {
                                 id: overviewCardMask
+                                objectName: "overviewCardMask"
                                 parent: browserArea
                                 width: overviewCard.width
                                 height: overviewCard.height
                                 radius: Kirigami.Units.smallSpacing + 3
                                 color: "white"
                                 visible: false
-                                layer.enabled: true
+                                layer.enabled: overviewCard.layer.enabled
+                                layer.textureSize: overviewCard.layer.textureSize
+                                layer.smooth: true
                             }
                             required property int index
                             required property var previewView
@@ -1163,7 +1179,7 @@ Kirigami.ApplicationWindow {
                             property real dragOffsetX: 0
                             property real dragOffsetY: 0
                             readonly property bool closing: !!previewView && previewView.overviewClosingCard
-                            readonly property bool sleeping: !!previewView
+                            readonly property bool sleeping: appSettings.sleepingTabPreviews && !!previewView
                                                             && previewView.lifecycleState !== WebEngineView.LifecycleState.Active
                             readonly property bool zooming: previewView === root.overviewSelectedView
                             readonly property int gridSlot: root.overviewPreviewSlot(tabIndex)
@@ -1549,9 +1565,10 @@ Kirigami.ApplicationWindow {
         height: root.dragPreviewSize.height
         source: root.dragSnapshot ? root.dragSnapshot.url : ""
         fillMode: Image.PreserveAspectFit
+        cache: false
         opacity: 0.85
         visible: !!root.dragView && !root.nativeTabDragRunning && status === Image.Ready
-                 && (!root.dragFromOverview || root.outsideWindow(root.dragScenePosition))
+                 && root.outsideWindow(root.dragScenePosition)
     }
 
     Item {
@@ -1570,9 +1587,56 @@ Kirigami.ApplicationWindow {
         Drag.onDragFinished: action => root.finishNativeTabDrag(action)
     }
 
-    SettingsWindow { id: settingsWindow; visible: false }
-    AboutWindow { id: aboutWindow; visible: false }
-    ExportHistoryWindow { id: exportHistoryWindow; visible: false }
+    // Create secondary UI only when needed, and optionally release it on close.
+    component AuxiliaryWindowLoader: Loader {
+        id: windowLoader
+        active: false
+        property var savedGeometry: null
+        function openWindow() {
+            active = true
+            if (!item) return
+            if (savedGeometry) {
+                item.x = savedGeometry.x
+                item.y = savedGeometry.y
+                item.width = savedGeometry.width
+                item.height = savedGeometry.height
+            }
+            item.show()
+            item.raise()
+            item.requestActivate()
+        }
+        function releaseIfHidden() {
+            if (appSettings.releaseClosedWindows && item && !item.visible)
+                active = false
+        }
+        Connections {
+            target: windowLoader.item
+            function onVisibleChanged() {
+                if (!windowLoader.item.visible) {
+                    const window = windowLoader.item
+                    windowLoader.savedGeometry = Qt.rect(window.x, window.y, window.width, window.height)
+                    // Let the window finish dispatching its close event first.
+                    Qt.callLater(windowLoader.releaseIfHidden)
+                }
+            }
+        }
+        Connections {
+            target: appSettings
+            function onChanged() { Qt.callLater(windowLoader.releaseIfHidden) }
+        }
+    }
+    AuxiliaryWindowLoader {
+        id: settingsWindowLoader
+        sourceComponent: SettingsWindow { visible: false }
+    }
+    AuxiliaryWindowLoader {
+        id: aboutWindowLoader
+        sourceComponent: AboutWindow { visible: false }
+    }
+    AuxiliaryWindowLoader {
+        id: exportHistoryWindowLoader
+        sourceComponent: ExportHistoryWindow { visible: false }
+    }
 
     Timer {
         interval: 30000
@@ -1719,7 +1783,19 @@ Kirigami.ApplicationWindow {
                 source: visible ? frame.previewView.sleepPreview.url : ""
                 fillMode: Image.PreserveAspectCrop
                 smooth: true
-                layer.enabled: visible
+                cache: false
+                readonly property real displayTextureScale: frame.previewCard
+                                                           ? frame.previewCard.textureScale : Screen.devicePixelRatio
+                readonly property real textureScale: appSettings.compactPreviewTextures
+                    ? Math.min(displayTextureScale, 640 / Math.max(1, width), 480 / Math.max(1, height))
+                    : displayTextureScale
+                layer.enabled: visible && (!appSettings.cullOffscreenOverviewEffects
+                                           || (!!frame.previewCard && frame.previewCard.inOverviewViewport))
+                layer.textureSize: appSettings.compactPreviewTextures || appSettings.overviewPreviewQuality < 100
+                                   ? Qt.size(Math.max(1, Math.round(width * textureScale)),
+                                             Math.max(1, Math.round(height * textureScale)))
+                                   : Qt.size(0, 0)
+                layer.smooth: true
                 layer.effect: MultiEffect {
                     blurEnabled: true
                     blur: 1.0
@@ -2424,14 +2500,27 @@ Kirigami.ApplicationWindow {
     }
 
     function updateTabLifecycle() {
+        const protectedHome = appSettings.keepHomeAwake ? homeView : null
+        if (protectedHome) {
+            protectedHome.requestedSleepState = WebEngineView.LifecycleState.Active
+            if (protectedHome.lifecycleState !== WebEngineView.LifecycleState.Active)
+                protectedHome.lifecycleState = WebEngineView.LifecycleState.Active
+            if (protectedHome.reloadAfterFreeze) {
+                protectedHome.reloadAfterFreeze = false
+                protectedHome.reload()
+            }
+            if (overviewVisible) attachOverviewFrame(protectedHome)
+        }
         if (allFrozen)
             return
         const background = [homeView].concat(views).filter(view => view && view !== activeView
-                                   && view !== outgoingView && !view.overviewClosingCard)
+                                   && view !== outgoingView && view !== protectedHome && !view.overviewClosingCard)
         background.sort((a, b) => b.lastUsedAt - a.lastUsedAt)
         const now = Date.now()
+        const liveOverview = overviewVisible && !appSettings.sleepingTabPreviews
         const limit = appSettings.maximumLoadedTabs
         const foreground = (activeView ? 1 : 0) + (outgoingView && outgoingView !== activeView ? 1 : 0)
+                         + (protectedHome && protectedHome !== activeView && protectedHome !== outgoingView ? 1 : 0)
         const maxBackground = Math.max(0, limit - foreground)
         const minimumBackground = Math.max(0, appSettings.minimumLoadedTabs - foreground)
         let awake = 0
@@ -2442,8 +2531,8 @@ Kirigami.ApplicationWindow {
             const recent = now - view.lastUsedAt < appSettings.sleepMinutes * 60 * 1000
             const discarded = view.lifecycleState === WebEngineView.LifecycleState.Discarded
             const fillMinimum = awake < minimumBackground
-            const keepAwake = awake < maxBackground
-                              && (view.loading || fillMinimum || overviewVisible || (!discarded && recent))
+            const keepAwake = liveOverview || (awake < maxBackground
+                              && (view.loading || fillMinimum || overviewVisible || (!discarded && recent)))
             if (keepAwake) {
                 ++awake
                 view.requestedSleepState = WebEngineView.LifecycleState.Active
@@ -2469,6 +2558,10 @@ Kirigami.ApplicationWindow {
     }
 
     function sleepTab(view, state) {
+        if (view === homeView && appSettings.keepHomeAwake) {
+            view.requestedSleepState = WebEngineView.LifecycleState.Active
+            return
+        }
         view.requestedSleepState = state
         if (view.sleepCapturePending) return
         if (!appSettings.sleepingTabPreviews || !view.hasLoadedFrame
@@ -2491,6 +2584,7 @@ Kirigami.ApplicationWindow {
                 || view.sleepCaptureSerial !== serial) return
         view.sleepCapturePending = false
         if ((view !== homeView && !views.includes(view))
+                || (view === homeView && appSettings.keepHomeAwake)
                 || String(view.url) !== address || view.loading
                 || (!allFrozen && (view.visible || view === activeView || view === outgoingView))
                 || view.requestedSleepState === WebEngineView.LifecycleState.Active)
@@ -2507,6 +2601,8 @@ Kirigami.ApplicationWindow {
         resetSlide()
         for (const view of [homeView].concat(views)) {
             if (!view)
+                continue
+            if (view === homeView && appSettings.keepHomeAwake)
                 continue
             if (view.loading) {
                 view.reloadAfterFreeze = true
@@ -2527,15 +2623,11 @@ Kirigami.ApplicationWindow {
     }
 
     function openSettings() {
-        settingsWindow.show()
-        settingsWindow.raise()
-        settingsWindow.requestActivate()
+        settingsWindowLoader.openWindow()
     }
 
     function openExportHistory() {
-        exportHistoryWindow.show()
-        exportHistoryWindow.raise()
-        exportHistoryWindow.requestActivate()
+        exportHistoryWindowLoader.openWindow()
     }
 
     function triggerHomeMenuAction(command) {
@@ -2560,9 +2652,7 @@ Kirigami.ApplicationWindow {
     }
 
     function openAbout() {
-        aboutWindow.show()
-        aboutWindow.raise()
-        aboutWindow.requestActivate()
+        aboutWindowLoader.openWindow()
     }
 
     function refreshTab(index) {
@@ -2679,7 +2769,6 @@ Kirigami.ApplicationWindow {
     function beginItemDrag(view, item, point) {
         cancelItemDrag()
         dragView = view
-        dragFromOverview = item.objectName === "overviewCard"
         dragScenePosition = point
         dragToken = Date.now().toString(36) + Math.random().toString(36).slice(2)
         const owner = primaryWindow || root
@@ -2704,7 +2793,8 @@ Kirigami.ApplicationWindow {
     function startNativeTabDrag() {
         const token = dragToken
         Qt.callLater(() => {
-            if (!root.dragView || root.dragToken !== token || !root.nativeTabDragRequested || root.nativeTabDragRunning) return
+            if (!root.dragView || root.dragToken !== token || !root.nativeTabDragRequested
+                    || root.nativeTabDragRunning || !root.outsideWindow(root.dragScenePosition)) return
             root.nativeTabDragRunning = true
             if (root.overviewDraggedView) {
                 const card = overviewCardRepeater.itemAt(root.views.indexOf(root.overviewDraggedView) + 1)
@@ -2780,7 +2870,6 @@ Kirigami.ApplicationWindow {
         const owner = primaryWindow || root
         if (owner.tabDragSession?.sourceWindow === root) owner.tabDragSession = null
         dragView = null
-        dragFromOverview = false
         dragSnapshot = null
         dragToken = ""
         nativeTabDragRequested = false
