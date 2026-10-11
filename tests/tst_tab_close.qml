@@ -46,6 +46,7 @@ Item {
         property string copiedText: ""
         property bool exportDeletionSucceeds: true
         property bool nativeTabDragSupported: false
+        property string gpuAccelerationWarning: ""
         function cursorPosition() { return Qt.point(0, 0) }
         signal changed()
         signal effectiveThemeChanged()
@@ -147,6 +148,7 @@ Item {
             appSettings.compactPreviewTextures = true
             appSettings.overviewPreviewQuality = 100
             appSettings.figmaCustomCss = ""
+            appSettings.gpuAccelerationWarning = ""
             appSettings.changed()
             for (const name of ["settingsWindow", "aboutWindow", "exportHistoryWindow"]) {
                 const window = findChild(app, name)
@@ -726,6 +728,17 @@ Item {
             verify(history && history.visible)
             history.close()
             tryVerify(() => !findChild(app, "exportHistoryWindow"))
+        }
+
+        function test_gpu_warning_is_shown_only_when_acceleration_is_missing() {
+            const warning = findChild(app, "gpuAccelerationWarning")
+            compare(warning.visible, false)
+            appSettings.gpuAccelerationWarning = "GPU acceleration could not be detected."
+            tryCompare(warning, "visible", true)
+            compare(warning.text, appSettings.gpuAccelerationWarning)
+            compare(warning.showCloseButton, true)
+            appSettings.gpuAccelerationWarning = ""
+            tryCompare(warning, "visible", false)
         }
 
         function test_overview_releases_only_offscreen_effects() {

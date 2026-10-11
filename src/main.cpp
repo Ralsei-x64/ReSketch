@@ -12,6 +12,8 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QPalette>
+#include <QOpenGLContext>
+#include <QOpenGLFunctions>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
@@ -19,6 +21,7 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <QSettings>
+#include <QSGRendererInterface>
 #include <QStandardPaths>
 #include <QStyleHints>
 #include <QTimer>
@@ -28,6 +31,43 @@
 #include <algorithm>
 #include <cstdio>
 #include <QtWebEngineQuick/qtwebenginequickglobal.h>
+#if QT_CONFIG(vulkan)
+#include <QVulkanFunctions>
+#include <QVulkanInstance>
+#endif
+
+static bool isSoftwareRenderer(const QString &name)
+{
+    static const QRegularExpression software(QStringLiteral("llvmpipe|softpipe|swrast|swiftshader|software|lavapipe"),
+                                              QRegularExpression::CaseInsensitiveOption);
+    return software.match(name).hasMatch();
+}
+
+static bool hasGraphicsAcceleration(QQuickWindow *window)
+{
+    auto *renderer = window->rendererInterface();
+    switch (renderer->graphicsApi()) {
+    case QSGRendererInterface::OpenGL: {
+        auto *context = QOpenGLContext::currentContext();
+        if (!context) return false;
+        const auto *name = context->functions()->glGetString(GL_RENDERER);
+        return name && *name && !isSoftwareRenderer(QString::fromLatin1(reinterpret_cast<const char *>(name)));
+    }
+#if QT_CONFIG(vulkan)
+    case QSGRendererInterface::Vulkan: {
+        auto *instance = static_cast<QVulkanInstance *>(renderer->getResource(window, QSGRendererInterface::VulkanInstanceResource));
+        auto *device = static_cast<VkPhysicalDevice *>(renderer->getResource(window, QSGRendererInterface::PhysicalDeviceResource));
+        if (!instance || !device || !*device) return false;
+        VkPhysicalDeviceProperties properties{};
+        instance->functions()->vkGetPhysicalDeviceProperties(*device, &properties);
+        return properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_CPU && properties.deviceName[0]
+               && !isSoftwareRenderer(QString::fromUtf8(properties.deviceName));
+    }
+#endif
+    default:
+        return false;
+    }
+}
 
 class AppSettings : public QObject
 {
@@ -63,8 +103,10 @@ class AppSettings : public QObject
     Q_PROPERTY(QString profileStoragePath READ profileStoragePath CONSTANT)
     Q_PROPERTY(QVariantList exportHistory READ exportHistory NOTIFY exportHistoryChanged)
     Q_PROPERTY(bool nativeTabDragSupported READ nativeTabDragSupported CONSTANT)
+    Q_PROPERTY(QString gpuAccelerationWarning READ gpuAccelerationWarning NOTIFY gpuAccelerationWarningChanged)
 
 public:
+    QString gpuAccelerationWarning() const { return graphicsWarning; }
     explicit AppSettings(QObject *parent = nullptr)
         : QObject(parent), store(QStringLiteral("aether64"), QStringLiteral("ReSketch"))
     {
@@ -249,6 +291,27 @@ public:
             QTimer::singleShot(0, window, updateBlur);
         });
         connect(window, &QObject::destroyed, this, [this, window] { registeredWindows.remove(window); });
+        if (auto *quickWindow = qobject_cast<QQuickWindow *>(window)) {
+            // Query the active device on its render thread, after initialization.
+            connect(quickWindow, &QQuickWindow::beforeRendering, this,
+                    [this, quickWindow, checked = false]() mutable {
+                if (checked) return;
+                checked = true;
+                const bool accelerated = hasGraphicsAcceleration(quickWindow);
+                const QStringList flags = qEnvironmentVariable("QTWEBENGINE_CHROMIUM_FLAGS").split(' ', Qt::SkipEmptyParts);
+                const bool webGpuDisabled = flags.contains(QStringLiteral("--disable-gpu"))
+                    || flags.contains(QStringLiteral("--use-angle=swiftshader"))
+                    || flags.contains(QStringLiteral("--use-gl=swiftshader"));
+                QMetaObject::invokeMethod(this, [this, accelerated, webGpuDisabled] {
+                    if (graphicsChecked) return;
+                    graphicsChecked = true;
+                    if (!accelerated || webGpuDisabled) {
+                        graphicsWarning = tr("GPU acceleration could not be detected. ReSketch may render more slowly with software rendering.");
+                        emit gpuAccelerationWarningChanged();
+                    }
+                }, Qt::QueuedConnection);
+            }, Qt::DirectConnection);
+        }
         QTimer::singleShot(0, window, updateBlur);
     }
 
@@ -451,6 +514,7 @@ public:
     }
 
 signals:
+    void gpuAccelerationWarningChanged();
     void exportHistoryChanged();
     void changed();
     void effectiveThemeChanged();
@@ -474,6 +538,8 @@ private:
 
     QSettings store;
     QSet<QWindow *> registeredWindows;
+    bool graphicsChecked = false;
+    QString graphicsWarning;
 };
 
 int main(int argc, char *argv[])

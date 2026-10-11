@@ -297,6 +297,7 @@ Kirigami.ApplicationWindow {
 
             Flickable {
                 id: tabsViewport
+                objectName: "tabsViewport"
                 property real wheelTargetX: 0
                 property bool smoothWheel: false
                 function scrollBy(distance, direct) {
@@ -345,37 +346,11 @@ Kirigami.ApplicationWindow {
                     }
                 }
 
-                WheelHandler {
+                ScrollGestureArea {
                     enabled: tabsViewport.contentWidth > tabsViewport.width
-                    target: null
-                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                    onWheel: (event) => {
-                        const pixel = event.pixelDelta.y
-                        const angle = event.angleDelta.y
-                        const stepped = Math.abs(angle) >= 60
-                        const precise = !stepped && pixel !== 0 && Math.abs(pixel) <= 24
-                        const distance = stepped ? angle * root.tabWidth / 120
-                                                 : pixel || angle * root.tabWidth / 120
-                        tabsViewport.scrollBy(distance, precise)
-                        event.accepted = true
-                    }
-                }
-
-                WheelHandler {
-                    enabled: tabsViewport.contentWidth > tabsViewport.width
-                    target: null
-                    orientation: Qt.Horizontal
-                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                    onWheel: (event) => {
-                        const pixel = event.pixelDelta.x
-                        const angle = event.angleDelta.x
-                        const stepped = Math.abs(angle) >= 60
-                        const precise = !stepped && pixel !== 0 && Math.abs(pixel) <= 24
-                        const distance = stepped ? angle * root.tabWidth / 120
-                                                 : pixel || angle * root.tabWidth / 120
-                        tabsViewport.scrollBy(distance, precise)
-                        event.accepted = true
-                    }
+                    flickable: tabsViewport
+                    horizontal: true
+                    wheelStep: root.tabWidth
                 }
 
                 Controls.TabBar {
@@ -1114,22 +1089,10 @@ Kirigami.ApplicationWindow {
                         }
                     }
 
-                    WheelHandler {
+                    ScrollGestureArea {
                         enabled: overviewFlickable.contentHeight > overviewFlickable.height
-                        target: null
-                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                        onWheel: (event) => {
-                            const pixel = event.pixelDelta.y
-                            const angle = event.angleDelta.y
-                            const stepped = Math.abs(angle) >= 60
-                            const precise = !stepped && pixel !== 0 && Math.abs(pixel) <= 24
-                            const step = Math.max(220, Math.min(320, root.overviewCardHeight
-                                                               + root.overviewGap))
-                            overviewFlickable.scrollBy(stepped ? angle * step / 120
-                                                               : pixel || angle * step / 120,
-                                                       precise)
-                            event.accepted = true
-                        }
+                        flickable: overviewFlickable
+                        wheelStep: Math.max(220, Math.min(320, root.overviewCardHeight + root.overviewGap))
                     }
 
                     Repeater {
@@ -1585,6 +1548,61 @@ Kirigami.ApplicationWindow {
         Drag.imageSource: root.dragSnapshot ? root.dragSnapshot.url : ""
         Drag.hotSpot: Qt.point(12, 12)
         Drag.onDragFinished: action => root.finishNativeTabDrag(action)
+    }
+
+    // One receiver handles both axes, including zero-delta gesture boundaries.
+    component ScrollGestureArea: MouseArea {
+        id: gestureArea
+        anchors.fill: parent
+        z: 100
+        acceptedButtons: Qt.NoButton
+        required property var flickable
+        required property real wheelStep
+        property bool horizontal: false
+        property int gestureAxis: 0
+        Timer {
+            id: gestureIdle
+            interval: 150
+            onTriggered: gestureArea.gestureAxis = 0
+        }
+        onWheel: event => {
+            const pixels = event.pixelDelta.x !== 0 || event.pixelDelta.y !== 0
+            const continuous = pixels || event.phase !== Qt.NoScrollPhase
+                               || event.device.type === PointerDevice.TouchPad
+            if (event.phase === Qt.ScrollBegin) gestureAxis = 0
+            const delta = pixels ? event.pixelDelta : event.angleDelta
+            let axis = horizontal && Math.abs(delta.x) > Math.abs(delta.y) ? 1 : 2
+            if (continuous && (delta.x !== 0 || delta.y !== 0)) {
+                if (!gestureAxis) gestureAxis = axis
+                axis = gestureAxis
+            }
+            const distance = axis === 1 ? delta.x : delta.y
+            if (distance !== 0 || (continuous && event.phase === Qt.ScrollBegin)) {
+                flickable.cancelFlick()
+                flickable.scrollBy(pixels ? distance : distance * wheelStep / 120, continuous)
+            }
+            if (continuous) gestureIdle.restart()
+            if (event.phase === Qt.ScrollEnd) {
+                gestureIdle.stop()
+                gestureAxis = 0
+            }
+            event.accepted = true
+        }
+    }
+
+    Kirigami.InlineMessage {
+        objectName: "gpuAccelerationWarning"
+        parent: root.contentItem
+        anchors.top: parent.top
+        anchors.topMargin: root.tabStripHeight + Kirigami.Units.smallSpacing
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.margins: Kirigami.Units.smallSpacing
+        z: 2000
+        type: Kirigami.MessageType.Warning
+        text: appSettings.gpuAccelerationWarning
+        visible: text.length > 0
+        showCloseButton: true
     }
 
     // Create secondary UI only when needed, and optionally release it on close.
