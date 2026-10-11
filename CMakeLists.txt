@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ralsei-x64
+# SPDX-License-Identifier: GPL-3.0-only
+
 cmake_minimum_required(VERSION 3.21)
 
 project(ReSketch VERSION 0.1.0 LANGUAGES CXX)
@@ -31,6 +34,7 @@ target_link_libraries(resketch PRIVATE
 )
 
 install(TARGETS resketch RUNTIME DESTINATION bin)
+install(FILES LICENSE DESTINATION share/licenses/resketch)
 install(FILES org.aether64.resketch.desktop DESTINATION share/applications)
 install(FILES Branding/SketchbookSVG/Folder-512.svg
         DESTINATION share/icons/hicolor/scalable/apps RENAME org.aether64.resketch.svg)

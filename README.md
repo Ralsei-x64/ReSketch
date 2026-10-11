@@ -12,6 +12,17 @@ cmake --build build
 ./build/resketch
 ```
 
+## Recovering broken settings
+
+Hold **Alt** while launching ReSketch until its window appears to open **Safe Mode Settings**.
+You can also run `resketch --safe-mode`. Safe mode uses software rendering and opens
+only Settings, bypassing Chromium, custom switches, Figma modifications, and UI
+effects. It leaves your saved preferences intact so you can repair them, then
+close the window and restart normally.
+
+**Reset Settings** at the bottom restores default preferences without removing
+your Figma sign-in, export history, or remembered export folders.
+
 ## Desktop links and sign in
 
 Install the app and register it for Figma desktop links:
@@ -22,6 +33,12 @@ xdg-mime default org.aether64.resketch.desktop x-scheme-handler/figma
 ```
 
 
-## DISCLOSURE!!
+## License
 
-This contains AI-generated code. This app is simply made for my personal use and enjoyment and is in no way meant for professional or commercial use.
+Copyright © 2026 Ralsei-x64. ReSketch is licensed under the
+GNU General Public License version 3 (`GPL-3.0-only`). See [LICENSE](LICENSE)
+for the full license text.
+
+## Disclosure
+
+This project contains AI-generated code and started as a personal project.

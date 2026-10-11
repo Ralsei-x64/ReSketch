@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Ralsei-x64
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include <QApplication>
 #include <QClipboard>
 #include <QCursor>
@@ -5,6 +8,7 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QEvent>
+#include <QEventLoop>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -27,14 +31,84 @@
 #include <QTimer>
 #include <QVariantMap>
 #include <QWindow>
+#include <QWidget>
 #include <KWindowEffects>
 #include <algorithm>
 #include <cstdio>
+#include <optional>
+#ifdef Q_OS_LINUX
+#include <fcntl.h>
+#include <linux/input.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+#endif
 #include <QtWebEngineQuick/qtwebenginequickglobal.h>
 #if QT_CONFIG(vulkan)
 #include <QVulkanFunctions>
 #include <QVulkanInstance>
 #endif
+
+static std::optional<bool> heldAltKey()
+{
+#ifdef Q_OS_LINUX
+    // logind grants the active desktop user access to input devices. Query only
+    // Alt's current state; no event capture or elevated permissions are needed.
+    bool keyboardReadable = false;
+    const QDir input(QStringLiteral("/dev/input"));
+    for (const QString &name : input.entryList({QStringLiteral("event*")}, QDir::System | QDir::Files)) {
+        const int device = ::open(QFile::encodeName(input.filePath(name)).constData(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+        if (device < 0) continue;
+        unsigned char keys[(KEY_MAX + 8) / 8]{};
+        const auto pressed = [&keys](int key) { return keys[key / 8] & (1 << (key % 8)); };
+        const bool keyboard = ::ioctl(device, EVIOCGBIT(EV_KEY, sizeof(keys)), keys) >= 0
+                              && (pressed(KEY_LEFTALT) || pressed(KEY_RIGHTALT));
+        std::fill(std::begin(keys), std::end(keys), 0);
+        const bool readable = keyboard && ::ioctl(device, EVIOCGKEY(sizeof(keys)), keys) >= 0;
+        ::close(device);
+        if (readable && (pressed(KEY_LEFTALT) || pressed(KEY_RIGHTALT))) return true;
+        keyboardReadable |= readable;
+    }
+    if (keyboardReadable) return false;
+#endif
+    return std::nullopt;
+}
+
+static bool requestedSafeMode(const QStringList &arguments)
+{
+    if (arguments.contains(QStringLiteral("--safe-mode"))
+        || QGuiApplication::queryKeyboardModifiers().testFlag(Qt::AltModifier))
+        return true;
+    if (const auto alt = heldAltKey(); alt.has_value())
+        return *alt;
+    if (!QGuiApplication::platformName().startsWith(QStringLiteral("wayland")))
+        return false;
+
+    // Wayland delivers held modifiers only after a window receives keyboard focus.
+    // Use an invisible raster focus window before creating rendering surfaces.
+    QWidget startup(nullptr, Qt::Tool | Qt::FramelessWindowHint);
+    startup.setAttribute(Qt::WA_TranslucentBackground);
+    startup.setWindowOpacity(0);
+    startup.resize(1, 1);
+    const bool quitOnClose = QGuiApplication::quitOnLastWindowClosed();
+    QGuiApplication::setQuitOnLastWindowClosed(false);
+    startup.show();
+    startup.activateWindow();
+    bool safeMode = false;
+    QEventLoop loop;
+    QTimer poll;
+    QObject::connect(&poll, &QTimer::timeout, &loop, [&] {
+        if (QGuiApplication::queryKeyboardModifiers().testFlag(Qt::AltModifier)) {
+            safeMode = true;
+            loop.quit();
+        }
+    });
+    poll.start(10);
+    QTimer::singleShot(250, &loop, &QEventLoop::quit);
+    loop.exec();
+    startup.hide();
+    QGuiApplication::setQuitOnLastWindowClosed(quitOnClose);
+    return safeMode;
+}
 
 static bool isSoftwareRenderer(const QString &name)
 {
@@ -104,11 +178,13 @@ class AppSettings : public QObject
     Q_PROPERTY(QVariantList exportHistory READ exportHistory NOTIFY exportHistoryChanged)
     Q_PROPERTY(bool nativeTabDragSupported READ nativeTabDragSupported CONSTANT)
     Q_PROPERTY(QString gpuAccelerationWarning READ gpuAccelerationWarning NOTIFY gpuAccelerationWarningChanged)
+    Q_PROPERTY(bool safeMode READ safeMode CONSTANT)
 
 public:
     QString gpuAccelerationWarning() const { return graphicsWarning; }
-    explicit AppSettings(QObject *parent = nullptr)
-        : QObject(parent), store(QStringLiteral("aether64"), QStringLiteral("ReSketch"))
+    bool safeMode() const { return recoveryMode; }
+    explicit AppSettings(QObject *parent = nullptr, bool safeMode = false)
+        : QObject(parent), store(QStringLiteral("aether64"), QStringLiteral("ReSketch")), recoveryMode(safeMode)
     {
         applyTheme();
         connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this,
@@ -174,16 +250,8 @@ public:
     QString chromiumFlags() const { return store.value(QStringLiteral("chromiumFlags")).toString(); }
     QString profileStoragePath() const
     {
-        // Keep existing sign-in sessions across both app ID changes.
-        const QString data = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
-        for (const QString &legacy : {
-                 data + QStringLiteral("/KFigma/KFigma/QtWebEngine/kfigma"),
-                 data + QStringLiteral("/ReSketch/ReSketch/QtWebEngine/resketch")}) {
-            if (QDir(legacy).exists())
-                return legacy;
-        }
-        return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
-               + QStringLiteral("/QtWebEngine/resketch");
+        return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
+               + QStringLiteral("/ReSketch/QtWebEngine/resketch");
     }
     Q_INVOKABLE void copyToClipboard(const QString &text) const { QGuiApplication::clipboard()->setText(text); }
     bool nativeTabDragSupported() const
@@ -234,6 +302,21 @@ public:
         store.remove(QStringLiteral("exportHistory"));
         emit exportHistoryChanged();
     }
+    Q_INVOKABLE void resetSettings()
+    {
+        // Export records and per-document folders are user data, not preferences.
+        for (const QString &key : store.allKeys()) {
+            if (key != QStringLiteral("exportHistory") && !key.startsWith(QStringLiteral("exportFolders/")))
+                store.remove(key);
+        }
+        // Keep a reset from importing legacy preferences on next launch.
+        store.setValue(QStringLiteral("settingsInitialized"), true);
+        store.sync();
+        applyTheme();
+        emit changed();
+        emit effectiveThemeChanged();
+        emit figmaAppearanceChanged();
+    }
     Q_INVOKABLE QString chooseExportFolder(const QString &fileKey, const QString &fileName, QObject *owner)
     {
         const bool remember = QRegularExpression(QStringLiteral("^[a-zA-Z0-9_-]+$")).match(fileKey).hasMatch();
@@ -275,7 +358,7 @@ public:
         const int blurHeight = window->property("chromiumFrameLoaded").toBool() && !desktopSidebars
                                    ? window->property("tabStripHeight").toInt() : window->height();
         const QRegion region(0, 0, window->width(), blurHeight);
-        KWindowEffects::enableBlurBehind(window, toolbarOpacity() < 100 && !ignoreToolbarBlur(), region);
+        KWindowEffects::enableBlurBehind(window, !safeMode() && toolbarOpacity() < 100 && !ignoreToolbarBlur(), region);
     }
     Q_INVOKABLE void registerMainWindow(QObject *object)
     {
@@ -530,13 +613,15 @@ private:
 
     void applyTheme()
     {
-        const Qt::ColorScheme scheme = theme() == QStringLiteral("dark") ? Qt::ColorScheme::Dark
+        const Qt::ColorScheme scheme = safeMode() ? Qt::ColorScheme::Unknown
+                                       : theme() == QStringLiteral("dark") ? Qt::ColorScheme::Dark
                                        : theme() == QStringLiteral("light") ? Qt::ColorScheme::Light
                                                                             : Qt::ColorScheme::Unknown;
         QGuiApplication::styleHints()->setColorScheme(scheme);
     }
 
     QSettings store;
+    const bool recoveryMode;
     QSet<QWindow *> registeredWindows;
     bool graphicsChecked = false;
     QString graphicsWarning;
@@ -544,49 +629,68 @@ private:
 
 int main(int argc, char *argv[])
 {
-    QSettings startupSettings(QStringLiteral("aether64"), QStringLiteral("ReSketch"));
-    if (startupSettings.allKeys().isEmpty()) {
-        for (const QString &name : {QStringLiteral("ReSketch"), QStringLiteral("KFigma")}) {
-            QSettings previousSettings(name, name);
-            if (previousSettings.allKeys().isEmpty())
-                continue;
-            for (const QString &key : previousSettings.allKeys())
-                startupSettings.setValue(key, previousSettings.value(key));
-            break;
-        }
+    QStringList arguments;
+    for (int index = 1; index < argc; ++index)
+        arguments.append(QString::fromLocal8Bit(argv[index]));
+    bool safeMode = arguments.contains(QStringLiteral("--safe-mode")) || heldAltKey().value_or(false);
+    if (safeMode) {
+        qputenv("QT_QUICK_BACKEND", "software");
+        QCoreApplication::setAttribute(Qt::AA_UseSoftwareOpenGL);
     }
-    QByteArray chromiumFlags = startupSettings.value(QStringLiteral("gpuRasterization"), true).toBool()
-                                   ? QByteArrayLiteral("--enable-gpu-rasterization")
-                                   : QByteArrayLiteral("--disable-gpu-rasterization");
-    chromiumFlags += startupSettings.value(QStringLiteral("zeroCopyRasterization"), true).toBool()
-                         ? QByteArrayLiteral(" --enable-zero-copy")
-                         : QByteArrayLiteral(" --disable-zero-copy");
-    if (startupSettings.value(QStringLiteral("experimentalCanvasFeatures"), false).toBool())
-        chromiumFlags += QByteArrayLiteral(" --enable-experimental-canvas-features");
-    if (startupSettings.value(QStringLiteral("useVulkan"), false).toBool())
-        chromiumFlags += QByteArrayLiteral(" --use-gl=angle --enable-features=Vulkan --use-vulkan=native");
-    // External and custom switches stay last so they can override these toggles.
-    const QByteArray environmentFlags = qgetenv("QTWEBENGINE_CHROMIUM_FLAGS").trimmed();
-    if (!environmentFlags.isEmpty())
-        chromiumFlags += ' ' + environmentFlags;
-    const QByteArray userFlags = startupSettings.value(QStringLiteral("chromiumFlags")).toString().toUtf8().trimmed();
-    if (!userFlags.isEmpty())
-        chromiumFlags += ' ' + userFlags;
-    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", chromiumFlags);
+    // This attribute provides the same context sharing as initialize(), without
+    // starting Chromium before the launch-time modifier check.
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
     QQuickWindow::setDefaultAlphaBuffer(true);
-    QtWebEngineQuick::initialize();
-
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("ReSketch"));
     QApplication::setOrganizationName(QStringLiteral("aether64"));
     QApplication::setDesktopFileName(QStringLiteral("org.aether64.resketch"));
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/Branding/SketchbookPNG/Folder-256.png")));
+    safeMode = safeMode || requestedSafeMode(app.arguments());
+    if (safeMode) {
+        // Ignore both saved and environment Chromium switches during recovery.
+        fprintf(stderr, "ReSketch: safe mode (software rendering, settings only)\n");
+        qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --disable-gpu-compositing --disable-gpu-rasterization --disable-zero-copy --disable-features=Vulkan --use-vulkan=none");
+        qputenv("QT_QUICK_BACKEND", "software");
+        QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
+    }
+    QSettings startupSettings(QStringLiteral("aether64"), QStringLiteral("ReSketch"));
+    if (startupSettings.allKeys().isEmpty()) {
+        QSettings previousSettings(QStringLiteral("ReSketch"), QStringLiteral("ReSketch"));
+        for (const QString &key : previousSettings.allKeys())
+            startupSettings.setValue(key, previousSettings.value(key));
+    }
+    if (!safeMode) {
+        QByteArray chromiumFlags = startupSettings.value(QStringLiteral("gpuRasterization"), true).toBool()
+                                       ? QByteArrayLiteral("--enable-gpu-rasterization")
+                                       : QByteArrayLiteral("--disable-gpu-rasterization");
+        chromiumFlags += startupSettings.value(QStringLiteral("zeroCopyRasterization"), true).toBool()
+                             ? QByteArrayLiteral(" --enable-zero-copy")
+                             : QByteArrayLiteral(" --disable-zero-copy");
+        if (startupSettings.value(QStringLiteral("experimentalCanvasFeatures"), false).toBool())
+            chromiumFlags += QByteArrayLiteral(" --enable-experimental-canvas-features");
+        if (startupSettings.value(QStringLiteral("useVulkan"), false).toBool())
+            chromiumFlags += QByteArrayLiteral(" --use-gl=angle --enable-features=Vulkan --use-vulkan=native");
+        // External and custom switches stay last so they can override these toggles.
+        const QByteArray environmentFlags = qgetenv("QTWEBENGINE_CHROMIUM_FLAGS").trimmed();
+        if (!environmentFlags.isEmpty())
+            chromiumFlags += ' ' + environmentFlags;
+        const QByteArray userFlags = startupSettings.value(QStringLiteral("chromiumFlags")).toString().toUtf8().trimmed();
+        if (!userFlags.isEmpty())
+            chromiumFlags += ' ' + userFlags;
+        qputenv("QTWEBENGINE_CHROMIUM_FLAGS", chromiumFlags);
+    }
     QQuickStyle::setStyle(QStringLiteral("org.kde.desktop"));
 
-    const QString incomingUrl = app.arguments().value(1);
+    QString incomingUrl;
+    for (const QString &argument : app.arguments().mid(1)) {
+        if (!argument.startsWith('-')) {
+            incomingUrl = argument;
+            break;
+        }
+    }
     const QString socketPath = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation)
-                               + QStringLiteral("/resketch.sock");
+                               + (safeMode ? QStringLiteral("/resketch-safe-mode.sock") : QStringLiteral("/resketch.sock"));
     QLocalSocket existing;
     existing.connectToServer(socketPath);
     if (existing.waitForConnected(250)) {
@@ -601,19 +705,28 @@ int main(int argc, char *argv[])
     if (!server.listen(socketPath))
         fprintf(stderr, "ReSketch: cannot listen for Figma links: %s\n", qPrintable(server.errorString()));
 
-    AppSettings appSettings(&app);
+    AppSettings appSettings(&app, safeMode);
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("appSettings"), &appSettings);
-    engine.loadFromModule("org.aether64.resketch", "Main");
+    // Recovery deliberately loads only Settings: no WebEngine profile, page,
+    // custom CSS, overview effects, animations, or native menu integration.
+    engine.loadFromModule("org.aether64.resketch", safeMode ? "SettingsWindow" : "Main");
     if (engine.rootObjects().isEmpty()) {
         fprintf(stderr, "ReSketch: QML window could not be loaded\n");
         return 1;
     }
 
     QObject *window = engine.rootObjects().first();
-    const auto deliverUrl = [window](const QString &url) {
-        window->setProperty("externalUrl", QString());
-        window->setProperty("externalUrl", url);
+    if (safeMode) {
+        auto *recoveryWindow = qobject_cast<QWindow *>(window);
+        recoveryWindow->show();
+        recoveryWindow->requestActivate();
+    }
+    const auto deliverUrl = [window, safeMode](const QString &url) {
+        if (!safeMode) {
+            window->setProperty("externalUrl", QString());
+            window->setProperty("externalUrl", url);
+        }
         if (auto *appWindow = qobject_cast<QWindow *>(window)) {
             appWindow->raise();
             appWindow->requestActivate();

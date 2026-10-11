@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Ralsei-x64
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Build after the app to reuse its generated moc; see tests/check-export-folders.sh.
 #define main resketchMain
 #include "../src/main.cpp"

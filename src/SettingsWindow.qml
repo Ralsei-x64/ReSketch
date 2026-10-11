@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Ralsei-x64
+// SPDX-License-Identifier: GPL-3.0-only
+
 import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
@@ -11,7 +14,7 @@ Kirigami.ApplicationWindow {
         appSettings.figmaCustomCss = customCssEditor.text
     }
     readonly property int chromeHeight: Math.max(40, Math.round(Kirigami.Units.gridUnit * 2.25))
-    readonly property bool framelessControls: appSettings.windowControlsInTabBar && !appSettings.keepWindowDecorations
+    readonly property bool framelessControls: !appSettings.safeMode && appSettings.windowControlsInTabBar && !appSettings.keepWindowDecorations
     readonly property color cardBorder: Qt.rgba(Kirigami.Theme.textColor.r,
                                                  Kirigami.Theme.textColor.g,
                                                  Kirigami.Theme.textColor.b, 0.16)
@@ -21,7 +24,7 @@ Kirigami.ApplicationWindow {
     minimumHeight: 420
     flags: framelessControls ? Qt.Window | Qt.FramelessWindowHint
                              : Qt.Window | Qt.CustomizeWindowHint | Qt.WindowTitleHint | Qt.WindowCloseButtonHint
-    title: "ReSketch — Settings"
+    title: appSettings.safeMode ? "ReSketch — Safe Mode Settings" : "ReSketch — Settings"
     pageStack.globalToolBar.style: Kirigami.ApplicationHeaderStyle.None
 
     pageStack.initialPage: Kirigami.ScrollablePage {
@@ -51,7 +54,7 @@ Kirigami.ApplicationWindow {
                             source: "configure"
                         }
                         Controls.Label {
-                            text: "Settings"
+                            text: appSettings.safeMode ? "Safe Mode Settings" : "Settings"
                             font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.15
                         }
                     }
@@ -97,6 +100,13 @@ Kirigami.ApplicationWindow {
                     opacity: 0.72
                     wrapMode: Text.WordWrap
                 }
+            }
+
+            Kirigami.InlineMessage {
+                Layout.fillWidth: true
+                visible: appSettings.safeMode
+                text: "Safe mode: GPU acceleration and the Figma interface are disabled. These controls edit your saved settings. Close this window and restart normally to apply them."
+                type: Kirigami.MessageType.Information
             }
 
             Controls.Frame {
@@ -456,6 +466,25 @@ Kirigami.ApplicationWindow {
                         opacity: 0.72
                         wrapMode: Text.WordWrap
                     }
+                }
+            }
+
+            Kirigami.Separator { Layout.fillWidth: true }
+
+            Controls.Label {
+                Layout.fillWidth: true
+                text: "Restore default preferences. Sign-in data, export history, and remembered export folders are kept. Restart to apply Chromium changes."
+                wrapMode: Text.WordWrap
+                opacity: 0.72
+            }
+            Controls.Button {
+                objectName: "resetSettingsButton"
+                text: "Reset Settings"
+                icon.name: "edit-undo"
+                onClicked: {
+                    cssSaveTimer.stop()
+                    appSettings.resetSettings()
+                    customCssEditor.text = Qt.binding(() => appSettings.figmaCustomCss)
                 }
             }
         }

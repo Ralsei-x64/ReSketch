@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Ralsei-x64
+// SPDX-License-Identifier: GPL-3.0-only
+
 function validColor(color) { return /^#[0-9a-f]{6}$/i.test(color || "") }
 function channels(color) { return [1, 3, 5].map(offset => parseInt(color.slice(offset, offset + 2), 16)) }
 function mix(background, foreground, amount) {

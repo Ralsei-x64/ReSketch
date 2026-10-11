@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Ralsei-x64
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Figma has no public native-menu API. Discover its loaded menu helpers by
 // their behavior, rather than pinning bundle module numbers or translated labels.
 function script(command) {

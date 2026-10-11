@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Ralsei-x64
+// SPDX-License-Identifier: GPL-3.0-only
+
 function isFigmaUrl(address) {
     return /^https:\/\/(?:[a-z0-9-]+\.)*figma\.com(?::443)?(?:[/?#]|$)/i.test(String(address))
 }

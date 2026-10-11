@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Ralsei-x64
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Reuse the app's generated moc; build with tests/check-native-tab-drop.sh.
 #define main resketchMain
 #include "../src/main.cpp"
@@ -21,6 +24,37 @@ int main(int argc, char **argv)
     QTemporaryDir temporary;
     assert(temporary.isValid());
     QSettings::setPath(QSettings::NativeFormat, QSettings::UserScope, temporary.path());
+    assert(requestedSafeMode({QStringLiteral("resketch"), QStringLiteral("--safe-mode")}));
+    {
+        QSettings saved(QStringLiteral("aether64"), QStringLiteral("ReSketch"));
+        saved.setValue(QStringLiteral("exportHistory"), QVariantList{QVariantMap{{"name", "export.png"}}});
+        saved.setValue(QStringLiteral("exportFolders/document"), temporary.path());
+        saved.setValue(QStringLiteral("obsoleteSetting"), true);
+        AppSettings recovery(nullptr, true);
+        recovery.setUseVulkan(true);
+        recovery.setChromiumFlags(QStringLiteral("--enable-features=Vulkan"));
+        recovery.setFigmaCustomCss(QStringLiteral("body { color: red; }"));
+        recovery.setTheme(QStringLiteral("dark"));
+        assert(recovery.safeMode() && recovery.useVulkan()); // Saved values remain editable.
+        assert(QGuiApplication::styleHints()->colorScheme() != Qt::ColorScheme::Dark);
+        QQmlApplicationEngine recoveryEngine;
+        recoveryEngine.rootContext()->setContextProperty("appSettings", &recovery);
+        recoveryEngine.load(QUrl::fromLocalFile(QDir::current().absoluteFilePath("src/SettingsWindow.qml")));
+        assert(!recoveryEngine.rootObjects().isEmpty());
+        auto *resetButton = recoveryEngine.rootObjects().first()->findChild<QObject *>("resetSettingsButton");
+        auto *cssEditor = recoveryEngine.rootObjects().first()->findChild<QObject *>("customCssEditor");
+        assert(resetButton && cssEditor);
+        cssEditor->setProperty("text", QStringLiteral("pending CSS edit"));
+        assert(QMetaObject::invokeMethod(resetButton, "clicked"));
+        assert(cssEditor->property("text").toString().isEmpty());
+        assert(recovery.theme() == QStringLiteral("auto") && !recovery.useVulkan());
+        assert(recovery.gpuRasterization() && recovery.chromiumFlags().isEmpty());
+        assert(recovery.figmaCustomCss().isEmpty() && recovery.exportHistory().size() == 1);
+        assert(saved.value(QStringLiteral("exportFolders/document")).toString() == temporary.path());
+        assert(!saved.contains(QStringLiteral("obsoleteSetting")));
+        assert(saved.value(QStringLiteral("settingsInitialized")).toBool());
+    }
+    puts("Safe-mode recovery and settings reset preserve export data and discard pending CSS checks passed");
     AppSettings settings;
     settings.setMenuIntegration(false);
     settings.setReduceMotion(true);

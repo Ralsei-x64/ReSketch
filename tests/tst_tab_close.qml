@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Ralsei-x64
+// SPDX-License-Identifier: GPL-3.0-only
+
 import QtQuick
 import QtTest
 import QtWebEngine
@@ -8,6 +11,7 @@ Item {
     width: 1280
     height: 800
     property QtObject appSettings: QtObject {
+        property bool safeMode: false
         property string theme: "auto"
         property bool menuIntegration: false
         property bool darkTheme: false
@@ -64,6 +68,7 @@ Item {
             recordedOrigin = originName
         }
         function clearExports() { exportHistory = [] }
+        function resetSettings() { figmaCustomCss = "" }
         function openExport(path, folder) { return true }
         function deleteExport(path) {
             if (!exportDeletionSucceeds) return false
@@ -128,6 +133,39 @@ Item {
                 compare(button.tabView, app.views[index])
                 compare(button.selected, app.views[index] === view)
             }
+        }
+
+        function test_new_tabs_append_except_links_from_selected_tab() {
+            appSettings.reduceMotion = true
+            appSettings.changed()
+            app.activateTab(1)
+            const selected = app.activeView
+            app.openTab("about:blank")
+            compare(app.views[1], selected)
+            compare(app.activeIndex, 4)
+            app.activateTab(1)
+            app.openTab("about:blank", null, true, selected)
+            compare(app.views[2], selected)
+            compare(app.activeView, selected)
+            compare(app.activeIndex, 2)
+            app.openTab("about:blank", null, false, selected)
+            compare(app.activeIndex, 2)
+            compare(app.views[3], selected)
+            app.activateTab(0)
+            const first = app.activeView
+            app.toggleOverview()
+            app.openTab("about:blank", null, true)
+            compare(app.views[0], first)
+            compare(app.activeView, first)
+            compare(app.overviewVisible, true)
+            compare(app.views.length, 8)
+            app.dismissOverview()
+            app.activateHome()
+            app.openTab("about:blank", null, false, app.homeView)
+            compare(app.activeIndex, 8)
+            app.activateHome()
+            app.openTab("about:blank")
+            compare(app.activeIndex, 9)
         }
 
         function cleanup() {

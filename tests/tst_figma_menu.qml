@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Ralsei-x64
+// SPDX-License-Identifier: GPL-3.0-only
+
 import QtQuick
 import QtQuick.Controls as Controls
 import Qt.labs.platform as Platform

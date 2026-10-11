@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Ralsei-x64
+// SPDX-License-Identifier: GPL-3.0-only
+
 import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
@@ -90,6 +93,11 @@ Kirigami.ApplicationWindow {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.topMargin: Kirigami.Units.largeSpacing
                 text: qsTr("By Ralsei-x64")
+                opacity: 0.75
+            }
+            Controls.Label {
+                Layout.alignment: Qt.AlignHCenter
+                text: qsTr("GNU General Public License v3")
                 opacity: 0.75
             }
         }

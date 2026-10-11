@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Ralsei-x64
+// SPDX-License-Identifier: GPL-3.0-only
+
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const vm = require('node:vm')

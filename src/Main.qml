@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Ralsei-x64
+// SPDX-License-Identifier: GPL-3.0-only
+
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -3076,9 +3079,8 @@ Kirigami.ApplicationWindow {
 
     function openTab(address, request, background, sourceView) {
         const keepOverview = overviewVisible
-        const insertIndex = !keepOverview
-                            && (sourceView ? sourceView === homeView : activeView === homeView)
-                            ? 0 : views.length
+        const insertIndex = sourceView && sourceView === activeView && activeIndex >= 0
+                            ? activeIndex : views.length
         if (keepOverview)
             overviewSearch.text = ""
         if (keepOverview && overviewClosing) {
