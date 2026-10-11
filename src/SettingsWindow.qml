@@ -36,10 +36,10 @@ Kirigami.ApplicationWindow {
 
                     Controls.Label {
                         anchors.left: parent.left
-                        anchors.leftMargin: Kirigami.Units.largeSpacing
+                        anchors.leftMargin: Kirigami.Units.largeSpacing + Kirigami.Units.smallSpacing
                         anchors.verticalCenter: parent.verticalCenter
                         text: "Settings"
-                        font.pixelSize: Kirigami.Units.gridUnit
+                        font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.25
                     }
                     MouseArea {
                         anchors.fill: parent
@@ -54,6 +54,14 @@ Kirigami.ApplicationWindow {
                     buttonSize: settingsWindow.chromeHeight
                     showMinimizeMaximize: false
                 }
+            }
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: 1
+                color: Kirigami.Theme.textColor
+                opacity: 0.2
             }
         }
 
@@ -118,8 +126,49 @@ Kirigami.ApplicationWindow {
                             onToggled: appSettings.reduceMotion = checked
                         }
 
+                        Controls.Switch {
+                            Kirigami.FormData.label: "Figma colors:"
+                            text: "Use KDE colors (experimental)"
+                            checked: appSettings.figmaSystemColors
+                            onToggled: appSettings.figmaSystemColors = checked
+                        }
+
+                        Controls.Switch {
+                            Kirigami.FormData.label: "Figma CSS:"
+                            text: "Enable custom CSS (experimental)"
+                            checked: appSettings.figmaCustomCssEnabled
+                            onToggled: appSettings.figmaCustomCssEnabled = checked
+                        }
+
+                        Controls.ScrollView {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 140
+                            visible: appSettings.figmaCustomCssEnabled
+                            Controls.TextArea {
+                                id: customCssEditor
+                                text: appSettings.figmaCustomCss
+                                placeholderText: "/* Custom CSS for Figma's interface */"
+                                font.family: "monospace"
+                                wrapMode: TextEdit.Wrap
+                                selectByMouse: true
+                                onTextChanged: cssSaveTimer.restart()
+                                Timer {
+                                    id: cssSaveTimer
+                                    interval: 350
+                                    onTriggered: appSettings.figmaCustomCss = customCssEditor.text
+                                }
+                            }
+                        }
+
+                        Controls.Label {
+                            Layout.fillWidth: true
+                            text: "Figma appearance changes apply immediately to all tabs. Custom CSS overrides KDE colors."
+                            opacity: 0.72
+                            wrapMode: Text.WordWrap
+                        }
+
                         RowLayout {
-                            Kirigami.FormData.label: "Toolbar opacity:"
+                            Kirigami.FormData.label: "Background opacity:"
                             spacing: Kirigami.Units.smallSpacing
 
                             Controls.Slider {
@@ -139,7 +188,29 @@ Kirigami.ApplicationWindow {
                         }
 
                         Controls.Switch {
-                            Kirigami.FormData.label: "Toolbar blur:"
+                            Kirigami.FormData.label: "Figma sidebars:"
+                            text: "Translucent left and right sidebars"
+                            checked: appSettings.translucentSidebars
+                            onToggled: appSettings.translucentSidebars = checked
+                        }
+
+                        Controls.ComboBox {
+                            Kirigami.FormData.label: "Sidebar backdrop:"
+                            enabled: appSettings.translucentSidebars
+                            model: ["Desktop", "Figma canvas"]
+                            currentIndex: appSettings.sidebarBackdrop === "canvas" ? 1 : 0
+                            onActivated: appSettings.sidebarBackdrop = currentIndex === 1 ? "canvas" : "desktop"
+                        }
+
+                        Controls.Label {
+                            Layout.fillWidth: true
+                            text: "Background opacity controls the toolbar and enabled sidebars. Canvas uses the canvas background where Figma's canvas does not extend behind the sidebars."
+                            opacity: 0.72
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Controls.Switch {
+                            Kirigami.FormData.label: "Background blur:"
                             text: "Ignore blur"
                             checked: appSettings.ignoreToolbarBlur
                             onToggled: appSettings.ignoreToolbarBlur = checked
@@ -281,6 +352,24 @@ Kirigami.ApplicationWindow {
                             text: "Zero-copy rendering"
                             checked: appSettings.zeroCopyRasterization
                             onToggled: appSettings.zeroCopyRasterization = checked
+                        }
+
+                        Controls.Switch {
+                            Kirigami.FormData.label: "Canvas:"
+                            text: "Experimental canvas features"
+                            checked: appSettings.experimentalCanvasFeatures
+                            onToggled: appSettings.experimentalCanvasFeatures = checked
+                            Controls.ToolTip.text: "--enable-experimental-canvas-features"
+                            Controls.ToolTip.visible: hovered
+                        }
+
+                        Controls.Switch {
+                            Kirigami.FormData.label: "Graphics:"
+                            text: "Use Vulkan"
+                            checked: appSettings.useVulkan
+                            onToggled: appSettings.useVulkan = checked
+                            Controls.ToolTip.text: "--use-vulkan=native (with ANGLE and Vulkan compositing)"
+                            Controls.ToolTip.visible: hovered
                         }
 
                         Controls.TextField {

@@ -27,6 +27,20 @@ ReSketch allows `accounts.google.com` in sign-in popups and redirects while cont
 
 ReSketch grants Figma's local-font browser permission and allows its requests to the local font helper. Figma's font picker still requires a helper process on Linux. Install [Figma Agent for Linux](https://github.com/neetly/figma-agent-linux) as your user, then in a Figma design file choose **Preferences → Permissions and helpers → Apps on device → Connect**. The helper detects fonts installed on the computer and starts on demand through its user service.
 
+## Exports
+
+Exporting a document or object opens a native folder picker. ReSketch remembers the last selected folder separately for each Figma file, including across restarts and file renames. The picker starts in that folder on the next export. Cancelling the picker cancels the download.
+
+**File → Export History** lists completed exports from every file, newest first, with image/PDF previews. Open an export or its folder, or delete the exported file. **Clear Exports** clears only the list, leaving files on disk. The history persists across restarts; unsupported preview formats show a file icon.
+
+Each entry includes the export's file type and originating Figma file name. Right-click an entry to copy its file path.
+
+## Figma appearance
+
+Figma follows **Settings → Appearance → App theme**, including system theme changes when set to Auto. The experimental **Use KDE colors** option applies the desktop palette to Figma's interface colors. **Enable custom CSS** reveals an editor for your own CSS rules; these take precedence over the palette overrides. Both options default to off, apply without restarting, and are restricted to Figma pages. Palette overrides do not change document/canvas colors. Figma's internal theme API and CSS tokens can change, so these integrations may need updates as Figma evolves.
+
+**Translucent left and right sidebars** optionally uses the shared **Background opacity** slider. Choose **Desktop** to reveal the desktop with KDE blur (unless Ignore blur is enabled), or **Figma canvas** to show the canvas underneath. When Figma stops rendering its canvas at the sidebars, the canvas background color is used instead. Text and controls remain opaque, and the option defaults to off.
+
 # DISCLOSURE!!
 
 This contains AI-generated code. This app is simply made for my personal use and enjoyment and is in no way meant for professional or commercial use.

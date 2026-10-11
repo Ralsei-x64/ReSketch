@@ -1,7 +1,12 @@
 #include <QApplication>
 #include <QClipboard>
+#include <QDateTime>
+#include <QDesktopServices>
 #include <QDir>
+#include <QEvent>
 #include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QHash>
 #include <QIcon>
 #include <QLocalServer>
@@ -11,13 +16,16 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QRegularExpression>
 #include <QSet>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QStyleHints>
 #include <QTimer>
+#include <QVariantMap>
 #include <QWindow>
 #include <KWindowEffects>
+#include <algorithm>
 #include <cstdio>
 #include <QtWebEngineQuick/qtwebenginequickglobal.h>
 #include <unistd.h>
@@ -27,6 +35,12 @@ class AppSettings : public QObject
     Q_OBJECT
     Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY changed)
     Q_PROPERTY(bool darkTheme READ darkTheme NOTIFY effectiveThemeChanged)
+    Q_PROPERTY(bool figmaSystemColors READ figmaSystemColors WRITE setFigmaSystemColors NOTIFY changed)
+    Q_PROPERTY(bool figmaCustomCssEnabled READ figmaCustomCssEnabled WRITE setFigmaCustomCssEnabled NOTIFY changed)
+    Q_PROPERTY(QString figmaCustomCss READ figmaCustomCss WRITE setFigmaCustomCss NOTIFY changed)
+    Q_PROPERTY(QVariantMap figmaPalette READ figmaPalette NOTIFY effectiveThemeChanged)
+    Q_PROPERTY(bool translucentSidebars READ translucentSidebars WRITE setTranslucentSidebars NOTIFY changed)
+    Q_PROPERTY(QString sidebarBackdrop READ sidebarBackdrop WRITE setSidebarBackdrop NOTIFY changed)
     Q_PROPERTY(bool menuIntegration READ menuIntegration WRITE setMenuIntegration NOTIFY changed)
     Q_PROPERTY(bool reduceMotion READ reduceMotion WRITE setReduceMotion NOTIFY changed)
     Q_PROPERTY(int toolbarOpacity READ toolbarOpacity WRITE setToolbarOpacity NOTIFY changed)
@@ -39,8 +53,11 @@ class AppSettings : public QObject
     Q_PROPERTY(bool highRefreshRate READ highRefreshRate WRITE setHighRefreshRate NOTIFY changed)
     Q_PROPERTY(bool gpuRasterization READ gpuRasterization WRITE setGpuRasterization NOTIFY changed)
     Q_PROPERTY(bool zeroCopyRasterization READ zeroCopyRasterization WRITE setZeroCopyRasterization NOTIFY changed)
+    Q_PROPERTY(bool experimentalCanvasFeatures READ experimentalCanvasFeatures WRITE setExperimentalCanvasFeatures NOTIFY changed)
+    Q_PROPERTY(bool useVulkan READ useVulkan WRITE setUseVulkan NOTIFY changed)
     Q_PROPERTY(QString chromiumFlags READ chromiumFlags WRITE setChromiumFlags NOTIFY changed)
     Q_PROPERTY(QString profileStoragePath READ profileStoragePath CONSTANT)
+    Q_PROPERTY(QVariantList exportHistory READ exportHistory NOTIFY exportHistoryChanged)
 
 public:
     explicit AppSettings(QObject *parent = nullptr)
@@ -49,6 +66,7 @@ public:
         applyTheme();
         connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this,
                 [this] { emit effectiveThemeChanged(); });
+        qGuiApp->installEventFilter(this);
     }
 
     QString theme() const { return store.value(QStringLiteral("theme"), QStringLiteral("auto")).toString(); }
@@ -64,6 +82,30 @@ public:
                    && QGuiApplication::palette().color(QPalette::Window).lightness() < 128);
     }
     bool menuIntegration() const { return store.value(QStringLiteral("menuIntegration"), true).toBool(); }
+    bool figmaSystemColors() const { return store.value(QStringLiteral("figmaSystemColors"), false).toBool(); }
+    bool figmaCustomCssEnabled() const { return store.value(QStringLiteral("figmaCustomCssEnabled"), false).toBool(); }
+    QString figmaCustomCss() const { return store.value(QStringLiteral("figmaCustomCss")).toString(); }
+    bool translucentSidebars() const { return store.value(QStringLiteral("translucentSidebars"), false).toBool(); }
+    QString sidebarBackdrop() const { return store.value(QStringLiteral("sidebarBackdrop"), QStringLiteral("desktop")).toString(); }
+    QVariantMap figmaPalette() const
+    {
+        const QPalette palette = QGuiApplication::palette();
+        return {
+            {QStringLiteral("window"), palette.color(QPalette::Window).name()},
+            {QStringLiteral("base"), palette.color(QPalette::Base).name()},
+            {QStringLiteral("alternate"), palette.color(QPalette::AlternateBase).name()},
+            {QStringLiteral("button"), palette.color(QPalette::Button).name()},
+            {QStringLiteral("text"), palette.color(QPalette::WindowText).name()},
+            {QStringLiteral("secondaryText"), palette.color(QPalette::PlaceholderText).name()},
+            {QStringLiteral("disabledText"), palette.color(QPalette::Disabled, QPalette::WindowText).name()},
+            {QStringLiteral("border"), palette.color(QPalette::Mid).name()},
+            {QStringLiteral("accent"), palette.color(QPalette::Highlight).name()},
+            {QStringLiteral("accentText"), palette.color(QPalette::HighlightedText).name()},
+            {QStringLiteral("link"), palette.color(QPalette::Link).name()},
+            {QStringLiteral("tooltip"), palette.color(QPalette::ToolTipBase).name()},
+            {QStringLiteral("tooltipText"), palette.color(QPalette::ToolTipText).name()}
+        };
+    }
     bool reduceMotion() const { return store.value(QStringLiteral("reduceMotion"), false).toBool(); }
     int toolbarOpacity() const { return qBound(0, store.value(QStringLiteral("toolbarOpacity"), 100).toInt(), 100); }
     bool windowControlsInTabBar() const { return store.value(QStringLiteral("windowControlsInTabBar"), false).toBool(); }
@@ -75,6 +117,8 @@ public:
     bool highRefreshRate() const { return store.value(QStringLiteral("highRefreshRate"), true).toBool(); }
     bool gpuRasterization() const { return store.value(QStringLiteral("gpuRasterization"), true).toBool(); }
     bool zeroCopyRasterization() const { return store.value(QStringLiteral("zeroCopyRasterization"), true).toBool(); }
+    bool experimentalCanvasFeatures() const { return store.value(QStringLiteral("experimentalCanvasFeatures"), false).toBool(); }
+    bool useVulkan() const { return store.value(QStringLiteral("useVulkan"), false).toBool(); }
     QString chromiumFlags() const { return store.value(QStringLiteral("chromiumFlags")).toString(); }
     QString profileStoragePath() const
     {
@@ -90,12 +134,87 @@ public:
                + QStringLiteral("/QtWebEngine/resketch");
     }
     Q_INVOKABLE void copyToClipboard(const QString &text) const { QGuiApplication::clipboard()->setText(text); }
+    QVariantList exportHistory() const { return store.value(QStringLiteral("exportHistory")).toList(); }
+    Q_INVOKABLE void recordExport(const QString &directory, const QString &fileName,
+                                 const QString &originName, const QUrl &originUrl)
+    {
+        const QFileInfo file(QDir(directory).filePath(fileName));
+        if (!file.isFile())
+            return;
+        auto history = exportHistory();
+        const QString path = file.absoluteFilePath();
+        history.removeIf([&path](const QVariant &entry) { return entry.toMap().value(QStringLiteral("path")).toString() == path; });
+        history.prepend(QVariantMap{
+            {QStringLiteral("path"), path}, {QStringLiteral("name"), file.fileName()},
+            {QStringLiteral("url"), QUrl::fromLocalFile(path)},
+            {QStringLiteral("fileType"), file.suffix().toUpper()},
+            {QStringLiteral("originName"), originName}, {QStringLiteral("originUrl"), originUrl},
+            {QStringLiteral("exportedAt"), QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)}
+        });
+        store.setValue(QStringLiteral("exportHistory"), history);
+        emit exportHistoryChanged();
+    }
+    Q_INVOKABLE bool openExport(const QString &path, bool folder) const
+    {
+        return QDesktopServices::openUrl(QUrl::fromLocalFile(folder ? QFileInfo(path).absolutePath() : path));
+    }
+    Q_INVOKABLE bool deleteExport(const QString &path)
+    {
+        auto history = exportHistory();
+        const auto matches = [&path](const QVariant &entry) { return entry.toMap().value(QStringLiteral("path")).toString() == path; };
+        if (std::none_of(history.cbegin(), history.cend(), matches))
+            return false;
+        if (QFileInfo::exists(path) && !QFile::remove(path))
+            return false;
+        history.removeIf(matches);
+        store.setValue(QStringLiteral("exportHistory"), history);
+        emit exportHistoryChanged();
+        return true;
+    }
+    Q_INVOKABLE void clearExports()
+    {
+        store.remove(QStringLiteral("exportHistory"));
+        emit exportHistoryChanged();
+    }
+    Q_INVOKABLE QString chooseExportFolder(const QString &fileKey, const QString &fileName, QObject *owner)
+    {
+        const bool remember = QRegularExpression(QStringLiteral("^[a-zA-Z0-9_-]+$")).match(fileKey).hasMatch();
+        const QString setting = QStringLiteral("exportFolders/") + fileKey;
+        QString initial = remember ? store.value(setting).toString() : QString();
+        if (!QFileInfo(initial).isDir())
+            initial = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+        if (!QFileInfo(initial).isDir())
+            initial = QDir::homePath();
+
+        QFileDialog dialog;
+        dialog.setWindowTitle(fileName.isEmpty() ? tr("Choose export folder")
+                                                : tr("Choose export folder — %1").arg(fileName));
+        dialog.setFileMode(QFileDialog::Directory);
+        dialog.setOption(QFileDialog::ShowDirsOnly);
+        dialog.setSupportedSchemes({QStringLiteral("file")});
+        dialog.setLabelText(QFileDialog::Accept, tr("Export here"));
+        dialog.setDirectory(initial);
+        auto *window = qobject_cast<QWindow *>(owner);
+        dialog.setWindowModality(window ? Qt::WindowModal : Qt::ApplicationModal);
+        dialog.winId();
+        if (window)
+            dialog.windowHandle()->setTransientParent(window);
+        // Qt Quick rejects requests after downloadRequested returns without accept().
+        // Keep the native picker synchronous so no download starts before choosing.
+        if (dialog.exec() != QDialog::Accepted || dialog.selectedFiles().isEmpty())
+            return {};
+        const QString folder = dialog.selectedFiles().first();
+        if (remember)
+            store.setValue(setting, folder);
+        return folder;
+    }
     Q_INVOKABLE void refreshWindowBlur(QObject *object) const
     {
         auto *window = qobject_cast<QWindow *>(object);
         if (!window)
             return;
-        const int blurHeight = window->property("chromiumFrameLoaded").toBool()
+        const bool desktopSidebars = translucentSidebars() && sidebarBackdrop() == QStringLiteral("desktop");
+        const int blurHeight = window->property("chromiumFrameLoaded").toBool() && !desktopSidebars
                                    ? window->property("tabStripHeight").toInt() : window->height();
         const QRegion region(0, 0, window->width(), blurHeight);
         KWindowEffects::enableBlurBehind(window, toolbarOpacity() < 100 && !ignoreToolbarBlur(), region);
@@ -134,6 +253,46 @@ public:
         store.setValue(QStringLiteral("menuIntegration"), value);
         emit changed();
     }
+    void setFigmaSystemColors(bool value)
+    {
+        if (figmaSystemColors() == value)
+            return;
+        store.setValue(QStringLiteral("figmaSystemColors"), value);
+        emit changed();
+        emit figmaAppearanceChanged();
+    }
+    void setFigmaCustomCssEnabled(bool value)
+    {
+        if (figmaCustomCssEnabled() == value)
+            return;
+        store.setValue(QStringLiteral("figmaCustomCssEnabled"), value);
+        emit changed();
+        emit figmaAppearanceChanged();
+    }
+    void setFigmaCustomCss(const QString &value)
+    {
+        if (figmaCustomCss() == value)
+            return;
+        store.setValue(QStringLiteral("figmaCustomCss"), value);
+        emit changed();
+        emit figmaAppearanceChanged();
+    }
+    void setTranslucentSidebars(bool value)
+    {
+        if (translucentSidebars() == value)
+            return;
+        store.setValue(QStringLiteral("translucentSidebars"), value);
+        emit changed();
+        emit figmaAppearanceChanged();
+    }
+    void setSidebarBackdrop(const QString &value)
+    {
+        if ((value != QStringLiteral("desktop") && value != QStringLiteral("canvas")) || sidebarBackdrop() == value)
+            return;
+        store.setValue(QStringLiteral("sidebarBackdrop"), value);
+        emit changed();
+        emit figmaAppearanceChanged();
+    }
     void setReduceMotion(bool value)
     {
         if (reduceMotion() == value)
@@ -148,6 +307,8 @@ public:
             return;
         store.setValue(QStringLiteral("toolbarOpacity"), value);
         emit changed();
+        if (translucentSidebars())
+            emit figmaAppearanceChanged();
     }
     void setWindowControlsInTabBar(bool value)
     {
@@ -215,6 +376,20 @@ public:
         store.setValue(QStringLiteral("zeroCopyRasterization"), value);
         emit changed();
     }
+    void setExperimentalCanvasFeatures(bool value)
+    {
+        if (experimentalCanvasFeatures() == value)
+            return;
+        store.setValue(QStringLiteral("experimentalCanvasFeatures"), value);
+        emit changed();
+    }
+    void setUseVulkan(bool value)
+    {
+        if (useVulkan() == value)
+            return;
+        store.setValue(QStringLiteral("useVulkan"), value);
+        emit changed();
+    }
     void setChromiumFlags(const QString &value)
     {
         if (chromiumFlags() == value)
@@ -224,10 +399,19 @@ public:
     }
 
 signals:
+    void exportHistoryChanged();
     void changed();
     void effectiveThemeChanged();
+    void figmaAppearanceChanged();
 
 private:
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (watched == qGuiApp && event->type() == QEvent::ApplicationPaletteChange)
+            emit effectiveThemeChanged();
+        return QObject::eventFilter(watched, event);
+    }
+
     void applyTheme()
     {
         const Qt::ColorScheme scheme = theme() == QStringLiteral("dark") ? Qt::ColorScheme::Dark
@@ -326,6 +510,10 @@ int main(int argc, char *argv[])
     chromiumFlags += startupSettings.value(QStringLiteral("zeroCopyRasterization"), true).toBool()
                          ? QByteArrayLiteral(" --enable-zero-copy")
                          : QByteArrayLiteral(" --disable-zero-copy");
+    if (startupSettings.value(QStringLiteral("experimentalCanvasFeatures"), false).toBool())
+        chromiumFlags += QByteArrayLiteral(" --enable-experimental-canvas-features");
+    if (startupSettings.value(QStringLiteral("useVulkan"), false).toBool())
+        chromiumFlags += QByteArrayLiteral(" --use-gl=angle --enable-features=Vulkan --use-vulkan=native");
     // External and custom switches stay last so they can override these toggles.
     const QByteArray environmentFlags = qgetenv("QTWEBENGINE_CHROMIUM_FLAGS").trimmed();
     if (!environmentFlags.isEmpty())

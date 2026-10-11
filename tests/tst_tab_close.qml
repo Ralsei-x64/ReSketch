@@ -10,6 +10,12 @@ Item {
         property string theme: "auto"
         property bool menuIntegration: false
         property bool darkTheme: false
+        property bool figmaSystemColors: false
+        property bool figmaCustomCssEnabled: false
+        property string figmaCustomCss: ""
+        property var figmaPalette: ({})
+        property bool translucentSidebars: false
+        property string sidebarBackdrop: "desktop"
         property bool reduceMotion: false
         property int toolbarOpacity: 100
         property bool windowControlsInTabBar: false
@@ -21,13 +27,35 @@ Item {
         property bool highRefreshRate: true
         property bool gpuRasterization: true
         property bool zeroCopyRasterization: true
+        property bool experimentalCanvasFeatures: false
+        property bool useVulkan: false
         property string chromiumFlags: ""
         property string profileStoragePath: ""
+        property string exportFolderResult: "/tmp/resketch-exports"
+        property string requestedExportKey: ""
+        property var requestedExportOwner: null
+        property var exportHistory: []
+        property string recordedExport: ""
+        property string recordedOrigin: ""
+        property string copiedText: ""
         signal changed()
         signal effectiveThemeChanged()
+        signal figmaAppearanceChanged()
         function refreshWindowBlur(window) {}
         function registerMainWindow(window) {}
-        function copyToClipboard(text) {}
+        function copyToClipboard(text) { copiedText = text }
+        function chooseExportFolder(key, filename, owner) {
+            requestedExportKey = key
+            requestedExportOwner = owner
+            return exportFolderResult
+        }
+        function recordExport(directory, filename, originName, originUrl) {
+            recordedExport = directory + "/" + filename
+            recordedOrigin = originName
+        }
+        function clearExports() { exportHistory = [] }
+        function openExport(path, folder) { return true }
+        function deleteExport(path) { return true }
     }
 
     WebEngineProfile { id: testProfile; offTheRecord: true }
@@ -89,6 +117,101 @@ Item {
             appSettings.menuIntegration = false
             appSettings.changed()
             compare(bar.window, null)
+        }
+
+        function test_overview_sidebar_background_fades() {
+            compare(app.overviewSidebarBackdrop, 0)
+            app.toggleOverview()
+            compare(app.overviewVisible, true)
+            verify(app.overviewSidebarBackdrop < 1, "Overview background must not appear instantly")
+            tryCompare(app, "overviewSidebarBackdrop", 1, 300)
+            app.dismissOverview()
+            tryCompare(app, "overviewSidebarBackdrop", 0, 300)
+            appSettings.reduceMotion = true
+            app.toggleOverview()
+            compare(app.overviewSidebarBackdrop, 1)
+            app.dismissOverview()
+            compare(app.overviewSidebarBackdrop, 0)
+        }
+
+        function test_export_uses_originating_file_and_cancel() {
+            const owner = ({})
+            const request = {
+                id: 77,
+                view: {url: "https://www.figma.com/design/BackgroundFile/Name", title: "Source file — Figma", ownerWindow: owner},
+                suggestedFileName: "Frame.png", downloadDirectory: "", accepted: false, cancelled: false,
+                accept() { this.accepted = true },
+                cancel() { this.cancelled = true }
+            }
+            app.handleDownload(request)
+            compare(appSettings.requestedExportKey, "BackgroundFile")
+            compare(appSettings.requestedExportOwner, owner)
+            compare(request.downloadDirectory, appSettings.exportFolderResult)
+            compare(request.accepted, true)
+            request.view.title = "A different file — Figma"
+            request.state = WebEngineDownloadRequest.DownloadCompleted
+            request.downloadFileName = "Frame.png"
+            app.completeDownload(request)
+            compare(appSettings.recordedOrigin, "Source file")
+            verify(!app.exportOrigins[77])
+            appSettings.exportFolderResult = ""
+            request.accepted = false
+            request.downloadDirectory = ""
+            app.handleDownload(request)
+            compare(request.accepted, false)
+            compare(request.cancelled, true)
+            compare(request.downloadDirectory, "")
+            appSettings.exportFolderResult = "/tmp/resketch-exports"
+        }
+
+        function test_only_completed_exports_enter_history() {
+            appSettings.recordedExport = ""
+            const request = {state: WebEngineDownloadRequest.DownloadCancelled,
+                             downloadDirectory: "/tmp", downloadFileName: "Frame.png"}
+            app.completeDownload(request)
+            compare(appSettings.recordedExport, "")
+            request.state = WebEngineDownloadRequest.DownloadCompleted
+            app.completeDownload(request)
+            compare(appSettings.recordedExport, "/tmp/Frame.png")
+            app.openExportHistory()
+            const window = findChild(app, "exportHistoryWindow")
+            verify(window && window.visible)
+            window.close()
+        }
+
+        function test_export_history_origin_and_context_menu() {
+            appSettings.exportHistory = [{name: "Frame.png", fileType: "PNG", path: "/tmp/Frame.png",
+                                          originName: "A long Figma file name ".repeat(30),
+                                          exportedAt: "2026-10-11T12:00:00Z",
+                                          url: Qt.resolvedUrl("../Branding/SketchbookPNG/Folder-48.png")}]
+            app.openExportHistory()
+            const window = findChild(app, "exportHistoryWindow")
+            window.width = 500
+            const list = findChild(window, "exportsList")
+            tryCompare(list, "count", 1)
+            tryVerify(() => list.itemAtIndex(0)?.width > 0 && list.itemAtIndex(0)?.height > 0)
+            waitForRendering(window.contentItem)
+            const entry = list.itemAtIndex(0)
+            const origin = findChild(entry, "exportOriginLabel")
+            verify(origin.width < origin.implicitWidth, "Long origin must fit within the export row")
+            compare(origin.elide, Text.ElideRight)
+            mouseClick(entry, 40, 40, Qt.RightButton)
+            const menu = findChild(entry, "exportItemMenu")
+            tryCompare(menu, "visible", true)
+            menu.itemAt(0).triggered()
+            compare(appSettings.copiedText, "/tmp/Frame.png")
+            menu.close()
+            const search = findChild(window, "exportSearch")
+            search.text = "long figma"
+            tryCompare(list, "count", 1)
+            search.text = "svg"
+            tryCompare(list, "count", 0)
+            search.text = "PNG"
+            tryCompare(list, "count", 1)
+            search.text = ""
+            appSettings.clearExports()
+            tryCompare(list, "count", 0)
+            window.close()
         }
 
         function test_middle_click_does_not_close() {

@@ -35,6 +35,7 @@ Controls.ToolButton {
             height: button.icon.height
             anchors.centerIn: parent
             source: button.icon.name
+            color: button.icon.color.a > 0 ? button.icon.color : Kirigami.Theme.textColor
             opacity: button.enabled && !button.dimmed ? 1 : 0.5
         }
     }

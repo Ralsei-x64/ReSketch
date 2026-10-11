@@ -7,6 +7,8 @@ import Qt.labs.platform as Platform
 import QtWebEngine
 import org.kde.kirigami as Kirigami
 import "Policy.js" as Policy
+import "FigmaMenu.js" as FigmaMenu
+import "FigmaTheme.js" as FigmaTheme
 
 Kirigami.ApplicationWindow {
     id: root
@@ -24,6 +26,9 @@ Kirigami.ApplicationWindow {
     readonly property int tabIconSize: Kirigami.Units.iconSizes.small
     readonly property int tabContentLeftMargin: Kirigami.Units.smallSpacing + 5
     readonly property real toolbarAlpha: appSettings.toolbarOpacity / 100
+    readonly property bool desktopSidebars: appSettings.translucentSidebars
+                                            && appSettings.sidebarBackdrop === "desktop"
+                                            && appSettings.toolbarOpacity < 100
     readonly property int overviewColumns: Math.min(width < 1360 ? 3 : 4, tabModel.count + 1)
     readonly property int overviewRows: Math.ceil((overviewFilteredCount() + overviewClosingCardCount)
                                                   / overviewColumns)
@@ -46,6 +51,16 @@ Kirigami.ApplicationWindow {
     readonly property bool framelessTabBar: appSettings.windowControlsInTabBar && !appSettings.keepWindowDecorations
     readonly property bool chromiumFrameLoaded: !!activeView && activeView.hasLoadedFrame
                                                && !overviewVisible
+    readonly property string figmaAppearanceScript: FigmaTheme.script({
+        dark: appSettings.darkTheme,
+        systemColors: appSettings.figmaSystemColors,
+        palette: appSettings.figmaPalette,
+        customCssEnabled: appSettings.figmaCustomCssEnabled,
+        customCss: appSettings.figmaCustomCss,
+        translucentSidebars: appSettings.translucentSidebars,
+        sidebarBackdrop: appSettings.sidebarBackdrop,
+        opacity: appSettings.toolbarOpacity
+    }, FigmaMenu.storeSource)
     property var views: []
     property var homeView: null
     property var activeView: null
@@ -70,8 +85,14 @@ Kirigami.ApplicationWindow {
     property var closingViews: []
     property var readyCloseViews: []
     property var retiredOverviewViews: []
+    property var exportOrigins: ({})
     property int overviewClosingCardCount: 0
     property bool overviewVisible: false
+    property real overviewSidebarBackdrop: overviewVisible ? 1 : 0
+    Behavior on overviewSidebarBackdrop {
+        enabled: !appSettings.reduceMotion
+        NumberAnimation { duration: 150 }
+    }
     property bool overviewClosing: false
     property real overviewProgress: 0
     readonly property bool overviewAnimationRunning: overviewAnimation.running
@@ -90,6 +111,7 @@ Kirigami.ApplicationWindow {
     onClosing: {
         settingsWindow.close()
         aboutWindow.close()
+        exportHistoryWindow.close()
         if (primaryWindow) {
             primaryWindow.detachedWindows = primaryWindow.detachedWindows.filter(window => window !== root)
             Qt.callLater(() => root.destroy())
@@ -146,6 +168,7 @@ Kirigami.ApplicationWindow {
             Platform.MenuSeparator { visible: figmaMenus.fileActionCount > 0 }
             Platform.MenuItem { text: qsTr("Home"); onTriggered: root.activateHome() }
             Platform.MenuItem { text: qsTr("New file tab"); onTriggered: root.openTab(root.newTabUrl) }
+            Platform.MenuItem { text: qsTr("Export History"); onTriggered: root.openExportHistory() }
             Platform.MenuItem {
                 text: qsTr("Close tab")
                 enabled: root.activeIndex >= 0
@@ -809,6 +832,7 @@ Kirigami.ApplicationWindow {
                         Controls.MenuSeparator { visible: figmaMenus.fileActionCount > 0 }
                         Controls.MenuItem { text: qsTr("Home"); onTriggered: root.activateHome() }
                         Controls.MenuItem { text: qsTr("New file tab"); onTriggered: root.openTab(root.newTabUrl) }
+                        Controls.MenuItem { text: qsTr("Export History"); onTriggered: root.openExportHistory() }
                         Controls.MenuItem {
                             text: qsTr("Close tab")
                             enabled: root.activeIndex >= 0
@@ -971,6 +995,8 @@ Kirigami.ApplicationWindow {
 
             Rectangle {
                 anchors.fill: parent
+                opacity: root.desktopSidebars && root.activeView && root.activeView.hasLoadedFrame
+                         ? root.overviewSidebarBackdrop : 1
                 color: Qt.rgba(Kirigami.Theme.backgroundColor.r,
                                Kirigami.Theme.backgroundColor.g,
                                Kirigami.Theme.backgroundColor.b, root.toolbarAlpha)
@@ -1157,6 +1183,9 @@ Kirigami.ApplicationWindow {
                             Rectangle {
                                 anchors.fill: parent
                                 color: Kirigami.Theme.backgroundColor
+                                opacity: root.desktopSidebars && overviewCard.previewView
+                                         && overviewCard.previewView.hasLoadedFrame
+                                         ? root.overviewSidebarBackdrop : 1
                             }
 
                             Rectangle {
@@ -1367,6 +1396,7 @@ Kirigami.ApplicationWindow {
 
     SettingsWindow { id: settingsWindow; visible: false }
     AboutWindow { id: aboutWindow; visible: false }
+    ExportHistoryWindow { id: exportHistoryWindow; visible: false }
 
     Timer {
         interval: 30000
@@ -1418,6 +1448,18 @@ Kirigami.ApplicationWindow {
             for (const view of [root.homeView].concat(root.views))
                 root.syncFigmaTheme(view)
         }
+        function onFigmaAppearanceChanged() {
+            figmaAppearanceTimer.restart()
+        }
+    }
+
+    Timer {
+        id: figmaAppearanceTimer
+        interval: 50
+        onTriggered: {
+            for (const view of [root.homeView].concat(root.views))
+                root.syncFigmaTheme(view)
+        }
     }
 
     WebEngineProfile {
@@ -1425,7 +1467,8 @@ Kirigami.ApplicationWindow {
         storageName: root.sharedProfile ? "" : "resketch"
         persistentStoragePath: root.sharedProfile ? "" : appSettings.profileStoragePath
         offTheRecord: !!root.sharedProfile
-        onDownloadRequested: function(download) { download.accept() }
+        onDownloadRequested: function(download) { root.handleDownload(download) }
+        onDownloadFinished: function(download) { root.completeDownload(download) }
     }
 
     ParallelAnimation {
@@ -1523,6 +1566,7 @@ Kirigami.ApplicationWindow {
             property real overviewCloseHeight: 0
             property var frameContainer: null
             property var authWindow: null
+            readonly property var ownerWindow: root
             property url lastHomeUrl: root.homeUrl
             function startOverviewEntrance() {
                 overviewEntranceAnimation.start()
@@ -1577,6 +1621,14 @@ Kirigami.ApplicationWindow {
                        : 0
             profile: root.sharedProfile || figmaProfile
             settings.scrollAnimatorEnabled: !appSettings.reduceMotion
+            backgroundColor: root.desktopSidebars && !googleSignIn ? "transparent" : "white"
+            userScripts.collection: [{
+                name: "resketch-appearance",
+                sourceCode: root.figmaAppearanceScript,
+                injectionPoint: WebEngineScript.DocumentReady,
+                worldId: WebEngineScript.MainWorld,
+                runsOnSubFrames: false
+            }]
             transform: Translate { x: webView.frameContainer ? 0 : webView.slideX }
 
             onLoadingChanged: {
@@ -1725,9 +1777,10 @@ Kirigami.ApplicationWindow {
 
                         Controls.Label {
                             anchors.left: parent.left
-                            anchors.leftMargin: Kirigami.Units.largeSpacing
+                            anchors.leftMargin: Kirigami.Units.largeSpacing + Kirigami.Units.smallSpacing
                             anchors.verticalCenter: parent.verticalCenter
                             text: qsTr("Google sign in")
+                            font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.25
                         }
                         MouseArea {
                             anchors.fill: parent
@@ -1742,6 +1795,14 @@ Kirigami.ApplicationWindow {
                         buttonSize: root.tabStripHeight
                         showMinimizeMaximize: false
                     }
+                }
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: 1
+                    color: Kirigami.Theme.textColor
+                    opacity: 0.2
                 }
             }
 
@@ -1802,19 +1863,30 @@ Kirigami.ApplicationWindow {
         if (!view || view.loading || view.lifecycleState !== WebEngineView.LifecycleState.Active
                 || !Policy.isFigmaUrl(view.url))
             return
-        const theme = appSettings.darkTheme ? "dark" : "light"
-        view.runJavaScript("(function(theme) {"
-            + "if (!/(^|\\.)figma\\.com$/.test(location.hostname)) return;"
-            + "function apply() {"
-            + "if (document.body && document.body.getAttribute('data-preferred-theme') !== theme)"
-            + "document.body.setAttribute('data-preferred-theme', theme);"
-            + "}"
-            + "if (window.__resketchThemeObserver) window.__resketchThemeObserver.disconnect();"
-            + "window.__resketchThemeObserver = new MutationObserver(apply);"
-            + "if (document.body) window.__resketchThemeObserver.observe(document.body,"
-            + "{attributes: true, attributeFilter: ['data-preferred-theme']});"
-            + "apply();"
-            + "})('" + theme + "')")
+        view.runJavaScript(root.figmaAppearanceScript)
+    }
+
+    function handleDownload(download) {
+        const view = download.view
+        const key = Policy.fileKey(view ? view.url : download.url)
+        const origin = {name: view ? Policy.pageLabel(view.url, view.title) : qsTr("Unknown origin"),
+                        url: view ? String(view.url) : ""}
+        const owner = view ? view.authWindow || view.ownerWindow : root
+        const folder = appSettings.chooseExportFolder(key, download.suggestedFileName, owner)
+        if (!folder) {
+            download.cancel()
+            return
+        }
+        download.downloadDirectory = folder
+        exportOrigins[download.id] = origin
+        download.accept()
+    }
+
+    function completeDownload(download) {
+        const origin = exportOrigins[download.id] || {name: qsTr("Unknown origin"), url: ""}
+        delete exportOrigins[download.id]
+        if (download.state === WebEngineDownloadRequest.DownloadCompleted)
+            appSettings.recordExport(download.downloadDirectory, download.downloadFileName, origin.name, origin.url)
     }
 
     function handleExternalUrl(address) {
@@ -2165,6 +2237,12 @@ Kirigami.ApplicationWindow {
         settingsWindow.show()
         settingsWindow.raise()
         settingsWindow.requestActivate()
+    }
+
+    function openExportHistory() {
+        exportHistoryWindow.show()
+        exportHistoryWindow.raise()
+        exportHistoryWindow.requestActivate()
     }
 
     function triggerHomeMenuAction(command) {

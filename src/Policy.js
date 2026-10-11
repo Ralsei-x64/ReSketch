@@ -6,6 +6,11 @@ function isFileUrl(address) {
     return /^https:\/\/(?:[a-z0-9-]+\.)*figma\.com(?::443)?\/(?:file|design|board|proto|slides|deck|site|buzz|make)\/[^/?#]+/i.test(String(address))
 }
 
+function fileKey(address) {
+    const match = /^https:\/\/(?:[a-z0-9-]+\.)*figma\.com(?::443)?\/(?:file|design|board|proto|slides|deck|site|buzz|make)\/([a-z0-9_-]+)(?:[/?#]|$)/i.exec(String(address))
+    return match ? match[1] : ""
+}
+
 function isFileBrowserUrl(address) {
     return /^https:\/\/(?:[a-z0-9-]+\.)*figma\.com(?::443)?(?:\/(?:files(?:[/?#]|$)|[?#]|$)|[?#]|$)/i.test(String(address))
 }
