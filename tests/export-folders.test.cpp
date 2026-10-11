@@ -12,11 +12,19 @@ int main(int argc, char **argv)
     QTemporaryDir temporary;
     assert(temporary.isValid());
     QSettings::setPath(QSettings::NativeFormat, QSettings::UserScope, temporary.path());
+    qputenv("XDG_CONFIG_HOME", temporary.path().toUtf8());
+    const QString downloads = temporary.path() + "/Downloads";
+    assert(QDir().mkpath(downloads));
+    QFile userDirs(temporary.path() + "/user-dirs.dirs");
+    assert(userDirs.open(QIODevice::WriteOnly));
+    userDirs.write("XDG_DOWNLOAD_DIR=\"" + downloads.toUtf8() + "\"\n");
+    userDirs.close();
     const QString first = temporary.path() + "/first";
     const QString second = temporary.path() + "/second";
     QDir().mkpath(first);
     QDir().mkpath(second);
     QString fallback = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    assert(fallback == downloads);
     if (!QFileInfo(fallback).isDir()) fallback = QDir::homePath();
     const auto choose = [](AppSettings &settings, const QString &key,
                            const QString &expected, const QString &selection) {

@@ -4,7 +4,22 @@ A client for Figma which seeks to replace Figma-linux or using the webapp in you
 
 ## Build and run
 
-Requires Qt 6.8 or newer with Network, Quick, Quick Controls, WebEngine Quick, and Widgets, plus Kirigami, KF6 KWindowSystem, and the KDE desktop Qt Quick Controls style.
+With Nix and flakes enabled, build and launch the app with:
+
+```sh
+nix run
+```
+
+The flake provides the Qt/KDE build and runtime dependencies on x86_64 and
+aarch64 Linux. To build without launching, use `nix build`; the executable is
+then available at `./result/bin/resketch`. Run `nix flake check` to build the app
+and run the JavaScript, export/history, and theme-switching tests.
+
+For development, enter `nix develop`, then use the CMake commands below.
+The shell also includes Node.js and pkg-config for the tests in `tests/`.
+Run the C++ tests after building with `ctest --test-dir build --output-on-failure`.
+
+Requires Qt 6.8 or newer with Network, Quick, Quick Controls, WebEngine Quick, and Widgets, plus Kirigami, KF6 KWindowSystem, KF6 KColorScheme (6.6 or newer), KF6 KIconThemes (6.3 or newer), the KDE desktop Qt Quick Controls style, Breeze icons, and the Breeze light/dark color schemes.
 
 ```sh
 cmake -S . -B build -G Ninja
