@@ -21,10 +21,14 @@
 #include <QSettings>
 #include <QStandardPaths>
 #include <QStyleHints>
+#include <QStyle>
 #include <QTimer>
 #include <QVariantMap>
 #include <QWindow>
 #include <KWindowEffects>
+#include <KColorSchemeManager>
+#include <KIconTheme>
+#include <QModelIndex>
 #include <algorithm>
 #include <cstdio>
 #include <QtWebEngineQuick/qtwebenginequickglobal.h>
@@ -61,11 +65,16 @@ class AppSettings : public QObject
 
 public:
     explicit AppSettings(QObject *parent = nullptr)
-        : QObject(parent), store(QStringLiteral("aether64"), QStringLiteral("ReSketch"))
+        : QObject(parent), store(QStringLiteral("aether64"), QStringLiteral("ReSketch")),
+          systemPalette(QGuiApplication::palette())
     {
         applyTheme();
         connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this,
-                [this] { emit effectiveThemeChanged(); });
+                [this] {
+                    if (theme() == QStringLiteral("auto"))
+                        applyTheme();
+                    emit effectiveThemeChanged();
+                });
         qGuiApp->installEventFilter(this);
     }
 
@@ -79,7 +88,7 @@ public:
         const auto scheme = QGuiApplication::styleHints()->colorScheme();
         return scheme == Qt::ColorScheme::Dark
                || (scheme == Qt::ColorScheme::Unknown
-                   && QGuiApplication::palette().color(QPalette::Window).lightness() < 128);
+                   && systemPalette.color(QPalette::Window).lightness() < 128);
     }
     bool menuIntegration() const { return store.value(QStringLiteral("menuIntegration"), true).toBool(); }
     bool figmaSystemColors() const { return store.value(QStringLiteral("figmaSystemColors"), false).toBool(); }
@@ -414,13 +423,29 @@ private:
 
     void applyTheme()
     {
+        // Adwaita's light/dark widget styles hardcode their control surfaces,
+        // so they cannot follow an app palette switch. Breeze can.
+        if (QApplication::style()->objectName().startsWith(QStringLiteral("adwaita"), Qt::CaseInsensitive))
+            QApplication::setStyle(QStringLiteral("Breeze"));
         const Qt::ColorScheme scheme = theme() == QStringLiteral("dark") ? Qt::ColorScheme::Dark
                                        : theme() == QStringLiteral("light") ? Qt::ColorScheme::Light
                                                                             : Qt::ColorScheme::Unknown;
         QGuiApplication::styleHints()->setColorScheme(scheme);
+        // Kirigami's desktop theme reads KColorScheme, independently of the
+        // widget style's palette. Change both through KDE's scheme manager.
+        auto *manager = KColorSchemeManager::instance();
+        manager->setAutosaveChanges(false);
+        const bool kdeDesktop = qEnvironmentVariable("XDG_CURRENT_DESKTOP")
+                                    .split(QLatin1Char(':')).contains(QStringLiteral("KDE"));
+        const QString schemeId = theme() == QStringLiteral("auto") && kdeDesktop
+                                     ? QString()
+                                     : darkTheme() ? QStringLiteral("BreezeDark")
+                                                   : QStringLiteral("BreezeLight");
+        manager->activateScheme(manager->indexForSchemeId(schemeId));
     }
 
     QSettings store;
+    const QPalette systemPalette;
     QSet<QWindow *> registeredWindows;
 };
 
@@ -524,6 +549,7 @@ int main(int argc, char *argv[])
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS", chromiumFlags);
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
     QQuickWindow::setDefaultAlphaBuffer(true);
+    KIconTheme::initTheme();
     QtWebEngineQuick::initialize();
 
     QApplication app(argc, argv);
