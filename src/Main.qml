@@ -2747,6 +2747,15 @@ Kirigami.ApplicationWindow {
         }
     }
     Shortcut {
+        sequence: "Ctrl+Alt+Shift+Up"
+        onActivated: root.toggleOverview()
+    }
+    Shortcut {
+        sequence: "Ctrl+Alt+Shift+Down"
+        enabled: root.activeIndex >= 0
+        onActivated: root.moveTabToNewWindow(root.activeIndex)
+    }
+    Shortcut {
         sequence: "Ctrl+Alt+Shift+F"
         context: Qt.ApplicationShortcut
         onActivated: root.allFrozen ? root.wakeCurrentTab() : root.freezeAllTabs()
