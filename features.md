@@ -1,4 +1,4 @@
-# ReSketch features
+# All functions (use for reference)
 
 - **Native KDE interface:** Kirigami provides the desktop UI while Chromium displays Figma.
 - **Dedicated Home:** A permanent Home page opens files in their own tabs.
