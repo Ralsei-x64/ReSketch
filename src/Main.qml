@@ -129,6 +129,7 @@ Kirigami.ApplicationWindow {
     property bool overviewClosing: false
     property real overviewProgress: 0
     readonly property bool overviewAnimationRunning: overviewAnimation.running
+    readonly property bool overviewGroupAnimationRunning: tabGroups.some(group => overviewGroupContainer(group.id)?.transitioning)
     property var overviewSelectedView: null
     property var overviewDraggedView: null
     property int overviewDropIndex: -1
@@ -1374,6 +1375,10 @@ Kirigami.ApplicationWindow {
                             property bool collapsing: false
                             property bool expanding: false
                             readonly property bool transitioning: collapsing || expanding
+                            readonly property real expansion: transitioning
+                                ? Math.min(1, ...root.views.filter(view => view.tabGroupId === group?.id && !view.overviewClosingCard)
+                                                         .map(view => view.overviewEntrance))
+                                : group?.overviewCollapsed ? 0 : 1
                             readonly property bool dragging: root.overviewDraggedGroupId === group?.id
                             property bool settling: false
                             property real dragOffsetX: 0
@@ -1383,9 +1388,8 @@ Kirigami.ApplicationWindow {
                             transform: Translate { x: groupContainer.dragOffsetX; y: groupContainer.dragOffsetY }
                             x: root.overviewMargin - 10
                             y: dragging ? dragOriginY : region?.y ?? 0
-                            width: Math.min(overviewFlickable.width - 2 * x,
-                                            Math.min(region?.count || 1, root.overviewColumns)
-                                            * (root.overviewCardWidth + root.overviewGap) - root.overviewGap + 20)
+                            width: root.overviewCardWidth * (1 - expansion)
+                                   + (overviewFlickable.width - 2 * x) * expansion
                             height: region?.height ?? 0
                             visible: !!region
                             color: Qt.tint(Qt.rgba(Kirigami.Theme.backgroundColor.r,
@@ -1396,38 +1400,35 @@ Kirigami.ApplicationWindow {
                             border.width: 1
                             border.color: group?.color || "transparent"
                             Behavior on width {
-                                enabled: root.overviewProgress >= 0.999 && !appSettings.reduceMotion
+                                enabled: root.overviewProgress >= 0.999 && !root.overviewGroupAnimationRunning && !appSettings.reduceMotion
                                 NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
                             }
                             Behavior on y {
-                                enabled: root.overviewProgress >= 0.999 && !appSettings.reduceMotion
+                                enabled: root.overviewProgress >= 0.999 && !root.overviewGroupAnimationRunning && !appSettings.reduceMotion
                                          && !dragging && !settling
                                 NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
                             }
                             Behavior on height {
-                                enabled: root.overviewProgress >= 0.999 && !appSettings.reduceMotion
+                                enabled: root.overviewProgress >= 0.999 && !root.overviewGroupAnimationRunning && !appSettings.reduceMotion
                                 NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
                             }
                             function animateCollapsed(collapsed) {
+                                const progress = expansion
                                 collapseTimer.stop()
                                 expansionTimer.stop()
-                                for (const view of root.views.filter(view => view.tabGroupId === group.id
-                                                                      && !view.overviewClosingCard))
-                                    view.finishOverviewEntrance()
                                 collapsing = collapsed
                                 expanding = !collapsed
-                                if (collapsed) {
-                                    for (const view of root.views.filter(view => view.tabGroupId === group.id
-                                                                          && !view.overviewClosingCard))
-                                        view.startGroupOverviewClose()
-                                    collapseTimer.restart()
-                                } else {
+                                if (!collapsed)
                                     root.updateTabGroup(group.id, {overviewCollapsed: false}, true)
-                                    for (const view of root.views.filter(view => view.tabGroupId === group.id
-                                                                          && !view.overviewClosingCard))
-                                        view.startOverviewEntrance()
-                                    expansionTimer.restart()
+                                for (const view of root.views.filter(view => view.tabGroupId === group.id
+                                                                      && !view.overviewClosingCard)) {
+                                    view.finishOverviewEntrance()
+                                    view.overviewEntrance = progress
+                                    if (collapsed) view.startGroupOverviewClose()
+                                    else view.startOverviewEntrance(progress)
                                 }
+                                if (collapsed) collapseTimer.restart()
+                                else expansionTimer.restart()
                             }
                             Timer {
                                 id: collapseTimer
@@ -1674,6 +1675,7 @@ Kirigami.ApplicationWindow {
                                 Behavior on x {
                                     enabled: root.overviewVisible && root.overviewProgress >= 0.999
                                              && overviewCard.entrance >= 0.999 && !root.overviewAnimationRunning
+                                             && !root.overviewGroupAnimationRunning
                                              && !overviewCard.dragging && !overviewCard.settling
                                              && !overviewCard.changingParent && !overviewCard.container?.transitioning
                                              && !appSettings.reduceMotion
@@ -1682,6 +1684,7 @@ Kirigami.ApplicationWindow {
                                 Behavior on y {
                                     enabled: root.overviewVisible && root.overviewProgress >= 0.999
                                              && overviewCard.entrance >= 0.999 && !root.overviewAnimationRunning
+                                             && !root.overviewGroupAnimationRunning
                                              && !overviewCard.dragging && !overviewCard.settling
                                              && !overviewCard.changingParent && !overviewCard.container?.transitioning
                                              && !appSettings.reduceMotion
@@ -2482,7 +2485,8 @@ Kirigami.ApplicationWindow {
             property var authWindow: null
             property var ownerWindow: root
             property url lastHomeUrl: webView.ownerWindow.homeUrl
-            function startOverviewEntrance() {
+            function startOverviewEntrance(start = 0) {
+                overviewEntranceAnimation.from = start
                 overviewEntranceAnimation.start()
             }
             function finishOverviewEntrance() {
@@ -3055,11 +3059,11 @@ Kirigami.ApplicationWindow {
             .concat(order.filter(view => overviewMatches(views.indexOf(view))))
         const groupId = view => preview && view === overviewDraggedView && view !== homeView
                                   ? overviewDropGroupId : view.tabGroupId || ""
-        function place(list, top) {
+        function place(list, top, expansion = 1) {
             list.forEach((view, index) => items.push({view: view,
                 x: tabModel.count === 0 ? (browserArea.width - overviewCardWidth) / 2
-                   : overviewMargin + index % overviewColumns * (overviewCardWidth + overviewGap),
-                y: top + Math.floor(index / overviewColumns) * (overviewCardHeight + overviewGap)}))
+                   : overviewMargin + index % overviewColumns * (overviewCardWidth + overviewGap) * expansion,
+                y: top + Math.floor(index / overviewColumns) * (overviewCardHeight + overviewGap) * expansion}))
         }
         for (let first = 0; first < visibleViews.length;) {
             const id = groupId(visibleViews[first])
@@ -3068,10 +3072,11 @@ Kirigami.ApplicationWindow {
             const members = visibleViews.slice(first, end)
             const group = tabGroups.find(item => item.id === id)
             if (group) {
-                const height = 60 + (group.overviewCollapsed ? 0
-                    : Math.ceil(members.length / overviewColumns) * (overviewCardHeight + overviewGap) - overviewGap + 12)
+                const expansion = overviewGroupContainer(id)?.expansion ?? (group.overviewCollapsed ? 0 : 1)
+                const height = 60 + expansion
+                    * (Math.ceil(members.length / overviewColumns) * (overviewCardHeight + overviewGap) - overviewGap + 12)
                 groups.push({id: id, y: y, height: height, count: members.length})
-                place(members, y + 60)
+                place(members, y + 60, expansion)
                 y += height + overviewGap
             } else {
                 place(members, y)
@@ -3116,7 +3121,8 @@ Kirigami.ApplicationWindow {
         const layout = layoutOverview(false)
         const region = layout.groups.find(group => point.y >= group.y
                           && point.y <= group.y + group.height && point.x >= overviewMargin - 10
-                          && point.x <= browserArea.width - overviewMargin + 10)
+                          && point.x <= overviewMargin - 10 + (overviewGroupContainer(group.id)?.width
+                                                              ?? browserArea.width - 2 * (overviewMargin - 10)))
         overviewDropGroupId = region?.id || ""
         for (let i = 0; i < views.length; ++i) {
             if (!overviewMatches(i) || views[i].tabGroupId !== overviewDropGroupId) continue
