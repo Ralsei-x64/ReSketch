@@ -537,10 +537,12 @@ Item {
             compare(first.frameContainer.parent, card)
             mouseClick(container, 80, 25)
             compare(app.groupFor(first).overviewCollapsed, true)
-            compare(container.height, 60)
+            fuzzyCompare(container.height, app.overviewCardHeight, 1)
             fuzzyCompare(container.width, app.overviewCardWidth, 1)
             compare(card.visible, false)
-            compare(String(findChild(container, "overviewGroupArrow").source), "arrow-right")
+            compare(String(findChild(container, "overviewGroupArrow").source), "folder")
+            findChild(app, "overviewFlickable").resetScroll(0)
+            waitForRendering(app.contentItem)
             mouseClick(container, container.width - 30, 25)
             compare(app.groupFor(first).overviewCollapsed, false)
             compare(card.visible, true)
@@ -632,9 +634,97 @@ Item {
             verifySelection(second)
         }
 
+        function test_collapsed_group_card_body_drags_and_returns_without_expanding() {
+            appSettings.reduceMotion = true
+            const first = app.views[0], second = app.views[1], selected = app.activeView
+            const id = app.createTabGroup(first, "Group card")
+            app.assignTabGroup(second, id)
+            app.updateTabGroup(id, {overviewCollapsed: true})
+            app.toggleOverview()
+            const container = app.overviewGroupContainer(id)
+            fuzzyCompare(container.width, app.overviewCardWidth, 1)
+            fuzzyCompare(container.height, app.overviewCardHeight, 1)
+            const header = findChild(container, "overviewGroupHeader")
+            fuzzyCompare(header.height, container.height, 1)
+            const homeCard = overviewCard(app.homeView)
+            fuzzyCompare(container.x, homeCard.viewportX + homeCard.width + app.overviewGap, 1)
+            fuzzyCompare(container.y, homeCard.viewportY, 1)
+            waitForRendering(app.contentItem)
+            findChild(app, "overviewFlickable").resetScroll(0)
+            appSettings.reduceMotion = false
+            const start = container.mapToItem(app.contentItem, container.width / 2, container.height * 0.7)
+            mousePress(app.contentItem, start.x, start.y)
+            mouseMove(app.contentItem, start.x + 30, start.y + 15, 20)
+            tryCompare(app, "overviewDraggedGroupId", id)
+            mouseMove(app.contentItem, start.x + 55, start.y + 25, 20)
+            mouseRelease(app.contentItem, start.x + 55, start.y + 25)
+            tryCompare(app, "overviewDraggedGroupId", "")
+            verify(container.settling)
+            tryCompare(container, "settling", false)
+            compare(app.groupFor(first).overviewCollapsed, true)
+            compare(app.views[0], first)
+            compare(app.views[1], second)
+            compare(app.activeView, selected)
+            appSettings.reduceMotion = true
+            mouseClick(container, container.width / 2, container.height * 0.7)
+            compare(app.groupFor(first).overviewCollapsed, false)
+            compare(String(findChild(container, "overviewGroupArrow").source), "arrow-down")
+            compare(header.height, 60)
+            fuzzyCompare(container.width, findChild(app, "overviewFlickable").width - 2 * container.x, 1)
+            verify(overviewCard(first).viewportY >= container.y + header.height)
+        }
+
+        function test_collapsed_groups_share_grid_slots_and_expand_without_jumping() {
+            appSettings.reduceMotion = true
+            const first = app.views[0], second = app.views[1], third = app.views[2], fourth = app.views[3]
+            const firstId = app.createTabGroup(first, "First")
+            app.assignTabGroup(second, firstId)
+            const secondId = app.createTabGroup(third, "Second")
+            app.assignTabGroup(fourth, secondId)
+            app.activateHome()
+            app.updateTabGroup(firstId, {overviewCollapsed: true})
+            app.updateTabGroup(secondId, {overviewCollapsed: true})
+            app.toggleOverview()
+            const firstGroup = app.overviewGroupContainer(firstId), secondGroup = app.overviewGroupContainer(secondId)
+            const home = overviewCard(app.homeView)
+            fuzzyCompare(firstGroup.y, home.viewportY, 1)
+            fuzzyCompare(secondGroup.y, home.viewportY, 1)
+            fuzzyCompare(secondGroup.x - firstGroup.x, app.overviewCardWidth + app.overviewGap, 1)
+            const origin = Qt.point(firstGroup.x, firstGroup.y)
+            appSettings.reduceMotion = false
+            app.updateTabGroup(firstId, {overviewCollapsed: false})
+            fuzzyCompare(firstGroup.x, origin.x, 1)
+            fuzzyCompare(firstGroup.y, origin.y, 1)
+            tryCompare(firstGroup, "expanding", false)
+            fuzzyCompare(firstGroup.x, app.overviewMargin - 10, 1)
+            verify(firstGroup.y >= home.viewportY + home.height + app.overviewGap - 1)
+            compare(first.frameContainer.parent, overviewCard(first))
+            compare(overviewCard(first).parent, firstGroup.cardArea)
+            fuzzyCompare(overviewCard(first).viewportX, firstGroup.x + 10, 1)
+        }
+
+        function test_overview_group_card_can_reorder_between_cards_in_the_same_row() {
+            appSettings.reduceMotion = true
+            app.width = 1600
+            const first = app.views[0], second = app.views[1], before = app.views[2], after = app.views[3]
+            const id = app.createTabGroup(first, "Group")
+            app.assignTabGroup(second, id)
+            app.updateTabGroup(id, {overviewCollapsed: true})
+            app.toggleOverview()
+            const target = overviewCard(after)
+            app.overviewDraggedGroupId = id
+            const destination = app.overviewGroupDropTarget(Qt.point(target.viewportX + 10, target.viewportY + target.height / 2))
+            compare(destination, 1)
+            app.overviewDraggedGroupId = ""
+            app.moveTabGroup(id, destination, app.captureTabStripPositions())
+            compare(app.views, [before, first, second, after])
+            compare(app.groupFor(first).overviewCollapsed, true)
+        }
+
         function test_overview_group_header_drags_container_and_cards_together() {
             appSettings.reduceMotion = true
             app.width = 1600
+            app.height = 1200
             const first = app.views[0], second = app.views[1], selected = app.activeView
             const id = app.createTabGroup(first, "Design")
             app.assignTabGroup(second, id)
@@ -652,7 +742,7 @@ Item {
             const frame = first.frameContainer
             const origin = card.mapToItem(app.contentItem, 0, 0)
             const start = header.mapToItem(app.contentItem, 80, 25)
-            const end = other.mapToItem(app.contentItem, 80, other.height - 2)
+            const end = other.mapToItem(app.contentItem, other.width - 2, other.height / 2)
             mousePress(app.contentItem, start.x, start.y)
             mouseMove(app.contentItem, start.x + 30, start.y, 20)
             mouseMove(app.contentItem, end.x, end.y, 20)
@@ -687,7 +777,8 @@ Item {
             const height = container.height
             const width = container.width
             function verifyGeometry() {
-                fuzzyCompare(container.height, 60 + (height - 60) * container.expansion, 1)
+                fuzzyCompare(container.height, app.overviewCardHeight * (1 - container.expansion)
+                                               + height * container.expansion, 1)
                 fuzzyCompare(container.width, app.overviewCardWidth * (1 - container.expansion)
                                               + width * container.expansion, 1)
                 fuzzyCompare(card.opacity, container.expansion, 0.01)
@@ -708,12 +799,12 @@ Item {
             compare(container.cardArea.clip, true)
             compare(frame.parent, card)
             tryVerify(() => !!app.groupFor(first).overviewCollapsed)
-            tryCompare(container, "height", 60)
+            tryVerify(() => Math.abs(container.height - app.overviewCardHeight) < 1)
             compare(app.views.length, 4, "Collapsing never closes Chromium tabs")
             app.updateTabGroup(id, {overviewCollapsed: false})
             compare(container.expanding, true)
             compare(card.visible, true)
-            tryVerify(() => container.height > 60 && container.height < height)
+            tryVerify(() => container.height > app.overviewCardHeight && container.height < height)
             tryVerify(() => first.overviewEntrance > 0 && first.overviewEntrance < 1)
             verifyGeometry()
             verify(card.y < 0, "Expanding cards enter from the same offset as new cards")
