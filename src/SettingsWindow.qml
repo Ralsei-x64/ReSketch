@@ -33,6 +33,14 @@ Kirigami.ApplicationWindow {
     title: appSettings.safeMode ? "ReSketch — Safe Mode Settings" : "ReSketch — Settings"
     pageStack.globalToolBar.style: Kirigami.ApplicationHeaderStyle.None
 
+    Timer {
+        interval: 5000
+        repeat: true
+        running: settingsWindow.visible && settingsWindow.selectedSection === 2
+        onRunningChanged: if (running) appSettings.refreshMemoryUsage()
+        onTriggered: appSettings.refreshMemoryUsage()
+    }
+
     pageStack.initialPage: Kirigami.Page {
         padding: 0
         globalToolBarStyle: Kirigami.ApplicationHeaderStyle.None
@@ -369,6 +377,42 @@ Kirigami.ApplicationWindow {
                                 Kirigami.FormLayout {
                                     Layout.fillWidth: true
                                     wideMode: width >= 560
+
+                                    RowLayout {
+                                        Kirigami.FormData.label: "Total memory limit:"
+                                        Layout.fillWidth: true
+                                        Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
+                                        Controls.Slider {
+                                            id: memoryLimitSlider
+                                            objectName: "memoryLimitSlider"
+                                            Layout.fillWidth: true
+                                            from: 0
+                                            to: 32768
+                                            stepSize: 512
+                                            snapMode: Controls.Slider.SnapAlways
+                                            value: appSettings.memoryLimitMiB
+                                            onMoved: if (!pressed) appSettings.memoryLimitMiB = Math.round(value)
+                                            onPressedChanged: if (!pressed) appSettings.memoryLimitMiB = Math.round(value)
+                                        }
+                                        Controls.Label {
+                                            Layout.preferredWidth: 68
+                                            horizontalAlignment: Text.AlignRight
+                                            text: memoryLimitSlider.value === 0 ? qsTr("Unlimited")
+                                                  : qsTr("%1 GiB").arg((memoryLimitSlider.value / 1024).toFixed(1))
+                                        }
+                                    }
+                                    Controls.Label {
+                                        objectName: "totalMemoryUsageLabel"
+                                        Layout.fillWidth: true
+                                        text: qsTr("Current total: %1 MiB").arg(Math.round(appSettings.totalAppMemoryMiB))
+                                    }
+                                    Controls.Label {
+                                        Layout.fillWidth: true
+                                        Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
+                                        text: qsTr("Includes the app and all Chromium processes, counting shared memory once. Unloads the least recently used background tabs until usage falls below the limit. Unloaded tabs reload when selected. Active tabs and Home kept running are protected, so this is a target rather than a hard cap.")
+                                        wrapMode: Text.WordWrap
+                                        opacity: 0.72
+                                    }
 
                                     Controls.CheckBox {
                                         Kirigami.FormData.label: "UI memory:"

@@ -95,6 +95,8 @@ Kirigami.ApplicationWindow {
         && !pendingCloseViews.includes(view) && !closingViews.includes(view)).map(view => ({
         view: view, home: view === homeView, pid: view.renderProcessPid, title: view === homeView ? qsTr("Home") : Policy.pageLabel(view.tabUrl, view.title)
     }))
+    readonly property var memoryTabCandidates: [homeView].concat(views)
+        .filter(view => memoryUnloadEligible(view)).map(view => ({view: view, lastUsedAt: view.lastUsedAt}))
     property var pendingPopups: []
     property var homeView: null
     property var activeView: null
@@ -2685,6 +2687,7 @@ Kirigami.ApplicationWindow {
             property var sleepPreview: null
             property bool sleepCapturePending: false
             property int sleepCaptureSerial: 0
+            property bool memoryUnloaded: false
             property int requestedSleepState: WebEngineView.LifecycleState.Active
             readonly property bool showingSleepPreview: appSettings.sleepingTabPreviews
                                                         && !!sleepPreview
@@ -3134,6 +3137,7 @@ Kirigami.ApplicationWindow {
             view.slideZ = 0
             view.visible = !allFrozen
                            && !String(view.deferredRestoreUrl)
+                           && !view.memoryUnloaded
                            && (overviewVisible ? view.lifecycleState === WebEngineView.LifecycleState.Active
                                                 && !!view.frameContainer
                                                 && !!view.frameContainer.previewCard
@@ -3178,7 +3182,8 @@ Kirigami.ApplicationWindow {
             view.frameContainer.previewCard = card
             view.frameContainer.parent = target
         }
-        view.visible = !String(view.deferredRestoreUrl) && view.lifecycleState === WebEngineView.LifecycleState.Active
+        view.visible = !view.memoryUnloaded && !String(view.deferredRestoreUrl)
+            && view.lifecycleState === WebEngineView.LifecycleState.Active
         return true
     }
 
@@ -3437,6 +3442,10 @@ Kirigami.ApplicationWindow {
             activateView(target, target === homeView ? -1 : views.indexOf(target))
             return
         }
+        target.memoryUnloaded = false
+        target.requestedSleepState = WebEngineView.LifecycleState.Active
+        target.lifecycleState = WebEngineView.LifecycleState.Active
+        target.lastUsedAt = Date.now()
         loadRestoredTab(target)
         for (const view of [homeView].concat(views))
             view.finishOverviewEntrance()
@@ -3517,6 +3526,7 @@ Kirigami.ApplicationWindow {
     function updateTabLifecycle() {
         const protectedHome = homeMustStayAwake ? homeView : null
         if (protectedHome) {
+            protectedHome.memoryUnloaded = false
             protectedHome.requestedSleepState = WebEngineView.LifecycleState.Active
             if (protectedHome.lifecycleState !== WebEngineView.LifecycleState.Active)
                 protectedHome.lifecycleState = WebEngineView.LifecycleState.Active
@@ -3540,7 +3550,7 @@ Kirigami.ApplicationWindow {
         const minimumBackground = Math.max(0, appSettings.minimumLoadedTabs - foreground)
         let awake = 0
         for (const view of background) {
-            if (String(view.deferredRestoreUrl)) continue
+            if (String(view.deferredRestoreUrl) || view.memoryUnloaded) continue
             if (overviewVisible && appSettings.sleepingTabPreviews
                     && view.lifecycleState !== WebEngineView.LifecycleState.Active)
                 continue
@@ -3573,6 +3583,25 @@ Kirigami.ApplicationWindow {
         }
     }
 
+    function memoryUnloadEligible(view) {
+        return !!view && (view === homeView ? !homeMustStayAwake : views.includes(view))
+            && view !== activeView && view !== outgoingView && view !== overviewSelectedView
+            && view !== dragView && view !== tabDragSession?.view && !view.devToolsView
+            && !view.memoryUnloaded && !String(view.deferredRestoreUrl)
+            && view.lifecycleState !== WebEngineView.LifecycleState.Discarded
+            && !view.overviewClosingCard && !pendingCloseViews.includes(view) && !closingViews.includes(view)
+    }
+
+    function unloadTabForMemory(view) {
+        if (!memoryUnloadEligible(view)) return false
+        view.memoryUnloaded = true
+        view.visible = false
+        view.reloadAfterFreeze = false
+        if (view.loading) view.stop()
+        sleepTab(view, WebEngineView.LifecycleState.Discarded)
+        return true
+    }
+
     function sleepTab(view, state) {
         if (view === homeView && homeMustStayAwake) {
             view.requestedSleepState = WebEngineView.LifecycleState.Active
@@ -3603,8 +3632,10 @@ Kirigami.ApplicationWindow {
                 || (view === homeView && homeMustStayAwake)
                 || String(view.url) !== address || view.loading
                 || (!allFrozen && (view.visible || view === activeView || view === outgoingView))
-                || view.requestedSleepState === WebEngineView.LifecycleState.Active)
+                || view.requestedSleepState === WebEngineView.LifecycleState.Active) {
+            view.memoryUnloaded = false
             return
+        }
         if (preview && appSettings.sleepingTabPreviews) view.sleepPreview = preview
         view.lifecycleState = view.requestedSleepState
     }
@@ -3691,6 +3722,8 @@ Kirigami.ApplicationWindow {
         if (index < 0 || index >= views.length || allFrozen)
             return
         const view = views[index]
+        view.memoryUnloaded = false
+        view.requestedSleepState = WebEngineView.LifecycleState.Active
         if (String(view.deferredRestoreUrl)) {
             loadRestoredTab(view)
             return
@@ -3781,6 +3814,7 @@ Kirigami.ApplicationWindow {
         view.ownerWindow = root
         view.tabGroupId = ""
         view.sleepCapturePending = false
+        view.memoryUnloaded = false
         view.requestedSleepState = WebEngineView.LifecycleState.Active
         view.tabOpening = false
         views = views.concat(view)
@@ -4123,6 +4157,8 @@ Kirigami.ApplicationWindow {
             tabBar.currentIndex = index
         allFrozen = false
         next.lastUsedAt = Date.now()
+        next.memoryUnloaded = false
+        next.requestedSleepState = WebEngineView.LifecycleState.Active
         next.lifecycleState = WebEngineView.LifecycleState.Active
         loadRestoredTab(next)
         if (next.reloadAfterFreeze) {

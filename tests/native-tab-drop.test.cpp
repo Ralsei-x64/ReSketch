@@ -80,6 +80,29 @@ int main(int argc, char **argv)
         assert(!saved.contains(QStringLiteral("obsoleteSetting")));
         assert(saved.value(QStringLiteral("settingsInitialized")).toBool());
     }
+    {
+        const QString proc = temporary.path() + "/proc";
+        const auto write = [](const QString &path, const QByteArray &bytes) {
+            assert(QDir().mkpath(QFileInfo(path).absolutePath()));
+            QFile file(path);
+            assert(file.open(QIODevice::WriteOnly));
+            assert(file.write(bytes) == bytes.size());
+        };
+        write(proc + "/1/task/1/children", "2 3");
+        write(proc + "/1/task/9/children", "2 4"); // Child launched from another thread; duplicate PID.
+        write(proc + "/2/task/2/children", "5");
+        write(proc + "/1/smaps_rollup", "Rss: 999999 kB\nPss: 1024 kB\nPss_Anon: 900 kB\n");
+        write(proc + "/2/smaps_rollup", "Pss: 2048 kB\n");
+        write(proc + "/3/smaps_rollup", "Pss: 4096 kB\n");
+        write(proc + "/4/smaps_rollup", "Pss: 8192 kB\n");
+        write(proc + "/5/smaps_rollup", "Pss: 16384 kB\n");
+        assert(appProcessMemoryMiB(1, proc) == 31);
+        write(proc + "/5/smaps_rollup", "");
+        write(proc + "/5/statm", "100 2 1");
+        assert(appProcessMemoryMiB(1, proc) == 15 + 2.0 * sysconf(_SC_PAGESIZE) / (1024 * 1024));
+        assert(appProcessMemoryMiB(QCoreApplication::applicationPid()) > 0);
+    }
+    puts("Whole-process-family memory accounting, shared memory and fallback checks passed");
     puts("Safe-mode recovery and settings reset preserve export data and discard pending CSS checks passed");
     AppSettings settings;
     {
@@ -238,6 +261,50 @@ int main(int argc, char **argv)
         settings.setRememberOpenedTabs(false);
         puts("File/group session persistence, multi-window membership, empty groups and disabling checks passed");
     }
+    {
+        AppSettings budget;
+        assert(budget.memoryLimitMiB() == 0);
+        budget.setMemoryLimitMiB(32768);
+        AppSettings savedBudget;
+        assert(savedBudget.memoryLimitMiB() == 32768);
+        QQmlEngine budgetEngine;
+        QQmlComponent windowComponent(&budgetEngine);
+        windowComponent.setData(R"(
+            import QtQuick
+            Window {
+                property double usedAt: 0
+                property QtObject page: QtObject { property bool sleepCapturePending: false; property bool unloaded: false }
+                property var memoryTabCandidates: page.unloaded ? [] : [{view: page, lastUsedAt: usedAt}]
+                function unloadTabForMemory(view) { if (view !== page) return false; view.unloaded = true; return true }
+            }
+        )", QUrl());
+        std::unique_ptr<QObject> newer(windowComponent.create());
+        std::unique_ptr<QObject> older(windowComponent.create());
+        assert(newer && older);
+        newer->setProperty("usedAt", 200);
+        older->setProperty("usedAt", 100);
+        budget.registerMainWindow(newer.get());
+        budget.registerMainWindow(older.get());
+        auto *newPage = newer->property("page").value<QObject *>();
+        auto *oldPage = older->property("page").value<QObject *>();
+        assert(newPage && oldPage);
+        budget.finishMemoryCheck(32769);
+        assert(oldPage->property("unloaded").toBool() && !newPage->property("unloaded").toBool());
+        assert(budget.totalAppMemoryMiB() == 32769);
+        budget.finishMemoryCheck(32767);
+        assert(!newPage->property("unloaded").toBool()); // Stop as soon as total falls below the budget.
+        oldPage->setProperty("sleepCapturePending", true);
+        budget.finishMemoryCheck(32769);
+        assert(!newPage->property("unloaded").toBool()); // Wait for pending capture instead of mass unloading.
+        oldPage->setProperty("sleepCapturePending", false);
+        budget.finishMemoryCheck(32769);
+        assert(newPage->property("unloaded").toBool());
+        budget.setMemoryLimitMiB(0);
+        newPage->setProperty("unloaded", false);
+        budget.finishMemoryCheck(99999);
+        assert(!newPage->property("unloaded").toBool());
+    }
+    puts("Global LRU memory budget across windows, remeasurement, pending capture and unlimited checks passed");
     settings.setMenuIntegration(false);
     settings.setReduceMotion(true);
     QQmlApplicationEngine engine;
@@ -263,6 +330,23 @@ int main(int argc, char **argv)
         QTimer::singleShot(100, &loop, &QEventLoop::quit);
         loop.exec();
     };
+    evaluate("destination.homeView.stop(); for (let i = 0; i < 3; ++i) { destination.openTab('about:blank', null, true); destination.views[i].stop(); }"
+             "destination.views[0].lastUsedAt = 200; destination.views[1].lastUsedAt = 100; destination.views[2].lastUsedAt = 300;");
+    render();
+    settings.setMemoryLimitMiB(32768);
+    settings.finishMemoryCheck(32769);
+    assert(evaluate("destination.views[1].memoryUnloaded && !destination.views[0].memoryUnloaded && !destination.views[2].memoryUnloaded").toBool());
+    render();
+    assert(evaluate("destination.views[1].lifecycleState === 2").toBool());
+    settings.finishMemoryCheck(32767);
+    assert(!evaluate("destination.views[0].memoryUnloaded").toBool());
+    evaluate("destination.activateTab(1, false);");
+    assert(!evaluate("destination.views[1].memoryUnloaded").toBool());
+    settings.setMemoryLimitMiB(0);
+    evaluate("destination.views.slice().reverse().forEach(view => destination.closeTab(destination.views.indexOf(view)));");
+    for (int i = 0; i < 10 && evaluate("destination.views.length").toInt(); ++i) render();
+    assert(evaluate("destination.views.length").toInt() == 0);
+    puts("Native memory controller unloads real QML WebEngine tabs and selection restores them");
     evaluate("destination.homeView.stop(); destination.openTab('https://www.figma.com/design/Live_A/Live-File', null, true); destination.views[0].stop();");
     settings.setRememberOpenedTabs(true);
     settings.saveOpenedTabs(destination);

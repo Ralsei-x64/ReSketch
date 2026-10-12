@@ -14,6 +14,8 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFutureWatcher>
+#include <QtConcurrentRun>
 #include <QIcon>
 #include <QJSValue>
 #include <QLocalServer>
@@ -153,6 +155,53 @@ static bool hasGraphicsAcceleration(QQuickWindow *window)
     }
 }
 
+// Count each process once and use proportional resident memory for shared mappings.
+static double appProcessMemoryMiB(qint64 rootPid, const QString &procRoot = QStringLiteral("/proc"))
+{
+#ifdef Q_OS_LINUX
+    QList<qint64> pending{rootPid};
+    QSet<qint64> visited;
+    double totalKiB = 0;
+    for (qsizetype index = 0; index < pending.size(); ++index) {
+        const qint64 pid = pending[index];
+        if (visited.contains(pid)) continue;
+        visited.insert(pid);
+        const QDir directory(procRoot + QStringLiteral("/%1").arg(pid));
+        const QDir threads(directory.filePath(QStringLiteral("task")));
+        for (const auto &thread : threads.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+            QFile children(threads.filePath(thread + QStringLiteral("/children")));
+            if (!children.open(QIODevice::ReadOnly)) continue;
+            for (const auto &child : children.readAll().trimmed().split(' ')) {
+                bool valid = false;
+                const qint64 id = child.toLongLong(&valid);
+                if (valid && id > 0) pending.append(id);
+            }
+        }
+        QFile memory(directory.filePath(QStringLiteral("smaps_rollup")));
+        bool measured = false;
+        if (memory.open(QIODevice::ReadOnly)) {
+            for (const auto &line : memory.readAll().split('\n')) {
+                if (!line.startsWith("Pss:")) continue;
+                bool valid = false;
+                const double value = line.simplified().split(' ').value(1).toDouble(&valid);
+                if (valid) { totalKiB += value; measured = true; }
+                break;
+            }
+        }
+        if (!measured) {
+            QFile stat(directory.filePath(QStringLiteral("statm")));
+            if (stat.open(QIODevice::ReadOnly))
+                totalKiB += stat.readAll().simplified().split(' ').value(1).toDouble() * sysconf(_SC_PAGESIZE) / 1024.0;
+        }
+    }
+    return totalKiB / 1024.0;
+#else
+    Q_UNUSED(rootPid);
+    Q_UNUSED(procRoot);
+    return 0;
+#endif
+}
+
 class AppSettings : public QObject
 {
     Q_OBJECT
@@ -172,6 +221,8 @@ class AppSettings : public QObject
     Q_PROPERTY(bool ignoreToolbarBlur READ ignoreToolbarBlur WRITE setIgnoreToolbarBlur NOTIFY changed)
     Q_PROPERTY(int minimumLoadedTabs READ minimumLoadedTabs WRITE setMinimumLoadedTabs NOTIFY changed)
     Q_PROPERTY(int maximumLoadedTabs READ maximumLoadedTabs WRITE setMaximumLoadedTabs NOTIFY changed)
+    Q_PROPERTY(int memoryLimitMiB READ memoryLimitMiB WRITE setMemoryLimitMiB NOTIFY changed)
+    Q_PROPERTY(double totalAppMemoryMiB READ totalAppMemoryMiB NOTIFY totalAppMemoryChanged)
     Q_PROPERTY(int sleepMinutes READ sleepMinutes WRITE setSleepMinutes NOTIFY changed)
     Q_PROPERTY(bool sleepingTabPreviews READ sleepingTabPreviews WRITE setSleepingTabPreviews NOTIFY changed)
     Q_PROPERTY(bool keepHomeAwake READ keepHomeAwake WRITE setKeepHomeAwake NOTIFY changed)
@@ -206,6 +257,19 @@ public:
                 [this] { emit effectiveThemeChanged(); });
         qGuiApp->installEventFilter(this);
         connect(qGuiApp, &QCoreApplication::aboutToQuit, this, [this] { saveOpenedTabs(); });
+        connect(&memoryMonitor, &QTimer::timeout, this, &AppSettings::refreshMemoryUsage);
+        connect(&memorySample, &QFutureWatcher<double>::finished, this, [this] {
+            memorySamplePending = false;
+            finishMemoryCheck(memorySample.result());
+        });
+        const auto updateMonitor = [this] {
+            if (!this->safeMode() && memoryLimitMiB() > 0) {
+                if (!memoryMonitor.isActive()) memoryMonitor.start(5000);
+                refreshMemoryUsage();
+            } else memoryMonitor.stop();
+        };
+        connect(this, &AppSettings::changed, this, updateMonitor);
+        QTimer::singleShot(0, this, updateMonitor);
     }
 
     QString theme() const { return store.value(QStringLiteral("theme"), QStringLiteral("auto")).toString(); }
@@ -407,6 +471,8 @@ public:
     bool ignoreToolbarBlur() const { return store.value(QStringLiteral("ignoreToolbarBlur"), false).toBool(); }
     int minimumLoadedTabs() const { return qBound(1, store.value(QStringLiteral("minimumLoadedTabs"), 1).toInt(), 5); }
     int maximumLoadedTabs() const { return qBound(1, store.value(QStringLiteral("maximumLoadedTabs"), 5).toInt(), 100); }
+    int memoryLimitMiB() const { return qBound(0, store.value(QStringLiteral("memoryLimitMiB"), 0).toInt(), 32768); }
+    double totalAppMemoryMiB() const { return totalMemory; }
     int sleepMinutes() const { return qBound(1, store.value(QStringLiteral("sleepMinutes"), 5).toInt(), 240); }
     bool sleepingTabPreviews() const { return store.value(QStringLiteral("sleepingTabPreviews"), false).toBool(); }
     bool keepHomeAwake() const { return store.value(QStringLiteral("keepHomeAwake"), true).toBool(); }
@@ -552,6 +618,50 @@ public:
                                    ? window->property("tabStripHeight").toInt() : window->height();
         const QRegion region(0, 0, window->width(), blurHeight);
         KWindowEffects::enableBlurBehind(window, !safeMode() && toolbarOpacity() < 100 && !ignoreToolbarBlur(), region);
+    }
+    Q_INVOKABLE void refreshMemoryUsage()
+    {
+        if (memorySamplePending) return;
+        memorySamplePending = true;
+        const auto pid = QCoreApplication::applicationPid();
+        memorySample.setFuture(QtConcurrent::run([pid] { return appProcessMemoryMiB(pid); }));
+    }
+    void finishMemoryCheck(double usage)
+    {
+        totalMemory = usage;
+        emit totalAppMemoryChanged();
+        if (safeMode() || memoryLimitMiB() <= 0) return;
+        memoryMonitor.setInterval(5000);
+        if (usage <= memoryLimitMiB()) return;
+        memoryMonitor.setInterval(1000);
+        // Let Chromium finish discarding and release memory before choosing another tab.
+        if (memoryPendingTab && memoryPendingTab->property("sleepCapturePending").toBool()) return;
+        memoryPendingTab = nullptr;
+        struct Candidate { QPointer<QWindow> window; QPointer<QObject> view; double lastUsed; };
+        QList<Candidate> candidates;
+        for (auto *window : registeredWindows) {
+            const auto data = window->property("memoryTabCandidates");
+            const auto tabs = data.metaType() == QMetaType::fromType<QJSValue>()
+                ? data.value<QJSValue>().toVariant().toList() : data.toList();
+            for (const auto &entry : tabs) {
+                const auto tab = entry.toMap();
+                if (auto *view = tab.value(QStringLiteral("view")).value<QObject *>())
+                    candidates.append({window, view, tab.value(QStringLiteral("lastUsedAt")).toDouble()});
+            }
+        }
+        std::stable_sort(candidates.begin(), candidates.end(), [](const auto &a, const auto &b) {
+            return a.lastUsed < b.lastUsed;
+        });
+        for (const auto &candidate : candidates) {
+            if (!candidate.window || !candidate.view) continue;
+            QVariant accepted;
+            if (QMetaObject::invokeMethod(candidate.window, "unloadTabForMemory", Q_RETURN_ARG(QVariant, accepted),
+                                          Q_ARG(QVariant, QVariant::fromValue(candidate.view.data()))) && accepted.toBool()) {
+                memoryPendingTab = candidate.view;
+                return;
+            }
+        }
+        memoryMonitor.setInterval(5000);
     }
     Q_INVOKABLE QVariantList chromiumTabResources()
     {
@@ -739,6 +849,13 @@ public:
         store.setValue(QStringLiteral("maximumLoadedTabs"), value);
         emit changed();
     }
+    void setMemoryLimitMiB(int value)
+    {
+        value = qBound(0, value, 32768);
+        if (memoryLimitMiB() == value) return;
+        store.setValue(QStringLiteral("memoryLimitMiB"), value);
+        emit changed();
+    }
     void setSleepMinutes(int value)
     {
         value = qBound(1, value, 240);
@@ -827,6 +944,7 @@ public:
     }
 
 signals:
+    void totalAppMemoryChanged();
     void gpuAccelerationWarningChanged();
     void exportHistoryChanged();
     void changed();
@@ -860,6 +978,11 @@ private:
     QElapsedTimer processSampleClock;
     QMap<qint64, ProcessSample> processSamples;
     QSet<QWindow *> registeredWindows;
+    QTimer memoryMonitor;
+    QFutureWatcher<double> memorySample;
+    QPointer<QObject> memoryPendingTab;
+    double totalMemory = 0;
+    bool memorySamplePending = false;
     bool graphicsChecked = false;
     QString graphicsWarning;
 };

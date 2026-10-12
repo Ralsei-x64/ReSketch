@@ -31,6 +31,7 @@
 - **Export folders:** Choose and remember a separate export folder for each Figma file.
 - **Export history:** Search recent exports with previews, file types, origins, and actions to open, reveal, copy paths, or delete files.
 - **History clearing:** Clear export records with animated removal while retaining the exported files.
+- **Memory limit:** Set a total app memory target that unloads the least recently used background tabs across windows.
 - **Performance settings:** Control overview quality, UI memory optimizations, GPU rendering options, and additional Chromium switches.
 - **GPU warning:** Display a warning when GPU acceleration cannot be detected.
 - **Safe mode:** Hold Alt at startup or use `--safe-mode` to disable acceleration and experimental features while adjusting settings.

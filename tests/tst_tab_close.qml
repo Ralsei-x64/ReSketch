@@ -32,6 +32,9 @@ Item {
         property bool ignoreToolbarBlur: false
         property int minimumLoadedTabs: 5
         property int maximumLoadedTabs: 5
+        property int memoryLimitMiB: 0
+        property real totalAppMemoryMiB: 0
+        function refreshMemoryUsage() {}
         property int sleepMinutes: 5
         property bool sleepingTabPreviews: false
         property bool keepHomeAwake: true
@@ -1551,6 +1554,7 @@ Item {
             appSettings.translucentSidebars = false
             appSettings.toolbarOpacity = 100
             appSettings.sidebarBackdrop = "desktop"
+            appSettings.memoryLimitMiB = 0
             appSettings.sleepMinutes = 5
             appSettings.maximumLoadedTabs = 5
             appSettings.minimumLoadedTabs = 5
@@ -1769,6 +1773,63 @@ Item {
             compare(result.app, "rgb(238, 238, 238)")
             compare(result.underlay, "rgb(238, 238, 238)")
             compare(result.canvas, "visible")
+        }
+
+        function test_memory_limit_slider_commits_on_release() {
+            app.openSettings()
+            const window = findChild(app, "settingsWindow")
+            window.selectedSection = 2
+            const slider = findChild(window, "memoryLimitSlider")
+            tryVerify(() => slider.visible && slider.width > 0)
+            waitForRendering(window.contentItem)
+            const handle = slider.handle.mapToItem(slider, slider.handle.width / 2, slider.handle.height / 2)
+            mousePress(slider, handle.x, handle.y)
+            compare(slider.pressed, true)
+            compare(appSettings.memoryLimitMiB, 0, "Dragging must not apply intermediate limits")
+            mouseMove(slider, slider.width / 2, slider.height / 2)
+            mouseRelease(slider, slider.width / 2, slider.height / 2)
+            verify(appSettings.memoryLimitMiB > 0)
+            compare(appSettings.memoryLimitMiB, Math.round(slider.value))
+            compare(appSettings.memoryLimitMiB % 512, 0)
+            appSettings.memoryLimitMiB = 0
+            compare(slider.value, 0)
+            window.close()
+        }
+
+        function test_memory_unloading_stays_unloaded_until_selected_data() {
+            return [{tag: "previews-on", previews: true}, {tag: "previews-off", previews: false}]
+        }
+
+        function test_memory_unloading_stays_unloaded_until_selected(data) {
+            appSettings.reduceMotion = true
+            appSettings.sleepingTabPreviews = data.previews
+            appSettings.maximumLoadedTabs = 100
+            const first = app.views[0]
+            app.activateTab(0, false)
+            first.hasLoadedFrame = true
+            waitForRendering(app.contentItem)
+            app.activateTab(2, false)
+            const selected = app.activeView
+            verify(!app.unloadTabForMemory(selected), "Do not unload a current tab")
+            verify(!app.unloadTabForMemory(app.homeView), "Keep Home running")
+            verify(app.unloadTabForMemory(first))
+            app.toggleOverview()
+            app.syncOverviewFrames()
+            compare(first.visible, false, "Overview must not interrupt a pending memory unload")
+            tryCompare(first, "lifecycleState", WebEngineView.LifecycleState.Discarded)
+            verify(first.memoryUnloaded)
+            if (data.previews) verify(first.sleepPreview)
+            app.updateTabLifecycle()
+            compare(first.lifecycleState, WebEngineView.LifecycleState.Discarded,
+                    "The minimum loaded count must not undo memory unloading")
+            compare(first.lifecycleState, WebEngineView.LifecycleState.Discarded,
+                    "Opening overview must not reload a memory-unloaded tab")
+            compare(app.activeView, selected)
+            verify(!app.memoryTabCandidates.some(tab => tab.view === first))
+            app.selectOverviewView(first)
+            compare(app.activeView, first)
+            compare(first.lifecycleState, WebEngineView.LifecycleState.Active)
+            compare(first.memoryUnloaded, false)
         }
 
         function test_maximum_loaded_tabs_sleeps_oldest_without_waiting() {
