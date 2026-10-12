@@ -466,7 +466,9 @@ Kirigami.ApplicationWindow {
                                 onFinished: tabButton.fillingClose = false
                             }
                             function startCloseFill(distance) {
-                                fillOffset = distance
+                                const remaining = fillingClose ? fillOffset : 0
+                                closeFill.stop()
+                                fillOffset = remaining + distance
                                 fillingClose = true
                                 closeFill.start()
                             }
@@ -895,6 +897,7 @@ Kirigami.ApplicationWindow {
 
                 Item {
                     id: selectionBar
+                    objectName: "selectionBar"
                     property real startOffset: 0
                     property real endOffset: 0
                     readonly property var currentTab: root.activeIndex >= 0 ? tabBar.currentItem : null
@@ -1058,11 +1061,12 @@ Kirigami.ApplicationWindow {
                             overviewWheelScroll.stop()
                         contentY = wheelTargetY
                     }
-                    function resetScroll() {
+                    function resetScroll(position = 0) {
                         overviewWheelScroll.stop()
+                        cancelFlick()
                         smoothWheel = false
-                        wheelTargetY = 0
-                        contentY = 0
+                        wheelTargetY = Math.max(0, Math.min(position, contentHeight - height))
+                        contentY = wheelTargetY
                     }
                     anchors.fill: parent
                     z: root.overviewDraggedView || (root.overviewSelectedView
@@ -2495,7 +2499,8 @@ Kirigami.ApplicationWindow {
         overviewClosing = false
         overviewProgress = 0
         overviewSearch.text = ""
-        overviewFlickable.resetScroll()
+        const selectedCardY = overviewCardY(overviewFilteredSlot(overviewSlot(activeView)))
+        overviewFlickable.resetScroll(selectedCardY - (overviewFlickable.height - overviewCardHeight) / 2)
         overviewVisible = true
         for (const view of [homeView].concat(views)) {
             if (!view)
@@ -2527,6 +2532,7 @@ Kirigami.ApplicationWindow {
         overviewWheelScroll.stop()
         overviewFlickable.wheelTargetY = overviewFlickable.contentY
         overviewSelectedView = target
+        selectTabInStrip(target, target === homeView ? -1 : views.indexOf(target))
         overviewClosing = true
         if (appSettings.reduceMotion) {
             overviewProgress = 0
@@ -3023,54 +3029,28 @@ Kirigami.ApplicationWindow {
         }
     }
 
-    function activateView(next, index, animateWebSlide) {
-        if (overviewVisible) {
-            selectOverviewView(next)
-            return
-        }
-        const allowWebSlide = !skipNextWebSlide && animateWebSlide !== false
-        skipNextWebSlide = false
+    function selectTabInStrip(next, index) {
         const previous = activeView
         const previousIndex = activeIndex
         const waitForOpening = !appSettings.reduceMotion && !!next.tabOpening
         const animateSelection = previous && previous !== next && selectionBar.visible
-                                 && !appSettings.reduceMotion
+                                 && !appSettings.reduceMotion && !allFrozen
         const oldLeft = animateSelection ? selectionBar.x : 0
         const oldRight = animateSelection ? selectionBar.x + selectionBar.width : 0
         selectionGlide.stop()
         homeSelectionGlide = animateSelection && (previous === homeView || next === homeView)
-        if (allFrozen) {
-            homeSelectionGlide = false
-            selectionBar.startOffset = 0
-            selectionBar.endOffset = 0
-            heldOpenSelection = null
-            hideHeldSelection = false
-            allFrozen = false
-            activeView = next
-            tabBar.currentIndex = index
-            next.lastUsedAt = Date.now()
-            next.lifecycleState = WebEngineView.LifecycleState.Active
-            next.visible = true
-            if (next.reloadAfterFreeze) {
-                next.reloadAfterFreeze = false
-                next.reload()
-            }
-            next.forceActiveFocus()
-            updateTabLifecycle()
-            return
-        }
-        resetSlide()
         activeView = next
+        tabBar.currentIndex = index
         wheelScroll.stop()
+        tabsViewport.smoothWheel = false
         if (index >= 0) {
             const left = index * tabWidth
             const right = left + tabWidth
             if (left < tabsViewport.contentX)
-                tabsViewport.contentX = left
+                tabsViewport.scrollBy(tabsViewport.contentX - left, false)
             else if (right > tabsViewport.contentX + tabsViewport.width)
-                tabsViewport.contentX = Math.max(0, right - tabsViewport.width)
+                tabsViewport.scrollBy(tabsViewport.contentX - Math.max(0, right - tabsViewport.width), false)
         }
-        tabsViewport.wheelTargetX = tabsViewport.contentX
         heldOpenSelection = waitForOpening ? next : null
         hideHeldSelection = !!waitForOpening && !animateSelection
         if (animateSelection) {
@@ -3086,6 +3066,24 @@ Kirigami.ApplicationWindow {
             selectionBar.startOffset = 0
             selectionBar.endOffset = 0
         }
+    }
+
+    function activateView(next, index, animateWebSlide) {
+        if (overviewVisible) {
+            selectOverviewView(next)
+            return
+        }
+        const allowWebSlide = !skipNextWebSlide && animateWebSlide !== false
+        skipNextWebSlide = false
+        const previous = activeView
+        const previousIndex = activeIndex
+        const frozen = allFrozen
+        resetSlide()
+        if (previous !== next || frozen)
+            selectTabInStrip(next, index)
+        else
+            tabBar.currentIndex = index
+        allFrozen = false
         next.lastUsedAt = Date.now()
         next.lifecycleState = WebEngineView.LifecycleState.Active
         if (next.reloadAfterFreeze) {
@@ -3094,7 +3092,7 @@ Kirigami.ApplicationWindow {
         }
         tabBar.currentIndex = index
         if (previous && previous !== next && browserArea.width > 0
-                && !appSettings.reduceMotion && allowWebSlide) {
+                && !appSettings.reduceMotion && allowWebSlide && !frozen) {
             const direction = index > previousIndex ? 1 : -1
             const distance = browserArea.width
             outgoingView = previous
@@ -3290,11 +3288,16 @@ Kirigami.ApplicationWindow {
         overviewClosingCardCount++
         if (activeView === view) {
             const nextIndex = nextAvailableTab(index)
-            activeView = nextIndex >= 0 ? views[nextIndex] : homeView
-            tabBar.currentIndex = activeIndex
+            selectTabInStrip(nextIndex >= 0 ? views[nextIndex] : homeView, nextIndex)
         }
         if (overviewSelectedView === view)
             overviewSelectedView = activeView
+        const tab = tabRepeater.itemAt(index)
+        if (tab) {
+            const position = tab.mapToItem(tabsViewport, 0, 0)
+            if (position.x + tab.width > 0 && position.x < tabsViewport.width)
+                tab.startClose()
+        }
         view.startOverviewClose()
     }
 
@@ -3302,13 +3305,20 @@ Kirigami.ApplicationWindow {
         const index = views.indexOf(view)
         if (index < 0)
             return
+        const tab = tabRepeater.itemAt(index)
+        if (overviewVisible && view.overviewClosingCard
+                && (view.overviewEntrance > 0 || (tab?.closing && tab.closeDrop < tabStripHeight)))
+            return
         view.stopOverviewClose()
         view.visible = false
         view.enabled = false
         view.lifecycleState = WebEngineView.LifecycleState.Discarded
         detachOverviewFrame(view)
+        const oldViews = views.slice()
+        animatingCloseGap = !appSettings.reduceMotion
         views = views.filter((_, position) => position !== index)
         tabModel.remove(index)
+        animateCloseGaps(oldViews)
         if (view.overviewClosingCard) {
             view.overviewClosingCard = false
             overviewClosingCardCount--
@@ -3379,6 +3389,10 @@ Kirigami.ApplicationWindow {
     }
 
     function finishClose(target) {
+        if (target?.overviewClosingCard) {
+            finishOverviewClose(target)
+            return
+        }
         if (views.indexOf(target) < 0 || readyCloseViews.indexOf(target) >= 0)
             return
         readyCloseViews = readyCloseViews.concat(target)
@@ -3421,16 +3435,7 @@ Kirigami.ApplicationWindow {
             view.frameContainer.destroy()
         }
         views = views.slice()
-        if (animatingCloseGap)
-            closeGapTimer.restart()
-        if (!appSettings.reduceMotion) {
-            for (let next = 0; next < tabModel.count; ++next) {
-                const tab = tabRepeater.itemAt(next)
-                const distance = (oldViews.indexOf(views[next]) - next) * tabWidth
-                if (tab && distance > 0)
-                    tab.startCloseFill(distance)
-            }
-        }
+        animateCloseGaps(oldViews)
         if (views.length === 0) {
             activeView = null
             activateHome(false)
@@ -3441,6 +3446,18 @@ Kirigami.ApplicationWindow {
             activateTab(Math.min(Math.max(previousIndex, 0), views.length - 1), false)
         }
         Qt.callLater(root.processPendingClose)
+    }
+
+    function animateCloseGaps(oldViews) {
+        if (!animatingCloseGap)
+            return
+        closeGapTimer.restart()
+        for (let next = 0; next < tabModel.count; ++next) {
+            const tab = tabRepeater.itemAt(next)
+            const distance = (oldViews.indexOf(views[next]) - next) * tabWidth
+            if (tab && distance > 0)
+                tab.startCloseFill(distance)
+        }
     }
 
     function tabPreviewOffset(index, width) {

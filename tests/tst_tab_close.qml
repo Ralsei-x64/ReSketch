@@ -997,6 +997,203 @@ Item {
             tryCompare(warning, "visible", false)
         }
 
+        function test_overview_close_also_animates_visible_strip_tabs_data() {
+            return [{tag: "unselected", selected: false, offscreen: false, reduceMotion: false},
+                    {tag: "selected", selected: true, offscreen: false, reduceMotion: false},
+                    {tag: "offscreen", selected: false, offscreen: true, reduceMotion: false},
+                    {tag: "reduced-motion", selected: false, offscreen: false, reduceMotion: true}]
+        }
+
+        function test_overview_close_also_animates_visible_strip_tabs(data) {
+            appSettings.reduceMotion = true
+            if (data.offscreen) {
+                appSettings.maximumLoadedTabs = 100
+                for (let i = 0; i < 8; ++i) {
+                    app.openTab("about:blank", null, true)
+                    app.views[app.views.length - 1].stop()
+                }
+                const viewport = findChild(app, "tabsViewport")
+                viewport.contentX = 0
+                tryVerify(() => tabButton(app.views.length - 1).mapToItem(viewport, 0, 0).x >= viewport.width)
+            }
+            app.toggleOverview()
+            appSettings.reduceMotion = data.reduceMotion
+            const selected = app.activeView
+            const index = data.offscreen ? app.views.length - 1 : data.selected ? app.activeIndex : 0
+            const view = app.views[index]
+            const tab = tabButton(index)
+            const count = app.views.length
+            app.closeTab(index)
+            if (!data.reduceMotion) {
+                if (data.selected) {
+                    const bar = findChild(app, "selectionBar")
+                    verify(Math.abs(bar.startOffset) > 0 || Math.abs(bar.endOffset) > 0,
+                           "Closing the selected card glides the selection bar to its replacement")
+                }
+                compare(view.overviewClosingCard, true)
+                compare(tab.closing, !data.offscreen)
+                app.finishOverviewClose(view)
+                verify(app.views.includes(view), "Removal waits for both closing animations")
+                if (!data.offscreen)
+                    tryVerify(() => tab.closeDrop > 0)
+            }
+            tryVerify(() => !app.views.includes(view))
+            compare(app.views.length, count - 1)
+            compare(app.overviewClosingCardCount, 0)
+            compare(app.overviewVisible, true)
+            if (!data.selected) compare(app.activeView, selected)
+            verify(!app.pendingCloseViews.includes(view))
+            verify(!app.closingViews.includes(view))
+            verify(!app.readyCloseViews.includes(view))
+        }
+
+        function test_closing_tabs_smoothly_fills_strip_gap_data() {
+            return [{tag: "tab-strip", overview: false, reduceMotion: false},
+                    {tag: "overview", overview: true, reduceMotion: false},
+                    {tag: "reduced-motion", overview: true, reduceMotion: true}]
+        }
+
+        function test_closing_tabs_smoothly_fills_strip_gap(data) {
+            appSettings.reduceMotion = true
+            if (data.overview) app.toggleOverview()
+            appSettings.reduceMotion = data.reduceMotion
+            const selected = app.activeView
+            const left = tabButton(0)
+            const right = tabButton(2)
+            const target = app.views[1]
+            const viewport = findChild(app, "tabsViewport")
+            const leftX = left.mapToItem(viewport, 0, 0).x
+            app.closeTab(1)
+            tryVerify(() => !app.views.includes(target))
+            compare(tabButton(1), right, "Keep the surviving tab delegate")
+            if (!data.reduceMotion) {
+                verify(right.fillingClose)
+                verify(right.fillOffset > 0 && right.fillOffset <= app.tabWidth)
+                const bar = findChild(app, "selectionBar")
+                fuzzyCompare(bar.x, right.mapToItem(bar.parent, 0, 0).x, 1,
+                             "Selection bar follows the selected tab while the gap closes")
+                const offset = right.fillOffset
+                tryVerify(() => right.fillOffset < offset)
+                tryCompare(right, "fillingClose", false)
+            }
+            compare(right.fillOffset, 0)
+            fuzzyCompare(left.mapToItem(viewport, 0, 0).x, leftX, 1,
+                         "Tabs to the left stay in place")
+            compare(app.activeView, selected)
+        }
+
+        function test_overview_multiple_closes_keep_both_strip_animations() {
+            appSettings.reduceMotion = true
+            app.toggleOverview()
+            appSettings.reduceMotion = false
+            const selected = app.activeView
+            const targets = app.views.slice(0, 2)
+            const tabs = targets.map(view => tabButton(app.views.indexOf(view)))
+            const survivor = tabButton(2)
+            let largestOffset = 0
+            function observeOffset() { largestOffset = Math.max(largestOffset, survivor.fillOffset) }
+            survivor.fillOffsetChanged.connect(observeOffset)
+            for (const view of targets) app.closeTab(app.views.indexOf(view))
+            for (const tab of tabs) compare(tab.closing, true)
+            tryVerify(() => tabs.every(tab => tab.closeDrop > 0))
+            tryVerify(() => targets.every(view => !app.views.includes(view)))
+            survivor.fillOffsetChanged.disconnect(observeOffset)
+            verify(largestOffset >= app.tabWidth * 2 - 1,
+                   "Rapid closes extend the existing fill animation without jumping")
+            tryCompare(survivor, "fillingClose", false)
+            compare(app.views.length, 2)
+            compare(app.overviewClosingCardCount, 0)
+            compare(app.activeView, selected)
+        }
+
+        function test_overview_selection_smoothly_reveals_strip_tab_data() {
+            return [{tag: "right", left: false, reduceMotion: false},
+                    {tag: "left", left: true, reduceMotion: false},
+                    {tag: "reduced-motion", left: false, reduceMotion: true}]
+        }
+
+        function test_overview_selection_smoothly_reveals_strip_tab(data) {
+            appSettings.reduceMotion = true
+            appSettings.maximumLoadedTabs = 100
+            for (let i = 0; i < 8; ++i) {
+                app.openTab("about:blank", null, true)
+                app.views[app.views.length - 1].stop()
+            }
+            const viewport = findChild(app, "tabsViewport")
+            const lastIndex = app.views.length - 1
+            tryVerify(() => tabButton(lastIndex).x > viewport.width)
+            app.activateTab(data.left ? lastIndex : 0)
+            app.toggleOverview()
+            appSettings.reduceMotion = data.reduceMotion
+            const targetIndex = data.left ? 0 : lastIndex
+            const target = app.views[targetIndex]
+            const start = viewport.contentX
+            app.selectOverviewView(target)
+            compare(app.activeView, target)
+            const bar = findChild(app, "selectionBar")
+            if (!data.reduceMotion) {
+                compare(app.overviewClosing, true)
+                verify(viewport.wheelTargetX !== start)
+                compare(viewport.contentX, start, "The strip must start scrolling without jumping")
+                verify(Math.abs(bar.startOffset) > 0 || Math.abs(bar.endOffset) > 0)
+                wait(30)
+                verify(viewport.contentX !== start)
+                verify(Math.abs(viewport.contentX - start) < Math.abs(viewport.wheelTargetX - start),
+                       "Scroll moves through intermediate positions during the card animation")
+            }
+            tryCompare(app, "overviewVisible", false)
+            tryVerify(() => Math.abs(viewport.contentX - viewport.wheelTargetX) < 1)
+            const tab = tabButton(targetIndex)
+            const position = tab.mapToItem(viewport, 0, 0).x
+            verify(position >= -1 && position + tab.width <= viewport.width + 1)
+            tryVerify(() => Math.abs(bar.startOffset) < 1 && Math.abs(bar.endOffset) < 1)
+            fuzzyCompare(bar.x, tab.mapToItem(bar.parent, 0, 0).x, 1)
+        }
+
+        function test_overview_opens_with_selected_card_visible_data() {
+            return [{tag: "three-columns", width: 1200, reduceMotion: false},
+                    {tag: "four-columns", width: 1500, reduceMotion: false},
+                    {tag: "reduced-motion", width: 1200, reduceMotion: true}]
+        }
+
+        function test_overview_opens_with_selected_card_visible(data) {
+            const originalWidth = app.width
+            try {
+                app.width = data.width
+                const flickable = findChild(app, "overviewFlickable")
+                tryCompare(flickable, "width", data.width)
+                appSettings.maximumLoadedTabs = 100
+                appSettings.reduceMotion = true
+                for (let i = 0; i < 8; ++i) {
+                    app.openTab("about:blank", null, true)
+                    app.views[app.views.length - 1].stop()
+                }
+                const selected = app.views[app.views.length - 1]
+                app.activateTab(app.views.indexOf(selected))
+                appSettings.reduceMotion = data.reduceMotion
+                app.toggleOverview()
+                const card = overviewCard(selected)
+                verify(flickable.contentY > 0, "Opening must scroll to the selected card")
+                if (!data.reduceMotion)
+                    fuzzyCompare(card.y - flickable.contentY, 0, 1,
+                                 "Scaling starts at the viewport despite its scroll offset")
+                tryCompare(app, "overviewProgress", 1)
+                verify(card.y >= flickable.contentY)
+                verify(card.y + card.height <= flickable.contentY + flickable.height,
+                       "Card bottom " + (card.y + card.height) + ", viewport bottom "
+                       + (flickable.contentY + flickable.height))
+                compare(app.activeView, selected)
+                app.dismissOverview()
+                appSettings.reduceMotion = true
+                app.activateView(app.homeView, -1)
+                app.toggleOverview()
+                compare(flickable.contentY, 0, "Opening Home returns to the first row")
+            } finally {
+                app.dismissOverview()
+                app.width = originalWidth
+            }
+        }
+
         function test_overview_releases_only_offscreen_effects() {
             appSettings.reduceMotion = true
             appSettings.maximumLoadedTabs = 100
