@@ -6,6 +6,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Effects
+import QtQuick.Layouts
 import Qt.labs.platform as Platform
 import QtWebEngine
 import org.kde.kirigami as Kirigami
@@ -72,6 +73,7 @@ Kirigami.ApplicationWindow {
     property var tabGroups: []
     property int nextGroupNumber: 1
     readonly property int groupHeaderWidth: 160
+    readonly property bool groupAnimationRunning: views.some(view => Math.abs(view.groupExpansion - (groupFor(view)?.collapsed ? 0 : 1)) > 0.001)
     readonly property list<string> sessionFileUrls: views.filter(view => !view.overviewClosingCard
                         && !pendingCloseViews.includes(view) && !closingViews.includes(view))
                         .map(view => String(view.tabUrl)).filter(Policy.isFileUrl)
@@ -101,6 +103,7 @@ Kirigami.ApplicationWindow {
     property url startupUrl: ""
     property int draggedTabIndex: -1
     property int tabDropIndex: -1
+    property string tabDropGroupId: ""
     property bool animatingCloseGap: false
     property var heldOpenSelection: null
     property bool hideHeldSelection: false
@@ -407,11 +410,8 @@ Kirigami.ApplicationWindow {
                                 required property bool animateOpen
                                 required property var tabView
                                 readonly property var group: root.groupFor(tabView)
-                                readonly property bool groupCollapsed: !!group && group.collapsed
                                 readonly property real groupPrefix: root.tabGroupHeaderWidth(index)
                                 readonly property bool selected: root.activeView === tabView
-                                property bool settling: false
-                                property real dropOffset: 0
                                 property bool closing: false
                                 property bool closePending: false
                                 property var closingView: null
@@ -424,19 +424,18 @@ Kirigami.ApplicationWindow {
                                 leftPadding: groupPrefix
                                 rightPadding: 0
                                 height: root.tabStripHeight
-                                z: closing ? 20 : tabDrag.active || settling ? 10 : 0
+                                z: closing ? 20 : tabDrag.active ? 10 : 0
                                 transform: Translate {
                                     id: tabTranslate
                                     x: tabDrag.active ? tabDrag.activeTranslation.x
                                                       : tabButton.fillingClose ? tabButton.fillOffset
-                                                      : tabButton.settling ? tabButton.dropOffset
-                                                      : root.tabPreviewOffset(tabButton.index, tabButton.width)
+                                                      : root.tabPreviewOffset(tabButton.index)
                                     y: -tabButton.y + tabButton.closeDrop + tabButton.openRise
 
                                     Behavior on x {
                                         enabled: (root.draggedTabIndex >= 0 && root.tabDropIndex >= 0
                                                   || root.overviewDraggedView && root.overviewDropIndex >= 0)
-                                                 && !tabDrag.active && !tabButton.settling
+                                                 && !tabDrag.active
                                                  && !appSettings.reduceMotion
                                         NumberAnimation {
                                             duration: 220
@@ -444,16 +443,6 @@ Kirigami.ApplicationWindow {
                                             easing.bezierCurve: [0, 0.76, 0, 1, 1, 1]
                                         }
                                     }
-                                }
-                                NumberAnimation {
-                                    id: tabSettle
-                                    target: tabButton
-                                    property: "dropOffset"
-                                    to: 0
-                                    duration: 220
-                                    easing.type: Easing.BezierSpline
-                                    easing.bezierCurve: [0, 0.76, 0, 1, 1, 1]
-                                    onFinished: tabButton.settling = false
                                 }
                                 NumberAnimation {
                                     id: openToast
@@ -515,7 +504,6 @@ Kirigami.ApplicationWindow {
                                         return
                                     closingView = tabView
                                     closing = true
-                                    tabSettle.stop()
                                     if (appSettings.reduceMotion)
                                         root.finishClose(closingView)
                                     else
@@ -529,7 +517,7 @@ Kirigami.ApplicationWindow {
                                 background: Rectangle {
                                     x: tabButton.groupPrefix
                                     width: Math.max(0, tabButton.width - tabButton.groupPrefix)
-                                    visible: !tabButton.groupCollapsed
+                                    visible: tabButton.tabView.groupExpansion > 0.001
                                     color: tabButton.selected ? Qt.rgba(Kirigami.Theme.backgroundColor.r,
                                                                         Kirigami.Theme.backgroundColor.g,
                                                                         Kirigami.Theme.backgroundColor.b,
@@ -632,132 +620,126 @@ Kirigami.ApplicationWindow {
                                 }
 
                                 contentItem: Item {
-                                    visible: !tabButton.groupCollapsed
-                                    Kirigami.Icon {
-                                        width: root.tabIconSize
-                                        height: root.tabIconSize
-                                        anchors.left: parent.left
-                                        anchors.leftMargin: root.tabContentLeftMargin
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        source: tabButton.filePage ? "text-x-generic" : "go-home"
-                                        visible: !tabButton.loading
-                                    }
-
-                                    Kirigami.Icon {
-                                        id: loadingIcon
-                                        width: root.tabIconSize
-                                        height: root.tabIconSize
-                                        anchors.left: parent.left
-                                        anchors.leftMargin: root.tabContentLeftMargin
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        source: "view-refresh"
-                                        visible: tabButton.loading
-                                        RotationAnimation on rotation {
-                                            from: 0
-                                            to: 360
-                                            duration: 900
-                                            loops: Animation.Infinite
-                                            running: loadingIcon.visible && !appSettings.reduceMotion
-                                            onRunningChanged: {
-                                                if (!running)
-                                                    loadingIcon.rotation = 0
-                                            }
-                                        }
-                                    }
-
-                                    Controls.Label {
-                                        anchors.left: loadingIcon.right
-                                        anchors.leftMargin: Kirigami.Units.smallSpacing
-                                        anchors.right: closeTabButton.left
-                                        anchors.rightMargin: Kirigami.Units.smallSpacing
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: Policy.tabTitle(tabButton.title)
-                                        elide: Text.ElideRight
-                                        horizontalAlignment: Text.AlignLeft
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-                                    TabBarButton {
-                                        id: closeTabButton
-                                        property var pressedView: null
-                                        width: root.tabStripHeight
-                                        height: root.tabStripHeight
-                                        icon.name: "window-close"
-                                        icon.width: root.tabIconSize
-                                        icon.height: root.tabIconSize
-                                        anchors.right: parent.right
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        Accessible.name: "Close " + tabButton.title
-                                        Controls.ToolTip.text: Accessible.name
-                                        Controls.ToolTip.visible: hovered
-                                        onPressedChanged: {
-                                            if (pressed)
-                                                pressedView = tabButton.tabView
-                                        }
-                                        onClicked: {
-                                            const target = pressedView || tabButton.tabView
-                                            pressedView = null
-                                            root.closeTab(root.views.indexOf(target))
-                                        }
-                                    }
-
+                                    clip: true
+                                    visible: tabButton.tabView.groupExpansion > 0.001
                                     Item {
-                                        anchors.left: parent.left
-                                        anchors.right: closeTabButton.left
-                                        anchors.top: parent.top
-                                        anchors.bottom: parent.bottom
+                                        width: root.tabWidth
+                                        height: parent.height
+                                        Kirigami.Icon {
+                                            width: root.tabIconSize
+                                            height: root.tabIconSize
+                                            anchors.left: parent.left
+                                            anchors.leftMargin: root.tabContentLeftMargin
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            source: tabButton.filePage ? "text-x-generic" : "go-home"
+                                            visible: !tabButton.loading
+                                        }
 
-                                        DragHandler {
-                                            id: tabDrag
-                                            property real lastDragX: 0
-                                            enabled: !tabButton.closing && !tabButton.closePending
-                                            target: null
-                                            acceptedButtons: Qt.LeftButton
-                                            onActiveChanged: {
-                                                if (active) {
-                                                    if (tabButton.selected) {
-                                                        selectionGlide.stop()
-                                                        root.homeSelectionGlide = false
-                                                        selectionBar.startOffset = 0
-                                                        selectionBar.endOffset = 0
-                                                    }
-                                                    lastDragX = activeTranslation.x
-                                                    tabSettle.stop()
-                                                    tabButton.settling = false
-                                                    tabButton.dropOffset = 0
-                                                    root.draggedTabIndex = tabButton.index
-                                                    root.tabDropIndex = tabButton.index
-                                                    root.beginItemDrag(tabButton.tabView, tabButton, centroid.scenePosition)
-                                                } else if (root.draggedTabIndex >= 0) {
-                                                    const point = centroid.scenePosition
-                                                    if (root.outsideWindow(point)) {
-                                                        root.draggedTabIndex = -1
-                                                        root.tabDropIndex = -1
-                                                        root.finishItemDrag(point)
-                                                        return
-                                                    }
-                                                    root.cancelItemDrag()
-                                                    const source = root.draggedTabIndex
-                                                    const destination = root.tabDropIndex
-                                                    const dropOffset = tabButton.x + lastDragX
-                                                                       - root.tabStripPosition(destination)
-                                                    tabButton.dropOffset = dropOffset
-                                                    tabButton.settling = !appSettings.reduceMotion
-                                                                         && Math.abs(dropOffset) > 0.5
-                                                    root.draggedTabIndex = -1
-                                                    root.tabDropIndex = -1
-                                                    root.reorderTab(source, destination)
-                                                    if (tabButton.settling)
-                                                        tabSettle.start()
-                                                    else
-                                                        tabButton.dropOffset = 0
+                                        Kirigami.Icon {
+                                            id: loadingIcon
+                                            width: root.tabIconSize
+                                            height: root.tabIconSize
+                                            anchors.left: parent.left
+                                            anchors.leftMargin: root.tabContentLeftMargin
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            source: "view-refresh"
+                                            visible: tabButton.loading
+                                            RotationAnimation on rotation {
+                                                from: 0
+                                                to: 360
+                                                duration: 900
+                                                loops: Animation.Infinite
+                                                running: loadingIcon.visible && !appSettings.reduceMotion
+                                                onRunningChanged: {
+                                                    if (!running)
+                                                        loadingIcon.rotation = 0
                                                 }
                                             }
-                                            onActiveTranslationChanged: {
-                                                if (active) {
-                                                    lastDragX = activeTranslation.x
-                                                    root.tabDropIndex = root.tabDropTarget(root.tabStripPosition(root.draggedTabIndex)
-                                                                         + activeTranslation.x)
-                                                    root.updateItemDrag(centroid.scenePosition)
+                                        }
+
+                                        Controls.Label {
+                                            anchors.left: loadingIcon.right
+                                            anchors.leftMargin: Kirigami.Units.smallSpacing
+                                            anchors.right: closeTabButton.left
+                                            anchors.rightMargin: Kirigami.Units.smallSpacing
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: Policy.tabTitle(tabButton.title)
+                                            elide: Text.ElideRight
+                                            horizontalAlignment: Text.AlignLeft
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+                                        TabBarButton {
+                                            id: closeTabButton
+                                            property var pressedView: null
+                                            width: root.tabStripHeight
+                                            height: root.tabStripHeight
+                                            icon.name: "window-close"
+                                            icon.width: root.tabIconSize
+                                            icon.height: root.tabIconSize
+                                            anchors.right: parent.right
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            Accessible.name: "Close " + tabButton.title
+                                            Controls.ToolTip.text: Accessible.name
+                                            Controls.ToolTip.visible: hovered
+                                            onPressedChanged: {
+                                                if (pressed)
+                                                    pressedView = tabButton.tabView
+                                            }
+                                            onClicked: {
+                                                const target = pressedView || tabButton.tabView
+                                                pressedView = null
+                                                root.closeTab(root.views.indexOf(target))
+                                            }
+                                        }
+
+                                        Item {
+                                            anchors.left: parent.left
+                                            anchors.right: closeTabButton.left
+                                            anchors.top: parent.top
+                                            anchors.bottom: parent.bottom
+
+                                            DragHandler {
+                                                id: tabDrag
+                                                enabled: !tabButton.closing && !tabButton.closePending
+                                                target: null
+                                                acceptedButtons: Qt.LeftButton
+                                                onActiveChanged: {
+                                                    if (active) {
+                                                        if (tabButton.selected) {
+                                                            selectionGlide.stop()
+                                                            root.homeSelectionGlide = false
+                                                            selectionBar.startOffset = 0
+                                                            selectionBar.endOffset = 0
+                                                        }
+                                                        root.draggedTabIndex = tabButton.index
+                                                        root.tabDropIndex = tabButton.index
+                                                        root.tabDropGroupId = tabButton.tabView.tabGroupId
+                                                        root.beginItemDrag(tabButton.tabView, tabButton.contentItem, centroid.scenePosition)
+                                                    } else if (root.draggedTabIndex >= 0) {
+                                                        const point = centroid.scenePosition
+                                                        if (root.outsideWindow(point)) {
+                                                            root.draggedTabIndex = -1
+                                                            root.tabDropIndex = -1
+                                                            root.finishItemDrag(point)
+                                                            return
+                                                        }
+                                                        root.cancelItemDrag()
+                                                        const source = root.draggedTabIndex
+                                                        const destination = root.tabDropIndex
+                                                        const groupId = root.tabDropGroupId
+                                                        const positions = root.captureTabStripPositions()
+                                                        root.draggedTabIndex = -1
+                                                        root.tabDropIndex = -1
+                                                        root.reorderTab(source, destination, positions, false, groupId)
+                                                    }
+                                                }
+                                                onActiveTranslationChanged: {
+                                                    if (active) {
+                                                        root.tabDropIndex = root.tabDropTarget(root.tabStripTabPosition(root.draggedTabIndex)
+                                                                             + activeTranslation.x,
+                                                                             tabsViewport.contentItem.mapFromItem(root.contentItem, centroid.scenePosition.x, centroid.scenePosition.y).x)
+                                                        root.updateItemDrag(centroid.scenePosition)
+                                                    }
                                                 }
                                             }
                                         }
@@ -765,76 +747,107 @@ Kirigami.ApplicationWindow {
                                 }
 
                                 Rectangle {
+                                    objectName: "tabGroupBorder"
                                     x: tabButton.groupPrefix
                                     anchors.bottom: parent.bottom
                                     width: Math.max(0, parent.width - x)
                                     height: 2
-                                    visible: !!tabButton.group && !tabButton.groupCollapsed
+                                    visible: !!tabButton.group && tabButton.tabView.groupExpansion > 0.001
                                     color: tabButton.group ? tabButton.group.color : "transparent"
                                 }
-                                TabBarButton {
-                                    objectName: "tabGroupHeader"
-                                    width: tabButton.groupPrefix
-                                    height: root.tabStripHeight
-                                    visible: width > 0
-                                    z: 3
-                                    dragWindow: root
-                                    Accessible.name: tabButton.group ? tabButton.group.title : ""
-                                    Controls.ToolTip.text: Accessible.name
-                                    Controls.ToolTip.visible: hovered
-                                    contentItem: Row {
-                                        spacing: 6
-                                        leftPadding: 10
-                                        Rectangle {
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            width: 8; height: 8; radius: 4
-                                            color: tabButton.group ? tabButton.group.color : "transparent"
-                                        }
-                                        Controls.Label {
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            width: root.groupHeaderWidth - 54
-                                            text: tabButton.group ? tabButton.group.title : ""
-                                            elide: Text.ElideRight
-                                        }
-                                        Kirigami.Icon {
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            width: 14; height: 14
-                                            source: tabButton.groupCollapsed ? "arrow-right" : "arrow-down"
-                                        }
-                                    }
-                                    onClicked: root.updateTabGroup(tabButton.group.id, {collapsed: !tabButton.groupCollapsed})
-                                    TapHandler { acceptedButtons: Qt.RightButton; onTapped: groupContextMenu.popup() }
-                                    Controls.Menu {
-                                        id: groupContextMenu
-                                        Controls.MenuItem {
-                                            text: qsTr("Rename group")
-                                            onTriggered: {
-                                                groupRenameDialog.groupId = tabButton.group.id
-                                                groupNameEditor.text = tabButton.group.title
-                                                groupRenameDialog.open()
-                                                groupNameEditor.forceActiveFocus()
-                                                groupNameEditor.selectAll()
-                                            }
-                                        }
-                                        Controls.MenuItem {
-                                            text: qsTr("Choose color…")
-                                            onTriggered: root.updateTabGroup(tabButton.group.id, {
-                                                color: appSettings.chooseGroupColor(tabButton.group.color, root)})
-                                        }
-                                        Controls.MenuItem {
-                                            text: qsTr("Ungroup tabs")
-                                            onTriggered: root.ungroupTabs(tabButton.group.id)
-                                        }
-                                        Controls.MenuItem {
-                                            text: qsTr("Close group")
-                                            onTriggered: {
-                                                const id = tabButton.group.id
-                                                for (const view of root.views.slice().reverse())
-                                                    if (view.tabGroupId === id) root.closeTab(root.views.indexOf(view))
-                                            }
-                                        }
+
+                            }
+                        }
+                    }
+
+                    Repeater {
+                        id: groupHeaderRepeater
+                        model: root.tabGroups.length
+                        TabBarButton {
+                            id: groupHeader
+                            required property int index
+                            readonly property var group: root.tabGroups[index]
+                            readonly property int firstIndex: group ? root.views.findIndex(view => view.tabGroupId === group.id) : -1
+                            x: root.tabStripPosition(firstIndex)
+                            y: 0
+                            Behavior on x {
+                                enabled: !appSettings.reduceMotion && !root.groupAnimationRunning
+                                NumberAnimation {
+                                    duration: 220
+                                    easing.type: Easing.BezierSpline
+                                    easing.bezierCurve: [0, 0.76, 0, 1, 1, 1]
+                                }
+                            }
+                            objectName: "tabGroupHeader"
+                            width: root.groupHeaderWidth
+                            height: root.tabStripHeight
+                            visible: firstIndex >= 0
+                            z: 5
+                            dragWindow: root
+                            Accessible.name: groupHeader.group ? groupHeader.group.title : ""
+                            Controls.ToolTip.text: Accessible.name
+                            Controls.ToolTip.visible: hovered
+                            contentItem: Row {
+                                spacing: 6
+                                leftPadding: 10
+                                Rectangle {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 8; height: 8; radius: 4
+                                    color: groupHeader.group ? groupHeader.group.color : "transparent"
+                                }
+                                Controls.Label {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: root.groupHeaderWidth - 54
+                                    text: groupHeader.group ? groupHeader.group.title : ""
+                                    elide: Text.ElideRight
+                                }
+                                Kirigami.Icon {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 14; height: 14
+                                    objectName: "tabGroupArrow"
+                                    source: groupHeader.group?.collapsed ? "arrow-right" : "arrow-left"
+                                }
+                            }
+                            onClicked: root.updateTabGroup(groupHeader.group.id, {collapsed: !groupHeader.group.collapsed})
+                            TapHandler { acceptedButtons: Qt.RightButton; onTapped: groupContextMenu.popup() }
+                            Controls.Menu {
+                                id: groupContextMenu
+                                Controls.MenuItem {
+                                    text: qsTr("Rename group")
+                                    onTriggered: {
+                                        groupRenameDialog.createView = null
+                                        groupRenameDialog.groupId = groupHeader.group.id
+                                        groupNameEditor.text = groupHeader.group.title
+                                        groupRenameDialog.open()
+                                        groupNameEditor.forceActiveFocus()
+                                        groupNameEditor.selectAll()
                                     }
                                 }
+                                Controls.MenuItem {
+                                    text: qsTr("Choose color…")
+                                    onTriggered: root.updateTabGroup(groupHeader.group.id, {
+                                        color: appSettings.chooseGroupColor(groupHeader.group.color, root)})
+                                }
+                                Controls.MenuItem {
+                                    text: qsTr("Ungroup tabs")
+                                    onTriggered: root.ungroupTabs(groupHeader.group.id)
+                                }
+                                Controls.MenuItem {
+                                    text: qsTr("Close group")
+                                    onTriggered: {
+                                        const id = groupHeader.group.id
+                                        for (const view of root.views.slice().reverse())
+                                            if (view.tabGroupId === id) root.closeTab(root.views.indexOf(view))
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                objectName: "tabGroupHeaderBorder"
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                height: 2
+                                color: groupHeader.group ? groupHeader.group.color : "transparent"
                             }
                         }
                     }
@@ -1014,18 +1027,17 @@ Kirigami.ApplicationWindow {
                         objectName: "selectionBar"
                         property real startOffset: 0
                         property real endOffset: 0
-                        readonly property int displayIndex: root.selectionTabIndex()
-                        readonly property var currentTab: root.activeIndex < 0 ? null
-                                                         : root.groupFor(root.activeView)?.collapsed
-                                                           ? tabBar.contentChildren.find(tab => tab.tabView === root.views[displayIndex]) : tabBar.currentItem
+                        readonly property var currentTab: root.activeIndex < 0 ? null : tabBar.currentItem
+                        readonly property var group: root.groupFor(root.activeView)
+                        readonly property real expansion: group ? root.activeView.groupExpansion : 1
+                        readonly property real tabX: currentTab ? currentTab.x + currentTab.visualOffset + currentTab.groupPrefix
+                                                               : root.tabStripTabPosition(root.activeIndex)
+                        readonly property real groupX: group ? root.tabGroupHeaderItem(group.id)?.x ?? root.tabStripPosition(root.views.findIndex(view => view.tabGroupId === group.id)) : tabX
                         readonly property real targetX: root.activeIndex < 0 ? 0
                                                         : tabsViewport.x - tabsViewport.contentX
-                                                          + (currentTab ? currentTab.x + currentTab.visualOffset
-                                                             + (currentTab.groupCollapsed ? 0 : currentTab.groupPrefix)
-                                                             : root.tabStripPosition(root.activeIndex))
-                        readonly property real targetWidth: root.activeIndex < 0
-                                                            ? homeButton.width - 1 : currentTab?.groupCollapsed
-                                                            ? root.groupHeaderWidth : root.tabWidth
+                                                          + tabX * expansion + groupX * (1 - expansion)
+                        readonly property real targetWidth: root.activeIndex < 0 ? homeButton.width - 1
+                                                            : root.tabWidth * expansion + root.groupHeaderWidth * (1 - expansion)
                         x: targetX + startOffset
                         width: Math.max(0, targetWidth + endOffset - startOffset)
                         height: 3
@@ -1279,6 +1291,7 @@ Kirigami.ApplicationWindow {
                             required property int index
                             required property var previewView
                             readonly property int tabIndex: previewView === root.homeView ? -1 : root.views.indexOf(previewView)
+                            readonly property var group: root.groupFor(previewView)
                             readonly property bool dragging: root.overviewDraggedView === previewView
                             property bool settling: false
                             property real dragOffsetX: 0
@@ -1359,7 +1372,8 @@ Kirigami.ApplicationWindow {
                                 radius: Kirigami.Units.smallSpacing + 3
                                 color: "transparent"
                                 border.width: 1
-                                border.color: overviewCardMouse.containsMouse ? Qt.rgba(0, 0, 0, 0.55)
+                                border.color: overviewCard.group ? overviewCard.group.color
+                                              : overviewCardMouse.containsMouse ? Qt.rgba(0, 0, 0, 0.55)
                                               : Qt.rgba(Kirigami.Theme.textColor.r,
                                                       Kirigami.Theme.textColor.g,
                                                       Kirigami.Theme.textColor.b, 0.3)
@@ -1389,18 +1403,36 @@ Kirigami.ApplicationWindow {
                                               && Policy.isFileUrl(overviewCard.previewView.tabUrl)
                                               ? "text-x-generic" : "go-home"
                                 }
-                                Controls.Label {
+                                RowLayout {
+                                    id: overviewCardTitleRow
                                     anchors.left: parent.left
                                     anchors.leftMargin: Kirigami.Units.smallSpacing
                                                         + root.tabIconSize + Kirigami.Units.smallSpacing
                                     anchors.right: parent.right
                                     anchors.rightMargin: overviewActions.width + Kirigami.Units.smallSpacing
                                     anchors.verticalCenter: parent.verticalCenter
-                                    text: overviewCard.tabIndex < 0 ? qsTr("Home")
-                                          : overviewCard.previewView
-                                            ? Policy.pageLabel(overviewCard.previewView.tabUrl,
-                                                               overviewCard.previewView.title) : ""
-                                    elide: Text.ElideRight
+                                    spacing: Kirigami.Units.smallSpacing
+                                    Controls.Label {
+                                        Layout.minimumWidth: 0
+                                        Layout.maximumWidth: Math.max(0, overviewCardTitleRow.width
+                                            - (overviewGroupName.visible ? Math.min(overviewGroupName.implicitWidth, overviewCard.width * 0.4) : 0)
+                                            - overviewCardTitleRow.spacing * 2)
+                                        text: overviewCard.tabIndex < 0 ? qsTr("Home")
+                                              : overviewCard.previewView
+                                                ? Policy.pageLabel(overviewCard.previewView.tabUrl,
+                                                                   overviewCard.previewView.title) : ""
+                                        elide: Text.ElideRight
+                                    }
+                                    Controls.Label {
+                                        id: overviewGroupName
+                                        objectName: "overviewTabGroupName"
+                                        visible: !!overviewCard.group
+                                        text: overviewCard.group ? overviewCard.group.title : ""
+                                        color: overviewCard.group ? overviewCard.group.color : Kirigami.Theme.textColor
+                                        Layout.maximumWidth: overviewCard.width * 0.4
+                                        elide: Text.ElideRight
+                                    }
+                                    Item { Layout.fillWidth: true }
                                 }
                                 Row {
                                     id: overviewActions
@@ -1594,7 +1626,7 @@ Kirigami.ApplicationWindow {
                                 radius: Kirigami.Units.smallSpacing + 3
                                 color: "transparent"
                                 border.width: 2
-                                border.color: Kirigami.Theme.highlightColor
+                                border.color: overviewCard.group ? overviewCard.group.color : Kirigami.Theme.highlightColor
                                 visible: overviewCard.zooming
                                 opacity: root.overviewProgress
                             }
@@ -1999,6 +2031,11 @@ Kirigami.ApplicationWindow {
             property bool reloadAfterFreeze: false
             property bool tabOpening: false
             property string tabGroupId: ""
+            property real groupExpansion: ownerWindow.groupFor(webView)?.collapsed ? 0 : 1
+            Behavior on groupExpansion {
+                enabled: !appSettings.reduceMotion
+                NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+            }
             property bool dedicatedHome: false
             readonly property bool notificationSource: dedicatedHome && !ownerWindow.primaryWindow
                                                        && appSettings.desktopNotifications
@@ -3229,7 +3266,7 @@ Kirigami.ApplicationWindow {
         wheelScroll.stop()
         tabsViewport.smoothWheel = false
         if (index >= 0) {
-            const left = tabStripPosition(index)
+            const left = tabStripTabPosition(index)
             const right = left + tabWidth
             if (left < tabsViewport.contentX)
                 tabsViewport.scrollBy(tabsViewport.contentX - left, false)
@@ -3345,6 +3382,10 @@ Kirigami.ApplicationWindow {
         return view ? tabGroups.find(group => group.id === view.tabGroupId) || null : null
     }
 
+    function tabGroupHeaderItem(id) {
+        return groupHeaderRepeater.itemAt(tabGroups.findIndex(group => group.id === id))
+    }
+
     function tabGroupHeaderWidth(index, order) {
         const tabs = order || views
         const group = groupFor(tabs[index])
@@ -3353,8 +3394,7 @@ Kirigami.ApplicationWindow {
 
     function tabSlotWidth(index, order) {
         const tabs = order || views
-        const group = groupFor(tabs[index])
-        return tabGroupHeaderWidth(index, tabs) + (group && group.collapsed ? 0 : tabWidth)
+        return tabGroupHeaderWidth(index, tabs) + tabWidth * (tabs[index]?.groupExpansion ?? 1)
     }
 
     function tabStripPosition(index, order) {
@@ -3364,29 +3404,63 @@ Kirigami.ApplicationWindow {
         return position
     }
 
-    function selectionTabIndex() {
-        const group = groupFor(activeView)
-        return group && group.collapsed ? views.findIndex(view => view.tabGroupId === group.id) : activeIndex
+    function tabStripTabPosition(index, order) {
+        return tabStripPosition(index, order) + tabGroupHeaderWidth(index, order)
     }
 
-    function tabDropTarget(position) {
+    function tabDropTarget(position, pointer) {
+        const point = pointer === undefined ? position : pointer
+        tabDropGroupId = ""
+        for (const group of tabGroups) {
+            const first = views.findIndex(view => view.tabGroupId === group.id)
+            const last = views.map(view => view.tabGroupId).lastIndexOf(group.id)
+            if (first >= 0 && point >= tabStripPosition(first)
+                    && point < tabStripTabPosition(last) + tabWidth * views[last].groupExpansion) {
+                tabDropGroupId = group.id
+                if (point < tabStripTabPosition(first)) return Math.min(views.length - 1, last + (draggedTabIndex > last ? 1 : 0))
+                break
+            }
+        }
         let best = 0, distance = Infinity
         for (let i = 0; i < views.length; ++i) {
-            if (!tabSlotWidth(i)) continue
-            const delta = Math.abs(tabStripPosition(i) - position)
+            if (views[i].groupExpansion < 0.001) continue
+            const delta = Math.abs(tabStripTabPosition(i) - position)
             if (delta < distance) { best = i; distance = delta }
+        }
+        if (tabDropGroupId) {
+            const first = views.findIndex(view => view.tabGroupId === tabDropGroupId)
+            const last = views.map(view => view.tabGroupId).lastIndexOf(tabDropGroupId)
+            return Math.max(first, Math.min(last, best))
+        }
+        const group = groupFor(views[best])
+        if (group) {
+            const first = views.findIndex(view => view.tabGroupId === group.id)
+            const last = views.map(view => view.tabGroupId).lastIndexOf(group.id)
+            return point < tabStripPosition(first)
+                    ? Math.max(0, first - (draggedTabIndex < first ? 1 : 0))
+                    : Math.min(views.length - 1, last + (draggedTabIndex > last ? 1 : 0))
         }
         return best
     }
 
-    function createTabGroup(view) {
+    function requestTabGroup(view) {
+        if (!view || !views.includes(view)) return
+        groupRenameDialog.createView = view
+        groupRenameDialog.groupId = ""
+        groupNameEditor.text = qsTr("Tab Group %1").arg((primaryWindow || root).nextGroupNumber)
+        groupRenameDialog.open()
+        groupNameEditor.forceActiveFocus()
+        groupNameEditor.selectAll()
+    }
+
+    function createTabGroup(view, name) {
         if (!view || views.indexOf(view) < 0) return
         const owner = primaryWindow || root
         const number = owner.nextGroupNumber++
         const id = Date.now().toString(36) + "-" + number
         assignTabGroup(view, "")
         view.tabGroupId = id
-        tabGroups = tabGroups.concat({id: id, title: qsTr("Tab Group %1").arg(number), color: Kirigami.Theme.highlightColor, collapsed: false})
+        tabGroups = tabGroups.concat({id: id, title: name && name.trim() || qsTr("Tab Group %1").arg(number), color: Kirigami.Theme.highlightColor, collapsed: false})
         return id
     }
 
@@ -3587,11 +3661,11 @@ Kirigami.ApplicationWindow {
         view.enabled = false
         view.lifecycleState = WebEngineView.LifecycleState.Discarded
         detachOverviewFrame(view)
-        const oldViews = views.slice()
+        const oldPositions = captureTabStripPositions()
         animatingCloseGap = !appSettings.reduceMotion
         views = views.filter((_, position) => position !== index)
         tabModel.remove(index)
-        animateCloseGaps(oldViews)
+        animateCloseGaps(oldPositions)
         if (view.overviewClosingCard) {
             view.overviewClosingCard = false
             overviewClosingCardCount--
@@ -3694,7 +3768,7 @@ Kirigami.ApplicationWindow {
         }
         if (targets.indexOf(activeView) >= 0 || targets.indexOf(outgoingView) >= 0)
             resetSlide()
-        const oldViews = views.slice()
+        const oldPositions = captureTabStripPositions()
         const previousIndex = activeIndex
         animatingCloseGap = !appSettings.reduceMotion
         for (let index = views.length - 1; index >= 0; --index) {
@@ -3708,7 +3782,7 @@ Kirigami.ApplicationWindow {
             view.frameContainer.destroy()
         }
         views = views.slice()
-        animateCloseGaps(oldViews)
+        animateCloseGaps(oldPositions)
         if (views.length === 0) {
             activeView = null
             activateHome(false)
@@ -3721,60 +3795,56 @@ Kirigami.ApplicationWindow {
         Qt.callLater(root.processPendingClose)
     }
 
-    function animateCloseGaps(oldViews) {
+    function animateCloseGaps(oldPositions) {
         if (!animatingCloseGap)
             return
         closeGapTimer.restart()
         for (let next = 0; next < tabModel.count; ++next) {
             const tab = tabRepeater.itemAt(next)
-            const distance = tabStripPosition(oldViews.indexOf(views[next]), oldViews) - tabStripPosition(next)
+            const before = oldPositions.find(item => item.view === views[next])
+            const distance = before ? before.x - tabStripTabPosition(next) : 0
             if (tab && distance > 0)
                 tab.startCloseFill(distance)
         }
     }
 
-    function tabPreviewOffset(index, width) {
+    function tabPreviewOffset(index) {
         const from = overviewDraggedView && overviewDraggedView !== homeView
                        ? views.indexOf(overviewDraggedView) : draggedTabIndex
         const to = overviewDraggedView && overviewDraggedView !== homeView
                      ? overviewDropIndex : tabDropIndex
         if (from < 0 || to < 0)
             return 0
-        if (overviewDraggedView && index === from) return tabStripPosition(to) - tabStripPosition(from)
-        if (index > from && index <= to)
-            return -tabSlotWidth(from)
-        if (index < from && index >= to)
-            return tabSlotWidth(from)
-        return 0
+        const order = views.slice()
+        order.splice(to, 0, order.splice(from, 1)[0])
+        return tabStripTabPosition(order.indexOf(views[index]), order) - tabStripTabPosition(index)
     }
 
     function captureTabStripPositions() {
-        return views.map((view, index) => ({view: view, x: tabStripPosition(index)
+        return views.map((view, index) => ({view: view, x: tabStripTabPosition(index)
                                             + (tabRepeater.itemAt(index)?.visualOffset || 0)}))
     }
 
-    function reorderTab(from, to, stripPositions, preserveGroup) {
+    function reorderTab(from, to, stripPositions, preserveGroup, groupId) {
         if (from < 0 || to < 0 || from >= views.length || to >= views.length
-                || from === to && !stripPositions)
+                || from === to && !stripPositions && groupId === undefined)
             return
         selectionGlide.stop()
         homeSelectionGlide = false
         selectionBar.startOffset = 0
         selectionBar.endOffset = 0
+        const moved = views[from]
+        if (!preserveGroup) moved.tabGroupId = groupId === undefined ? views[to].tabGroupId : groupId
         if (from !== to) {
-            const moved = views[from]
-            if (!preserveGroup) {
-                const target = views[to]
-                if (moved.tabGroupId !== target.tabGroupId) moved.tabGroupId = target.tabGroupId
-            }
             views.splice(to, 0, views.splice(from, 1)[0])
             views = views.slice()
             tabModel.move(from, to, 1)
         }
+        tabGroups = tabGroups.filter(group => views.some(view => view.tabGroupId === group.id))
         if (stripPositions && !appSettings.reduceMotion)
             for (let index = 0; index < views.length; ++index) {
                 const before = stripPositions.find(item => item.view === views[index])
-                const offset = before ? before.x - tabStripPosition(index) : 0
+                const offset = before ? before.x - tabStripTabPosition(index) : 0
                 if (Math.abs(offset) > 0.5)
                     tabRepeater.itemAt(index)?.startReorderFill(offset)
             }
@@ -3786,15 +3856,21 @@ Kirigami.ApplicationWindow {
 
     Controls.Dialog {
         id: groupRenameDialog
+        objectName: "tabGroupNameDialog"
         property string groupId: ""
-        title: qsTr("Rename tab group")
+        property var createView: null
+        title: createView ? qsTr("New tab group") : qsTr("Rename tab group")
         modal: true
         anchors.centerIn: parent
         standardButtons: Controls.Dialog.Ok | Controls.Dialog.Cancel
         onAccepted: {
-            if (groupNameEditor.text.trim()) updateTabGroup(groupId, {title: groupNameEditor.text.trim()})
+            if (groupNameEditor.text.trim()) {
+                if (createView) createTabGroup(createView, groupNameEditor.text.trim())
+                else updateTabGroup(groupId, {title: groupNameEditor.text.trim()})
+            }
         }
-        Controls.TextField { id: groupNameEditor; width: 280; placeholderText: qsTr("Group name") }
+        onClosed: createView = null
+        Controls.TextField { id: groupNameEditor; objectName: "tabGroupNameEditor"; width: 280; placeholderText: qsTr("Group name") }
     }
 
     Shortcut { sequence: "Ctrl+T"; onActivated: root.openTab(root.newTabUrl) }

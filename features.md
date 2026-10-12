@@ -1,0 +1,35 @@
+# ReSketch features
+
+- **Native KDE interface:** Kirigami provides the desktop UI while Chromium displays Figma.
+- **Dedicated Home:** A permanent Home page opens files in their own tabs.
+- **File tabs:** Open, switch, refresh, close, and copy links from a scrollable tab strip.
+- **Tab groups:** Name and color groups, collapse them, and drag tabs into, within, or out of them.
+- **Animated tabs:** Opening, closing, selection, and rearrangement use smooth transitions.
+- **Tab overview:** Browse searchable live previews in a responsive grid, with group names and colors.
+- **Overview dragging:** Rearrange cards, including a Home card that returns to its fixed position.
+- **Multiple windows:** Drag tabs or cards between windows or detach them without reloading their content.
+- **Fullscreen:** Press F11 for a fullscreen webview and hover the top edge to reveal the tab strip.
+- **Keyboard shortcuts:** Create and close tabs, cycle through them, toggle the overview, detach tabs, and freeze tabs for testing.
+- **Smooth scrolling:** Mouse wheels and trackpads smoothly scroll the tab strip, overview, and web content.
+- **Session restore:** Optionally remember file tabs and defer loading restored files until selected.
+- **Tab sleeping:** Configure idle time and minimum and maximum loaded-tab counts to manage background tabs.
+- **Sleeping previews:** Optionally show saved, blurred previews with a sleep icon for sleeping tabs.
+- **Home notifications:** Receive native desktop notifications from the primary Home page without duplicate file-tab notifications.
+- **Google sign-in:** Google authentication opens in a separate window and shares the app's Figma session.
+- **Desktop links:** Handle Figma protocol links and send unrelated web links to the default browser.
+- **Local fonts:** Make installed computer fonts available to Figma through the local font service.
+- **Figma menus:** Optionally expose Figma actions through native menus and Plasma AppMenu, with a hamburger menu fallback.
+- **App themes:** Choose light, dark, or automatic system-following appearance.
+- **KDE colors:** Optionally apply the system color palette to Figma's web interface.
+- **Custom CSS:** Optionally customize Figma's interface with your own CSS.
+- **Transparency and blur:** Adjust background opacity and optional translucent Figma sidebars with desktop or canvas backdrops.
+- **Window controls:** Use theme icons for integrated controls, optionally keeping the desktop titlebar and decorations.
+- **Reduced motion:** Disable interface animations through settings.
+- **Export folders:** Choose and remember a separate export folder for each Figma file.
+- **Export history:** Search recent exports with previews, file types, origins, and actions to open, reveal, copy paths, or delete files.
+- **History clearing:** Clear export records with animated removal while retaining the exported files.
+- **Performance settings:** Control overview quality, UI memory optimizations, GPU rendering options, and additional Chromium switches.
+- **GPU warning:** Display a warning when GPU acceleration cannot be detected.
+- **Safe mode:** Hold Alt at startup or use `--safe-mode` to disable acceleration and experimental features while adjusting settings.
+- **KDE-style settings:** Search categories and restore default preferences without deleting sign-in or export data.
+- **About window:** View the app identity, description, and author.

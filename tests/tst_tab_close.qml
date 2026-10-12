@@ -173,7 +173,7 @@ Item {
             compare(second.tabGroupId, groupId)
             compare(app.tabStripWidth, 4 * app.tabWidth + app.groupHeaderWidth)
             app.activateTab(1)
-            const header = findChild(tabButton(0), "tabGroupHeader")
+            const header = app.tabGroupHeaderItem(app.tabGroups[0].id)
             verify(header && header.visible)
             mouseClick(header, header.width / 2, header.height / 2)
             compare(app.groupFor(first).collapsed, true)
@@ -181,7 +181,8 @@ Item {
             compare(tabButton(1).width, 0)
             compare(app.activeView, second)
             compare(findChild(app, "selectionBar").targetWidth, app.groupHeaderWidth)
-            mouseClick(header, header.width / 2, header.height / 2)
+            const reopenedHeader = app.tabGroupHeaderItem(groupId)
+            mouseClick(reopenedHeader, reopenedHeader.width / 2, reopenedHeader.height / 2)
             compare(app.groupFor(first).collapsed, false)
             app.updateTabGroup(groupId, {title: "Design work", color: "#e75d73"})
             compare(app.groupFor(second).title, "Design work")
@@ -198,6 +199,106 @@ Item {
             compare(app.tabGroups.length, 0)
             compare(app.tabStripWidth, 5 * app.tabWidth)
             compare(app.activeView, first)
+        }
+
+        function test_tab_group_name_is_confirmed_before_creation() {
+            const view = app.views[0]
+            app.requestTabGroup(view)
+            const dialog = findChild(app, "tabGroupNameDialog")
+            const editor = findChild(app, "tabGroupNameEditor")
+            compare(editor.text, "Tab Group 1")
+            compare(app.tabGroups.length, 0)
+            dialog.reject()
+            compare(app.tabGroups.length, 0)
+            compare(view.tabGroupId, "")
+            app.requestTabGroup(view)
+            editor.text = "Design work"
+            dialog.accept()
+            compare(app.groupFor(view).title, "Design work")
+            compare(app.tabGroups.length, 1)
+        }
+
+        function test_group_collapse_animates_members_and_separate_label() {
+            appSettings.reduceMotion = true
+            const first = app.views[0], second = app.views[1]
+            const id = app.createTabGroup(first)
+            app.assignTabGroup(second, id)
+            appSettings.reduceMotion = false
+            const header = app.tabGroupHeaderItem(app.tabGroups[0].id)
+            verify(header.parent !== tabButton(0), "The group label is independent of its first tab")
+            const arrow = findChild(header, "tabGroupArrow")
+            compare(String(arrow.source), "arrow-left")
+            const border = findChild(header, "tabGroupHeaderBorder")
+            compare(border.color, app.groupFor(first).color)
+            mouseClick(header, header.width / 2, header.height / 2)
+            compare(app.groupFor(first).collapsed, true)
+            tryVerify(() => first.groupExpansion < 1 && first.groupExpansion > 0)
+            verify(tabButton(0).width > app.groupHeaderWidth)
+            verify(tabButton(1).width > 0)
+            tryCompare(first, "groupExpansion", 0)
+            compare(tabButton(0).width, app.groupHeaderWidth)
+            compare(tabButton(1).width, 0)
+            compare(String(findChild(app.tabGroupHeaderItem(app.tabGroups[0].id), "tabGroupArrow").source), "arrow-right")
+            const closedHeader = app.tabGroupHeaderItem(app.tabGroups[0].id)
+            mouseClick(closedHeader, closedHeader.width / 2, closedHeader.height / 2)
+            tryVerify(() => first.groupExpansion > 0 && first.groupExpansion < 1)
+            tryCompare(first, "groupExpansion", 1)
+            compare(tabButton(1).width, app.tabWidth)
+        }
+
+        function test_dragging_tabs_into_within_and_out_of_groups() {
+            appSettings.reduceMotion = true
+            const first = app.views[0], second = app.views[1], outside = app.views[3]
+            const id = app.createTabGroup(first)
+            app.assignTabGroup(second, id)
+            appSettings.reduceMotion = false
+            function drag(view, target) {
+                const button = tabButton(app.views.indexOf(view))
+                const start = button.mapToItem(app.contentItem, button.groupPrefix + 80, 20)
+                mousePress(app.contentItem, start.x, start.y)
+                mouseMove(app.contentItem, start.x + 30, start.y, 20)
+                mouseMove(app.contentItem, target.x, target.y, 20)
+                tryVerify(() => app.draggedTabIndex >= 0)
+                mouseRelease(app.contentItem, target.x, target.y)
+                tryCompare(app, "draggedTabIndex", -1)
+                wait(260)
+            }
+            const header = app.tabGroupHeaderItem(app.tabGroups[0].id)
+            const headerPoint = header.mapToItem(app.contentItem, 80, 20)
+            drag(outside, headerPoint)
+            compare(outside.tabGroupId, id, "Dropping on the label joins the group")
+            compare(app.views.indexOf(outside), 2)
+            const beforeX = app.tabGroupHeaderItem(app.tabGroups[0].id).x
+            drag(first, tabButton(2).mapToItem(app.contentItem, 180, 20))
+            compare(app.views.indexOf(first), 2, "Members can reorder inside their group")
+            compare(first.tabGroupId, id)
+            compare(app.tabGroupHeaderItem(app.tabGroups[0].id).x, beforeX, "Dragging the first member does not move the label")
+            drag(outside, Qt.point(headerPoint.x - 100, headerPoint.y))
+            compare(outside.tabGroupId, "", "Dropping before the label leaves the group")
+            compare(app.views.indexOf(outside), 0)
+            compare(app.views[1].tabGroupId, id)
+            compare(app.views[2].tabGroupId, id)
+            appSettings.reduceMotion = true
+            app.updateTabGroup(id, {collapsed: true})
+            drag(outside, app.tabGroupHeaderItem(app.tabGroups[0].id).mapToItem(app.contentItem, 80, 20))
+            compare(outside.tabGroupId, id, "Collapsed labels accept tabs too")
+            compare(app.groupFor(outside).collapsed, true)
+        }
+
+        function test_overview_shows_group_color_and_name() {
+            appSettings.reduceMotion = true
+            const first = app.views[0]
+            const id = app.createTabGroup(first, "A deliberately long group name")
+            app.updateTabGroup(id, {color: "#e75d73"})
+            app.toggleOverview()
+            const card = overviewCard(first)
+            const border = findChild(card, "overviewCardBorder")
+            const label = findChild(card, "overviewTabGroupName")
+            compare(border.border.color, app.groupFor(first).color)
+            compare(label.text, app.groupFor(first).title)
+            verify(label.visible)
+            tryVerify(() => label.width <= card.width * 0.4 + 1)
+            compare(findChild(overviewCard(app.homeView), "overviewTabGroupName").visible, false)
         }
 
         function test_fullscreen_hides_toolbar_and_reveals_at_top() {

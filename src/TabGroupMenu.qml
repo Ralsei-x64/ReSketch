@@ -10,7 +10,7 @@ Controls.Menu {
     title: qsTr("Tab groups")
     Controls.MenuItem {
         text: qsTr("New group")
-        onTriggered: menu.appWindow.createTabGroup(menu.tabView)
+        onTriggered: menu.appWindow.requestTabGroup(menu.tabView)
     }
     Instantiator {
         model: menu.appWindow.tabGroups
