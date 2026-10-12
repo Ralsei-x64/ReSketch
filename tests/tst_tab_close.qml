@@ -67,6 +67,7 @@ Item {
         function repaintWebView(view) {}
         function registerMainWindow(window) {}
         function showDesktopNotification(notification, owner) {}
+        function showHomeNotification(title, body, url, owner) {}
         function chooseGroupColor(initial, owner) { return "#e75d73" }
         function copyToClipboard(text) { copiedText = text }
         function chooseExportFolder(key, filename, owner) {

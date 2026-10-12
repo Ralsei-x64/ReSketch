@@ -2143,6 +2143,21 @@ Kirigami.ApplicationWindow {
         onTriggered: root.updateTabLifecycle()
     }
 
+    property bool notificationPolling: false
+    property double lastNotificationPoll: 0
+    Timer {
+        interval: 30000
+        repeat: true
+        running: !!root.homeView && root.homeView.notificationSource
+        onTriggered: root.pollHomeNotifications()
+    }
+    Timer {
+        interval: 500
+        repeat: true
+        running: root.notificationPolling && !!root.homeView && root.homeView.notificationSource && !root.homeView.loading
+        onTriggered: root.homeView.runJavaScript(NotificationPolicy.drainFeedScript(), root.receiveHomeNotifications)
+    }
+
     Timer {
         id: signInRefreshTimer
         interval: 1000
@@ -2206,7 +2221,8 @@ Kirigami.ApplicationWindow {
 
     WebEngineProfile {
         id: figmaProfile
-        isPushServiceEnabled: appSettings.desktopNotifications && !root.sharedProfile
+        // Home's feed supplies notifications without depending on Chromium's
+        // legacy GCM registration endpoint, which rejects Qt's push registration.
         storageName: root.sharedProfile ? "" : "resketch"
         persistentStoragePath: root.sharedProfile ? "" : appSettings.profileStoragePath
         offTheRecord: !!root.sharedProfile
@@ -2345,6 +2361,7 @@ Kirigami.ApplicationWindow {
                     profile.queryPermission(url, WebEnginePermission.PermissionType.Notifications).grant()
                 if (!loading && Policy.isFigmaUrl(url))
                     runJavaScript(NotificationPolicy.script(notificationSource))
+                if (notificationSource && !loading) ownerWindow.pollHomeNotifications()
             }
             onNotificationSourceChanged: {
                 syncNotifications()
@@ -2785,6 +2802,31 @@ Kirigami.ApplicationWindow {
             if (view) appSettings.repaintWebView(view)
         })
         view.syncNotifications()
+    }
+
+    function pollHomeNotifications() {
+        const view = homeView
+        if (!view || !view.notificationSource || view.loading || !Policy.isFileBrowserUrl(view.url)
+                || notificationPolling || Date.now() - lastNotificationPoll < 10000) return
+        lastNotificationPoll = Date.now()
+        notificationPolling = true
+        view.runJavaScript(NotificationPolicy.feedScript(FigmaMenu.storeSource), receiveHomeNotifications)
+    }
+
+    function receiveHomeNotifications(result) {
+        let data
+        try { data = JSON.parse(result) } catch (_) { notificationPolling = false; return }
+        notificationPolling = !!data.pending
+        if (!homeView?.notificationSource || !Policy.isFileBrowserUrl(homeView.url)) return
+        for (const item of data.notifications || [])
+            appSettings.showHomeNotification(item.title, item.body, item.url, root)
+    }
+
+    function openNotificationLink(address) {
+        activateHome(false)
+        if (Policy.isFileUrl(address)) openTab(address)
+        else if (Policy.isFigmaUrl(address)) homeView.url = address
+        else openExternalLink(address)
     }
 
     function handleDownload(download) {

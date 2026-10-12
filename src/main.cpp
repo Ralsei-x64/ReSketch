@@ -235,6 +235,33 @@ public:
         if (auto *window = qobject_cast<QWindow *>(owner)) dialog.windowHandle()->setTransientParent(window);
         return dialog.exec() == QDialog::Accepted ? dialog.selectedColor() : initial;
     }
+    KNotification *createFigmaNotification(const QString &title, const QString &text)
+    {
+        auto *notice = new KNotification(QStringLiteral("figmaNotification"), KNotification::CloseOnTimeout, this);
+        notice->setComponentName(QStringLiteral("org.aether64.resketch"));
+        notice->setTitle(title);
+        notice->setText(text.toHtmlEscaped());
+        notice->setIconName(QStringLiteral("org.aether64.resketch"));
+        return notice;
+    }
+    Q_INVOKABLE void showHomeNotification(const QString &title, const QString &text, const QString &address, QObject *owner)
+    {
+        auto *window = qobject_cast<QWindow *>(owner);
+        if (!desktopNotifications() || !window || title.trimmed().isEmpty()
+            || window->property("primaryWindow").value<QObject *>()) return;
+        auto *notice = createFigmaNotification(title.left(256), text.left(2000));
+        const QUrl url(address);
+        const QString link = url.isValid() && (url.scheme() == QStringLiteral("https") || url.scheme() == QStringLiteral("http"))
+            ? address : QString{};
+        connect(notice->addDefaultAction(tr("Open ReSketch")), &KNotificationAction::activated, notice,
+                [window = QPointer<QWindow>(window), link] {
+            if (!window) return;
+            QMetaObject::invokeMethod(window, "openNotificationLink", Q_ARG(QVariant, link));
+            window->raise();
+            window->requestActivate();
+        });
+        notice->sendEvent();
+    }
     Q_INVOKABLE void showDesktopNotification(QObject *object, QObject *owner)
     {
         auto *web = qobject_cast<QWebEngineNotification *>(object);
@@ -245,11 +272,7 @@ public:
             web->close();
             return;
         }
-        auto *notice = new KNotification(QStringLiteral("figmaNotification"), KNotification::CloseOnTimeout, this);
-        notice->setComponentName(QStringLiteral("org.aether64.resketch"));
-        notice->setTitle(web->title());
-        notice->setText(web->message().toHtmlEscaped());
-        notice->setIconName(QStringLiteral("org.aether64.resketch"));
+        auto *notice = createFigmaNotification(web->title(), web->message());
         web->setParent(notice);
         QQmlEngine::setObjectOwnership(web, QQmlEngine::CppOwnership);
         connect(web, &QWebEngineNotification::closed, notice, &KNotification::close);
