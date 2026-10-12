@@ -3,6 +3,7 @@
 
 #include <QApplication>
 #include <QClipboard>
+#include <QColorDialog>
 #include <QCursor>
 #include <QDateTime>
 #include <QDesktopServices>
@@ -16,6 +17,7 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QPalette>
+#include <QPointer>
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
 #include <QQmlApplicationEngine>
@@ -35,6 +37,8 @@
 #include <QWidget>
 #include "FontHelper.h"
 #include <KWindowEffects>
+#include <KNotification>
+#include <QWebEngineNotification>
 #include <algorithm>
 #include <cstdio>
 #include <memory>
@@ -170,6 +174,7 @@ class AppSettings : public QObject
     Q_PROPERTY(bool keepHomeAwake READ keepHomeAwake WRITE setKeepHomeAwake NOTIFY changed)
     Q_PROPERTY(bool rememberOpenedTabs READ rememberOpenedTabs WRITE setRememberOpenedTabs NOTIFY changed)
     Q_PROPERTY(bool deferRestoredTabs READ deferRestoredTabs WRITE setDeferRestoredTabs NOTIFY changed)
+    Q_PROPERTY(bool desktopNotifications READ desktopNotifications WRITE setDesktopNotifications NOTIFY changed)
     Q_PROPERTY(QStringList rememberedFileTabs READ rememberedFileTabs NOTIFY changed)
     Q_PROPERTY(bool releaseClosedWindows READ releaseClosedWindows WRITE setReleaseClosedWindows NOTIFY changed)
     Q_PROPERTY(bool cullOffscreenOverviewEffects READ cullOffscreenOverviewEffects WRITE setCullOffscreenOverviewEffects NOTIFY changed)
@@ -212,6 +217,52 @@ public:
                    && QGuiApplication::palette().color(QPalette::Window).lightness() < 128);
     }
     bool menuIntegration() const { return store.value(QStringLiteral("menuIntegration"), true).toBool(); }
+    bool desktopNotifications() const { return !safeMode() && store.value(QStringLiteral("desktopNotifications"), true).toBool(); }
+    void setDesktopNotifications(bool value)
+    {
+        store.setValue(QStringLiteral("desktopNotifications"), value);
+        emit changed();
+    }
+    Q_INVOKABLE QColor chooseGroupColor(const QColor &initial, QObject *owner)
+    {
+        QColorDialog dialog(initial);
+        dialog.setWindowTitle(tr("Tab group color"));
+        dialog.setWindowModality(Qt::WindowModal);
+        dialog.winId();
+        if (auto *window = qobject_cast<QWindow *>(owner)) dialog.windowHandle()->setTransientParent(window);
+        return dialog.exec() == QDialog::Accepted ? dialog.selectedColor() : initial;
+    }
+    Q_INVOKABLE void showDesktopNotification(QObject *object, QObject *owner)
+    {
+        auto *web = qobject_cast<QWebEngineNotification *>(object);
+        if (!web) return;
+        const auto host = web->origin().host();
+        if (!desktopNotifications() || web->origin().scheme() != QStringLiteral("https")
+            || (host != QStringLiteral("figma.com") && !host.endsWith(QStringLiteral(".figma.com")))) {
+            web->close();
+            return;
+        }
+        auto *notice = new KNotification(QStringLiteral("figmaNotification"), KNotification::CloseOnTimeout, this);
+        notice->setComponentName(QStringLiteral("org.aether64.resketch"));
+        notice->setTitle(web->title());
+        notice->setText(web->message().toHtmlEscaped());
+        notice->setIconName(QStringLiteral("org.aether64.resketch"));
+        web->setParent(notice);
+        QQmlEngine::setObjectOwnership(web, QQmlEngine::CppOwnership);
+        connect(web, &QWebEngineNotification::closed, notice, &KNotification::close);
+        connect(notice, &KNotification::closed, web, &QWebEngineNotification::close);
+        connect(notice->addDefaultAction(tr("Open ReSketch")), &KNotificationAction::activated, web,
+                [web, window = QPointer<QWindow>(qobject_cast<QWindow *>(owner))] {
+            if (window) {
+                QMetaObject::invokeMethod(window, "activateHome", Q_ARG(QVariant, false));
+                window->raise();
+                window->requestActivate();
+            }
+            web->click();
+        });
+        notice->sendEvent();
+        web->show();
+    }
     bool rememberOpenedTabs() const { return store.value(QStringLiteral("rememberOpenedTabs"), false).toBool(); }
     bool deferRestoredTabs() const { return store.value(QStringLiteral("deferRestoredTabs"), true).toBool(); }
     void setDeferRestoredTabs(bool value)

@@ -8,10 +8,13 @@ import "../src" as App
 import "../src/FigmaTheme.js" as FigmaTheme
 
 Item {
+    id: fixture
+    property int notificationCount: 0
     width: 1280
     height: 800
     property QtObject appSettings: QtObject {
         property bool safeMode: false
+        property bool desktopNotifications: false
         property string theme: "auto"
         property bool menuIntegration: false
         property bool darkTheme: false
@@ -61,6 +64,8 @@ Item {
         function refreshWindowBlur(window) {}
         function repaintWebView(view) {}
         function registerMainWindow(window) {}
+        function showDesktopNotification(notification, owner) {}
+        function chooseGroupColor(initial, owner) { return "#e75d73" }
         function copyToClipboard(text) { copiedText = text }
         function chooseExportFolder(key, filename, owner) {
             requestedExportKey = key
@@ -81,7 +86,21 @@ Item {
         }
     }
 
-    WebEngineProfile { id: testProfile; offTheRecord: true }
+    WebEngineProfile { id: testProfile; offTheRecord: true; persistentPermissionsPolicy: WebEngineProfile.StoreInMemory }
+    Component {
+        id: notificationProbe
+        WebEngineView {
+            profile: testProfile
+            onPermissionRequested: permission => permission.grant()
+        }
+    }
+    Connections {
+        target: testProfile
+        function onPresentNotification(notification) {
+            ++fixture.notificationCount
+            notification.close()
+        }
+    }
     App.Main {
         id: app
         sharedProfile: testProfile
@@ -142,6 +161,96 @@ Item {
                 compare(button.tabView, app.views[index])
                 compare(button.selected, app.views[index] === view)
             }
+        }
+
+        function test_tab_groups_collapse_rename_color_and_membership() {
+            appSettings.reduceMotion = true
+            const first = app.views[0], second = app.views[2]
+            const groupId = app.createTabGroup(first)
+            compare(app.groupFor(first).title, "Tab Group 1")
+            app.assignTabGroup(second, groupId)
+            compare(app.views[1], second)
+            compare(second.tabGroupId, groupId)
+            compare(app.tabStripWidth, 4 * app.tabWidth + app.groupHeaderWidth)
+            app.activateTab(1)
+            const header = findChild(tabButton(0), "tabGroupHeader")
+            verify(header && header.visible)
+            mouseClick(header, header.width / 2, header.height / 2)
+            compare(app.groupFor(first).collapsed, true)
+            compare(tabButton(0).width, app.groupHeaderWidth)
+            compare(tabButton(1).width, 0)
+            compare(app.activeView, second)
+            compare(findChild(app, "selectionBar").targetWidth, app.groupHeaderWidth)
+            mouseClick(header, header.width / 2, header.height / 2)
+            compare(app.groupFor(first).collapsed, false)
+            app.updateTabGroup(groupId, {title: "Design work", color: "#e75d73"})
+            compare(app.groupFor(second).title, "Design work")
+            compare(app.groupFor(second).color, "#e75d73")
+            app.updateTabGroup(groupId, {collapsed: true})
+            app.activateTab(0)
+            compare(app.groupFor(first).collapsed, false)
+            app.openTab("about:blank", null, true, first)
+            compare(app.views[1].tabGroupId, groupId)
+            app.assignTabGroup(second, "")
+            compare(second.tabGroupId, "")
+            compare(app.views.indexOf(second), 2)
+            app.ungroupTabs(groupId)
+            compare(app.tabGroups.length, 0)
+            compare(app.tabStripWidth, 5 * app.tabWidth)
+            compare(app.activeView, first)
+        }
+
+        function test_fullscreen_hides_toolbar_and_reveals_at_top() {
+            const strip = findChild(app, "tabStrip")
+            app.requestActivate()
+            tryVerify(() => app.active)
+            app.contentItem.forceActiveFocus()
+            keyClick(Qt.Key_F11)
+            compare(app.webFullscreen, true)
+            tryCompare(strip, "y", -app.tabStripHeight)
+            compare(app.browserHeight, app.height)
+            mouseMove(app.contentItem, 100, 2, 20)
+            tryCompare(strip, "y", 0)
+            mouseMove(app.contentItem, 100, 150, 20)
+            tryCompare(strip, "y", -app.tabStripHeight)
+            keyClick(Qt.Key_F11)
+            compare(app.webFullscreen, false)
+            tryCompare(strip, "y", 0)
+            compare(app.browserHeight, app.height - app.tabStripHeight)
+        }
+
+        function test_only_home_can_create_notifications_with_shared_permission() {
+            appSettings.desktopNotifications = true
+            appSettings.changed()
+            fixture.notificationCount = 0
+            const permission = testProfile.queryPermission("https://www.figma.com", WebEnginePermission.PermissionType.Notifications)
+            permission.grant()
+            const home = notificationProbe.createObject(fixture, {"userScripts.collection": app.homeView.userScripts.collection})
+            home.loadHtml("<html><body>Home</body></html>", "https://www.figma.com/")
+            let allowed = null
+            tryVerify(() => {
+                home.runJavaScript("Notification.permission", value => allowed = value)
+                return allowed === "granted"
+            })
+            home.runJavaScript("new Notification('ReSketch test', {body:'Home notification'})")
+            tryCompare(fixture, "notificationCount", 1)
+            const view = notificationProbe.createObject(fixture, {"userScripts.collection": app.views[0].userScripts.collection})
+            view.loadHtml("<html><body>File</body></html>", "https://www.figma.com/design/Test/File")
+            let result = null
+            tryVerify(() => {
+                view.runJavaScript("({permission:Notification.permission,ready:typeof __resketchSetNotifications === 'function' && document.body.textContent === 'File'})", value => result = value)
+                return result?.ready && result?.permission === "denied"
+            })
+            let error = null
+            view.runJavaScript("(()=>{try{new Notification('Duplicate')}catch(e){return e.name}})()", value => error = value)
+            tryVerify(() => error === "NotAllowedError")
+            compare(fixture.notificationCount, 1)
+            home.destroy()
+            view.destroy()
+            appSettings.keepHomeAwake = false
+            appSettings.maximumLoadedTabs = 1
+            app.updateTabLifecycle()
+            compare(app.homeView.lifecycleState, WebEngineView.LifecycleState.Active)
         }
 
         function test_remembered_files_restore_behind_home_and_update_session_urls_data() {
@@ -299,6 +408,12 @@ Item {
         }
 
         function cleanup() {
+            for (const group of app.tabGroups.slice()) app.ungroupTabs(group.id)
+            app.nextGroupNumber = 1
+            appSettings.desktopNotifications = false
+            if (app.webFullscreen) app.toggleWebFullscreen()
+            app.width = 1280
+            app.height = 800
             appSettings.rememberOpenedTabs = false
             appSettings.deferRestoredTabs = true
             appSettings.rememberedFileTabs = []
@@ -1438,11 +1553,17 @@ Item {
             app.updateItemDrag(Qt.point(end.x, end.y))
             compare(findChild(app, "tabDragPreview").visible, false)
             compare(app.overviewDropIndex, 2)
+            const stripTab = tabButton(1)
+            tryVerify(() => stripTab.visualOffset < -1)
+            tryVerify(() => Math.abs(stripTab.visualOffset + app.tabWidth) < 1)
+            const stripX = stripTab.mapToItem(app.contentItem, 0, 0).x
             compare(frame.parent, card)
             compare(frame.previewCard, card)
             mouseRelease(app.contentItem, end.x, end.y)
             tryCompare(app, "overviewDraggedView", null)
             compare(app.views[2], view)
+            fuzzyCompare(stripTab.mapToItem(app.contentItem, 0, 0).x, stripX, 2,
+                         "The strip keeps its animated position when the card is dropped")
             compare(overviewCard(view), card, "Reordering must keep the same card")
             compare(frame.parent, card, "The preview must stay inside its card")
             wait(260)

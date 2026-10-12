@@ -1,0 +1,9 @@
+[Global]
+Name=ReSketch
+Comment=Figma desktop notifications
+IconName=org.aether64.resketch
+
+[Event/figmaNotification]
+Name=Figma notification
+Comment=Notifications received by the Figma Home page
+Action=Popup

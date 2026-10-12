@@ -12,6 +12,7 @@ import org.kde.kirigami as Kirigami
 import "Policy.js" as Policy
 import "FigmaMenu.js" as FigmaMenu
 import "FigmaTheme.js" as FigmaTheme
+import "NotificationPolicy.js" as NotificationPolicy
 
 Kirigami.ApplicationWindow {
     id: root
@@ -25,7 +26,8 @@ Kirigami.ApplicationWindow {
                                                - addTabButton.width - overviewButton.width
                                                - refreshButton.width - menuButton.width
                                                - windowControlGroup.width)
-    readonly property bool tabStripOverflow: tabModel.count * tabWidth > tabAreaWidth + 1
+    readonly property real tabStripWidth: views.reduce((total, view, index) => total + tabSlotWidth(index), 0)
+    readonly property bool tabStripOverflow: tabStripWidth > tabAreaWidth + 1
     readonly property int tabIconSize: Kirigami.Units.iconSizes.small
     readonly property int tabContentLeftMargin: Kirigami.Units.smallSpacing + 5
     readonly property real toolbarAlpha: appSettings.toolbarOpacity / 100
@@ -52,6 +54,8 @@ Kirigami.ApplicationWindow {
     readonly property real overviewScale: overviewCardWidth / Math.max(1, browserArea.width)
     readonly property real overviewCardHeight: overviewTitleHeight + browserArea.height * overviewScale
     readonly property bool framelessTabBar: appSettings.windowControlsInTabBar && !appSettings.keepWindowDecorations
+    readonly property bool homeMustStayAwake: appSettings.keepHomeAwake
+                                              || appSettings.desktopNotifications && !primaryWindow
     readonly property bool chromiumFrameLoaded: !!activeView && activeView.hasLoadedFrame
                                                && !overviewVisible
     readonly property string figmaAppearanceScript: FigmaTheme.script({
@@ -65,6 +69,9 @@ Kirigami.ApplicationWindow {
         opacity: appSettings.toolbarOpacity
     }, FigmaMenu.storeSource)
     property var views: []
+    property var tabGroups: []
+    property int nextGroupNumber: 1
+    readonly property int groupHeaderWidth: 160
     readonly property list<string> sessionFileUrls: views.filter(view => !view.overviewClosingCard
                         && !pendingCloseViews.includes(view) && !closingViews.includes(view))
                         .map(view => String(view.tabUrl)).filter(Policy.isFileUrl)
@@ -118,6 +125,9 @@ Kirigami.ApplicationWindow {
     property var overviewDraggedView: null
     property int overviewDropIndex: -1
     property bool skipNextWebSlide: false
+    property bool webFullscreen: false
+    property bool fullscreenToolbarHovered: false
+    property int visibilityBeforeFullscreen: Window.Windowed
 
     width: 1280
     height: 800
@@ -215,37 +225,773 @@ Kirigami.ApplicationWindow {
         globalToolBarStyle: Kirigami.ApplicationHeaderStyle.None
         background: Item { }
 
-        header: Rectangle {
+        header: Item {
+            id: toolbarHost
             width: root.width
-            height: root.tabStripHeight
-            color: Qt.rgba(Kirigami.Theme.backgroundColor.r,
-                           Kirigami.Theme.backgroundColor.g,
-                           Kirigami.Theme.backgroundColor.b, root.toolbarAlpha)
-
-            Row {
-                anchors.fill: parent
-                spacing: 0
-
-            Controls.ToolButton {
-                id: homeButton
-                width: 49
+            height: root.webFullscreen ? 0 : root.tabStripHeight
+            z: 100
+            Rectangle {
+                id: tabStrip
+                objectName: "tabStrip"
+                width: root.width
                 height: root.tabStripHeight
-                text: ""
-                Accessible.name: "Home"
-                Controls.ToolTip.text: qsTr("Home")
-                Controls.ToolTip.visible: hovered
-                readonly property bool selected: root.activeView === root.homeView
-                background: Rectangle {
-                    color: homeButton.selected ? Qt.rgba(Kirigami.Theme.backgroundColor.r,
-                                                          Kirigami.Theme.backgroundColor.g,
-                                                          Kirigami.Theme.backgroundColor.b,
-                                                          root.toolbarAlpha)
-                                               : homeButton.hovered ? Qt.rgba(Kirigami.Theme.highlightColor.r,
-                                                                              Kirigami.Theme.highlightColor.g,
-                                                                              Kirigami.Theme.highlightColor.b, 0.12)
-                                                                    : "transparent"
+                y: root.webFullscreen && !root.fullscreenToolbarHovered ? -height : 0
+                Behavior on y {
+                    enabled: !appSettings.reduceMotion
+                    NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
                 }
-                contentItem: Item {
+                HoverHandler { onHoveredChanged: root.fullscreenToolbarHovered = hovered }
+                color: Qt.rgba(Kirigami.Theme.backgroundColor.r,
+                               Kirigami.Theme.backgroundColor.g,
+                               Kirigami.Theme.backgroundColor.b, root.toolbarAlpha)
+
+                Row {
+                    anchors.fill: parent
+                    spacing: 0
+
+                Controls.ToolButton {
+                    id: homeButton
+                    width: 49
+                    height: root.tabStripHeight
+                    text: ""
+                    Accessible.name: "Home"
+                    Controls.ToolTip.text: qsTr("Home")
+                    Controls.ToolTip.visible: hovered
+                    readonly property bool selected: root.activeView === root.homeView
+                    background: Rectangle {
+                        color: homeButton.selected ? Qt.rgba(Kirigami.Theme.backgroundColor.r,
+                                                              Kirigami.Theme.backgroundColor.g,
+                                                              Kirigami.Theme.backgroundColor.b,
+                                                              root.toolbarAlpha)
+                                                   : homeButton.hovered ? Qt.rgba(Kirigami.Theme.highlightColor.r,
+                                                                                  Kirigami.Theme.highlightColor.g,
+                                                                                  Kirigami.Theme.highlightColor.b, 0.12)
+                                                                        : "transparent"
+                    }
+                    contentItem: Item {
+                        DragHandler {
+                            target: null
+                            acceptedButtons: Qt.LeftButton
+                            onActiveChanged: {
+                                if (active)
+                                    root.startSystemMove()
+                            }
+                        }
+                        TapHandler {
+                            acceptedButtons: Qt.LeftButton
+                            onTapped: homeButton.clicked()
+                        }
+
+                        Kirigami.Icon {
+                            width: root.tabIconSize
+                            height: root.tabIconSize
+                            anchors.centerIn: parent
+                            source: "go-home"
+                        }
+                    }
+                    Rectangle {
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        anchors.right: parent.right
+                        width: 1
+                        color: Kirigami.Theme.textColor
+                        opacity: 0.2
+                    }
+                    onClicked: root.activateHome()
+                }
+
+                TabBarButton {
+                    id: leftTabOverflow
+                    width: root.tabStripOverflow ? 28 : 0
+                    height: root.tabStripHeight - 1
+                    visible: root.tabStripOverflow
+                    dragWindow: root
+                    dimmed: tabsViewport.contentX <= 1
+                    icon.name: "go-previous"
+                    icon.width: root.tabIconSize
+                    icon.height: root.tabIconSize
+                    Accessible.name: qsTr("More tabs to the left")
+                    Controls.ToolTip.text: qsTr("More tabs to the left")
+                    Controls.ToolTip.visible: hovered && !dimmed
+                    onClicked: {
+                        if (!dimmed)
+                            tabsViewport.scrollBy(root.tabWidth)
+                    }
+                    Rectangle {
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        anchors.right: parent.right
+                        width: 1
+                        color: Kirigami.Theme.textColor
+                        opacity: 0.2
+                    }
+                }
+
+                Flickable {
+                    id: tabsViewport
+                    objectName: "tabsViewport"
+                    property real wheelTargetX: 0
+                    property bool smoothWheel: false
+                    function scrollBy(distance, direct) {
+                        const limit = Math.max(0, contentWidth - width)
+                        const currentTarget = !direct && wheelScroll.running ? wheelTargetX : contentX
+                        wheelTargetX = Math.max(0, Math.min(limit, currentTarget - distance))
+                        smoothWheel = !direct && !appSettings.reduceMotion
+                        if (!smoothWheel)
+                            wheelScroll.stop()
+                        contentX = wheelTargetX
+                    }
+                    width: Math.max(0, root.tabAreaWidth
+                                       - leftTabOverflow.width - rightTabOverflow.width)
+                    Behavior on width {
+                        enabled: root.animatingCloseGap && !appSettings.reduceMotion
+                        NumberAnimation {
+                            duration: 220
+                            easing.type: Easing.BezierSpline
+                            easing.bezierCurve: [0, 0.76, 0, 1, 1, 1]
+                        }
+                    }
+                    height: root.tabStripHeight
+                    contentWidth: tabBar.width
+                    contentHeight: tabBar.height
+                    boundsBehavior: Flickable.StopAtBounds
+                    clip: true
+                    onDraggingChanged: {
+                        if (dragging) {
+                            wheelScroll.stop()
+                            smoothWheel = false
+                            wheelTargetX = contentX
+                        }
+                    }
+
+                    Behavior on contentX {
+                        enabled: tabsViewport.smoothWheel
+                        SmoothedAnimation {
+                            id: wheelScroll
+                            velocity: -1
+                            duration: 130
+                            maximumEasingTime: 75
+                            onRunningChanged: {
+                                if (!running)
+                                    tabsViewport.smoothWheel = false
+                            }
+                        }
+                    }
+
+                    ScrollGestureArea {
+                        enabled: tabsViewport.contentWidth > tabsViewport.width
+                        flickable: tabsViewport
+                        horizontal: true
+                        wheelStep: root.tabWidth
+                    }
+
+                    Controls.TabBar {
+                        id: tabBar
+                        width: root.tabStripWidth
+                        height: root.tabStripHeight
+                        background: Item { }
+
+                        Repeater {
+                            id: tabRepeater
+                            model: tabModel
+                            onItemAdded: Qt.callLater(root.processPendingClose)
+
+                            Controls.TabButton {
+                                id: tabButton
+                                required property int index
+                                required property string title
+                                required property bool filePage
+                                required property bool newFilePage
+                                required property bool loading
+                                required property int progress
+                                required property bool animateOpen
+                                required property var tabView
+                                readonly property var group: root.groupFor(tabView)
+                                readonly property bool groupCollapsed: !!group && group.collapsed
+                                readonly property real groupPrefix: root.tabGroupHeaderWidth(index)
+                                readonly property bool selected: root.activeView === tabView
+                                property bool settling: false
+                                property real dropOffset: 0
+                                property bool closing: false
+                                property bool closePending: false
+                                property var closingView: null
+                                property real closeDrop: 0
+                                property real openRise: 0
+                                property bool fillingClose: false
+                                property real fillOffset: 0
+                                readonly property real visualOffset: tabTranslate.x
+                                width: root.tabSlotWidth(index)
+                                leftPadding: groupPrefix
+                                rightPadding: 0
+                                height: root.tabStripHeight
+                                z: closing ? 20 : tabDrag.active || settling ? 10 : 0
+                                transform: Translate {
+                                    id: tabTranslate
+                                    x: tabDrag.active ? tabDrag.activeTranslation.x
+                                                      : tabButton.fillingClose ? tabButton.fillOffset
+                                                      : tabButton.settling ? tabButton.dropOffset
+                                                      : root.tabPreviewOffset(tabButton.index, tabButton.width)
+                                    y: -tabButton.y + tabButton.closeDrop + tabButton.openRise
+
+                                    Behavior on x {
+                                        enabled: (root.draggedTabIndex >= 0 && root.tabDropIndex >= 0
+                                                  || root.overviewDraggedView && root.overviewDropIndex >= 0)
+                                                 && !tabDrag.active && !tabButton.settling
+                                                 && !appSettings.reduceMotion
+                                        NumberAnimation {
+                                            duration: 220
+                                            easing.type: Easing.BezierSpline
+                                            easing.bezierCurve: [0, 0.76, 0, 1, 1, 1]
+                                        }
+                                    }
+                                }
+                                NumberAnimation {
+                                    id: tabSettle
+                                    target: tabButton
+                                    property: "dropOffset"
+                                    to: 0
+                                    duration: 220
+                                    easing.type: Easing.BezierSpline
+                                    easing.bezierCurve: [0, 0.76, 0, 1, 1, 1]
+                                    onFinished: tabButton.settling = false
+                                }
+                                NumberAnimation {
+                                    id: openToast
+                                    target: tabButton
+                                    property: "openRise"
+                                    to: 0
+                                    duration: 220
+                                    easing.type: Easing.BezierSpline
+                                    easing.bezierCurve: [0, 0.76, 0, 1, 1, 1]
+                                    onFinished: root.finishTabOpening(tabButton.tabView)
+                                }
+                                Component.onCompleted: {
+                                    if (animateOpen) {
+                                        tabModel.setProperty(index, "animateOpen", false)
+                                        if (!appSettings.reduceMotion) {
+                                            openRise = root.tabStripHeight
+                                            openToast.start()
+                                        } else
+                                            root.finishTabOpening(tabView)
+                                    }
+                                }
+                                NumberAnimation {
+                                    id: closeToast
+                                    target: tabButton
+                                    property: "closeDrop"
+                                    to: root.tabStripHeight
+                                    duration: 260
+                                    easing.type: Easing.InOutQuad
+                                    onFinished: {
+                                        const view = tabButton.closingView
+                                        Qt.callLater(() => root.finishClose(view))
+                                    }
+                                }
+                                NumberAnimation {
+                                    id: closeFill
+                                    target: tabButton
+                                    property: "fillOffset"
+                                    to: 0
+                                    duration: 220
+                                    easing.type: Easing.BezierSpline
+                                    easing.bezierCurve: [0, 0.76, 0, 1, 1, 1]
+                                    onFinished: tabButton.fillingClose = false
+                                }
+                                function startCloseFill(distance) {
+                                    const remaining = fillingClose ? fillOffset : 0
+                                    closeFill.stop()
+                                    fillOffset = remaining + distance
+                                    fillingClose = true
+                                    closeFill.start()
+                                }
+                                function startReorderFill(distance) {
+                                    closeFill.stop()
+                                    fillOffset = distance
+                                    fillingClose = true
+                                    closeFill.start()
+                                }
+                                function startClose() {
+                                    if (closing)
+                                        return
+                                    closingView = tabView
+                                    closing = true
+                                    tabSettle.stop()
+                                    if (appSettings.reduceMotion)
+                                        root.finishClose(closingView)
+                                    else
+                                        closeToast.start()
+                                }
+                                text: ""
+                                Accessible.name: title
+                                checkable: false
+                                checked: selected
+                                opacity: selected ? 1 : 0.7
+                                background: Rectangle {
+                                    x: tabButton.groupPrefix
+                                    width: Math.max(0, tabButton.width - tabButton.groupPrefix)
+                                    visible: !tabButton.groupCollapsed
+                                    color: tabButton.selected ? Qt.rgba(Kirigami.Theme.backgroundColor.r,
+                                                                        Kirigami.Theme.backgroundColor.g,
+                                                                        Kirigami.Theme.backgroundColor.b,
+                                                                        root.toolbarAlpha)
+                                                              : tabButton.hovered ? Qt.rgba(Kirigami.Theme.highlightColor.r,
+                                                                                             Kirigami.Theme.highlightColor.g,
+                                                                                             Kirigami.Theme.highlightColor.b, 0.12)
+                                                                                  : "transparent"
+
+                                    Rectangle {
+                                        anchors.left: parent.left
+                                        anchors.top: parent.top
+                                        anchors.bottom: parent.bottom
+                                        width: 1
+                                        color: Kirigami.Theme.textColor
+                                        opacity: tabButton.selected && tabButton.index !== 0 ? 0.2 : 0
+                                        Behavior on opacity {
+                                            enabled: !appSettings.reduceMotion
+                                            NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                                        }
+                                    }
+                                    Rectangle {
+                                        anchors.right: parent.right
+                                        anchors.top: parent.top
+                                        anchors.bottom: parent.bottom
+                                        width: 1
+                                        color: Kirigami.Theme.textColor
+                                        opacity: tabButton.selected ? 0.2 : 0
+                                        Behavior on opacity {
+                                            enabled: !appSettings.reduceMotion
+                                            NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                                        }
+                                    }
+                                }
+                                onClicked: {
+                                    if (!closing && !closePending && root.activeView !== tabView)
+                                        root.activateTab(root.views.indexOf(tabView))
+                                }
+
+                                TapHandler {
+                                    acceptedButtons: Qt.LeftButton
+                                    onTapped: (point) => {
+                                        if (!tabButton.closing && !tabButton.closePending
+                                                && point.position.x < closeTabButton.mapToItem(tabButton, 0, 0).x
+                                                && root.activeView !== tabButton.tabView)
+                                            root.activateTab(root.views.indexOf(tabButton.tabView))
+                                    }
+                                }
+
+                                TapHandler {
+                                    acceptedButtons: Qt.MiddleButton
+                                    enabled: false
+                                    property var pressedView: null
+                                    onPressedChanged: {
+                                        if (pressed)
+                                            pressedView = tabButton.tabView
+                                    }
+                                    onTapped: {
+                                        const target = pressedView || tabButton.tabView
+                                        pressedView = null
+                                        Qt.callLater(() => root.closeTabByMiddleClick(target))
+                                    }
+                                }
+                                TapHandler {
+                                    acceptedButtons: Qt.RightButton
+                                    onTapped: tabContextMenu.popup()
+                                }
+
+                                Controls.Menu {
+                                    id: tabContextMenu
+                                    TabGroupMenu { appWindow: root; tabView: tabButton.tabView }
+                                    Controls.MenuItem {
+                                        text: qsTr("Move to new window")
+                                        enabled: !!tabButton.tabView
+                                                 && root.views.length > 1
+                                                 && Policy.isFigmaUrl(tabButton.tabView.tabUrl)
+                                        onTriggered: {
+                                            const target = tabButton.tabView
+                                            Qt.callLater(() => root.moveTabToNewWindow(root.views.indexOf(target)))
+                                        }
+                                    }
+                                    Controls.MenuItem {
+                                        text: qsTr("Close")
+                                        onTriggered: {
+                                            const target = tabButton.tabView
+                                            Qt.callLater(() => root.closeTab(root.views.indexOf(target)))
+                                        }
+                                    }
+                                    Controls.MenuItem {
+                                        text: qsTr("Refresh")
+                                        enabled: !root.allFrozen
+                                        onTriggered: root.refreshTab(root.views.indexOf(tabButton.tabView))
+                                    }
+                                    Controls.MenuItem {
+                                        text: qsTr("Copy URL")
+                                        enabled: !!tabButton.tabView
+                                                 && Policy.isFigmaUrl(tabButton.tabView.tabUrl)
+                                        onTriggered: appSettings.copyToClipboard(String(tabButton.tabView.tabUrl))
+                                    }
+                                }
+
+                                contentItem: Item {
+                                    visible: !tabButton.groupCollapsed
+                                    Kirigami.Icon {
+                                        width: root.tabIconSize
+                                        height: root.tabIconSize
+                                        anchors.left: parent.left
+                                        anchors.leftMargin: root.tabContentLeftMargin
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        source: tabButton.filePage ? "text-x-generic" : "go-home"
+                                        visible: !tabButton.loading
+                                    }
+
+                                    Kirigami.Icon {
+                                        id: loadingIcon
+                                        width: root.tabIconSize
+                                        height: root.tabIconSize
+                                        anchors.left: parent.left
+                                        anchors.leftMargin: root.tabContentLeftMargin
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        source: "view-refresh"
+                                        visible: tabButton.loading
+                                        RotationAnimation on rotation {
+                                            from: 0
+                                            to: 360
+                                            duration: 900
+                                            loops: Animation.Infinite
+                                            running: loadingIcon.visible && !appSettings.reduceMotion
+                                            onRunningChanged: {
+                                                if (!running)
+                                                    loadingIcon.rotation = 0
+                                            }
+                                        }
+                                    }
+
+                                    Controls.Label {
+                                        anchors.left: loadingIcon.right
+                                        anchors.leftMargin: Kirigami.Units.smallSpacing
+                                        anchors.right: closeTabButton.left
+                                        anchors.rightMargin: Kirigami.Units.smallSpacing
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: Policy.tabTitle(tabButton.title)
+                                        elide: Text.ElideRight
+                                        horizontalAlignment: Text.AlignLeft
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                    TabBarButton {
+                                        id: closeTabButton
+                                        property var pressedView: null
+                                        width: root.tabStripHeight
+                                        height: root.tabStripHeight
+                                        icon.name: "window-close"
+                                        icon.width: root.tabIconSize
+                                        icon.height: root.tabIconSize
+                                        anchors.right: parent.right
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        Accessible.name: "Close " + tabButton.title
+                                        Controls.ToolTip.text: Accessible.name
+                                        Controls.ToolTip.visible: hovered
+                                        onPressedChanged: {
+                                            if (pressed)
+                                                pressedView = tabButton.tabView
+                                        }
+                                        onClicked: {
+                                            const target = pressedView || tabButton.tabView
+                                            pressedView = null
+                                            root.closeTab(root.views.indexOf(target))
+                                        }
+                                    }
+
+                                    Item {
+                                        anchors.left: parent.left
+                                        anchors.right: closeTabButton.left
+                                        anchors.top: parent.top
+                                        anchors.bottom: parent.bottom
+
+                                        DragHandler {
+                                            id: tabDrag
+                                            property real lastDragX: 0
+                                            enabled: !tabButton.closing && !tabButton.closePending
+                                            target: null
+                                            acceptedButtons: Qt.LeftButton
+                                            onActiveChanged: {
+                                                if (active) {
+                                                    if (tabButton.selected) {
+                                                        selectionGlide.stop()
+                                                        root.homeSelectionGlide = false
+                                                        selectionBar.startOffset = 0
+                                                        selectionBar.endOffset = 0
+                                                    }
+                                                    lastDragX = activeTranslation.x
+                                                    tabSettle.stop()
+                                                    tabButton.settling = false
+                                                    tabButton.dropOffset = 0
+                                                    root.draggedTabIndex = tabButton.index
+                                                    root.tabDropIndex = tabButton.index
+                                                    root.beginItemDrag(tabButton.tabView, tabButton, centroid.scenePosition)
+                                                } else if (root.draggedTabIndex >= 0) {
+                                                    const point = centroid.scenePosition
+                                                    if (root.outsideWindow(point)) {
+                                                        root.draggedTabIndex = -1
+                                                        root.tabDropIndex = -1
+                                                        root.finishItemDrag(point)
+                                                        return
+                                                    }
+                                                    root.cancelItemDrag()
+                                                    const source = root.draggedTabIndex
+                                                    const destination = root.tabDropIndex
+                                                    const dropOffset = tabButton.x + lastDragX
+                                                                       - root.tabStripPosition(destination)
+                                                    tabButton.dropOffset = dropOffset
+                                                    tabButton.settling = !appSettings.reduceMotion
+                                                                         && Math.abs(dropOffset) > 0.5
+                                                    root.draggedTabIndex = -1
+                                                    root.tabDropIndex = -1
+                                                    root.reorderTab(source, destination)
+                                                    if (tabButton.settling)
+                                                        tabSettle.start()
+                                                    else
+                                                        tabButton.dropOffset = 0
+                                                }
+                                            }
+                                            onActiveTranslationChanged: {
+                                                if (active) {
+                                                    lastDragX = activeTranslation.x
+                                                    root.tabDropIndex = root.tabDropTarget(root.tabStripPosition(root.draggedTabIndex)
+                                                                         + activeTranslation.x)
+                                                    root.updateItemDrag(centroid.scenePosition)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Rectangle {
+                                    x: tabButton.groupPrefix
+                                    anchors.bottom: parent.bottom
+                                    width: Math.max(0, parent.width - x)
+                                    height: 2
+                                    visible: !!tabButton.group && !tabButton.groupCollapsed
+                                    color: tabButton.group ? tabButton.group.color : "transparent"
+                                }
+                                TabBarButton {
+                                    objectName: "tabGroupHeader"
+                                    width: tabButton.groupPrefix
+                                    height: root.tabStripHeight
+                                    visible: width > 0
+                                    z: 3
+                                    dragWindow: root
+                                    Accessible.name: tabButton.group ? tabButton.group.title : ""
+                                    Controls.ToolTip.text: Accessible.name
+                                    Controls.ToolTip.visible: hovered
+                                    contentItem: Row {
+                                        spacing: 6
+                                        leftPadding: 10
+                                        Rectangle {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: 8; height: 8; radius: 4
+                                            color: tabButton.group ? tabButton.group.color : "transparent"
+                                        }
+                                        Controls.Label {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: root.groupHeaderWidth - 54
+                                            text: tabButton.group ? tabButton.group.title : ""
+                                            elide: Text.ElideRight
+                                        }
+                                        Kirigami.Icon {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: 14; height: 14
+                                            source: tabButton.groupCollapsed ? "arrow-right" : "arrow-down"
+                                        }
+                                    }
+                                    onClicked: root.updateTabGroup(tabButton.group.id, {collapsed: !tabButton.groupCollapsed})
+                                    TapHandler { acceptedButtons: Qt.RightButton; onTapped: groupContextMenu.popup() }
+                                    Controls.Menu {
+                                        id: groupContextMenu
+                                        Controls.MenuItem {
+                                            text: qsTr("Rename group")
+                                            onTriggered: {
+                                                groupRenameDialog.groupId = tabButton.group.id
+                                                groupNameEditor.text = tabButton.group.title
+                                                groupRenameDialog.open()
+                                                groupNameEditor.forceActiveFocus()
+                                                groupNameEditor.selectAll()
+                                            }
+                                        }
+                                        Controls.MenuItem {
+                                            text: qsTr("Choose color…")
+                                            onTriggered: root.updateTabGroup(tabButton.group.id, {
+                                                color: appSettings.chooseGroupColor(tabButton.group.color, root)})
+                                        }
+                                        Controls.MenuItem {
+                                            text: qsTr("Ungroup tabs")
+                                            onTriggered: root.ungroupTabs(tabButton.group.id)
+                                        }
+                                        Controls.MenuItem {
+                                            text: qsTr("Close group")
+                                            onTriggered: {
+                                                const id = tabButton.group.id
+                                                for (const view of root.views.slice().reverse())
+                                                    if (view.tabGroupId === id) root.closeTab(root.views.indexOf(view))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        x: root.tabStripPosition(root.tabDropIndex + (root.tabDropIndex > root.draggedTabIndex ? 1 : 0)) - width / 2
+                        width: 3
+                        height: root.tabStripHeight
+                        z: 20
+                        visible: root.tabDropIndex >= 0 && root.tabDropIndex !== root.draggedTabIndex
+                        color: Kirigami.Theme.highlightColor
+                    }
+                }
+
+                TabBarButton {
+                    id: rightTabOverflow
+                    width: root.tabStripOverflow ? 28 : 0
+                    height: root.tabStripHeight - 1
+                    visible: root.tabStripOverflow
+                    dragWindow: root
+                    dimmed: tabsViewport.contentX >= tabsViewport.contentWidth
+                                                   - tabsViewport.width - 1
+                    icon.name: "go-next"
+                    icon.width: root.tabIconSize
+                    icon.height: root.tabIconSize
+                    Accessible.name: qsTr("More tabs to the right")
+                    Controls.ToolTip.text: qsTr("More tabs to the right")
+                    Controls.ToolTip.visible: hovered && !dimmed
+                    onClicked: {
+                        if (!dimmed)
+                            tabsViewport.scrollBy(-root.tabWidth)
+                    }
+                    Rectangle {
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        anchors.left: parent.left
+                        width: 1
+                        color: Kirigami.Theme.textColor
+                        opacity: 0.2
+                    }
+                }
+
+                TabBarButton {
+                    id: addTabButton
+                    dragWindow: root
+                    width: 40
+                    height: root.tabStripHeight
+                    icon.name: "tab-new"
+                    icon.width: root.tabIconSize
+                    icon.height: root.tabIconSize
+                    Accessible.name: "New tab"
+                    Controls.ToolTip.text: qsTr("New file tab")
+                    Controls.ToolTip.visible: hovered
+                    onClicked: root.openTab(root.newTabUrl)
+                }
+
+                TabBarButton {
+                    id: overviewButton
+                    dragWindow: root
+                    width: 40
+                    height: root.tabStripHeight
+                    dimmed: !root.homeView && !root.overviewVisible
+                    icon.name: "view-grid"
+                    icon.width: root.tabIconSize
+                    icon.height: root.tabIconSize
+                    Accessible.name: "Tab overview"
+                    Controls.ToolTip.text: qsTr("Tab overview")
+                    Controls.ToolTip.visible: hovered
+                    onClicked: {
+                        if (!dimmed)
+                            root.toggleOverview()
+                    }
+                }
+
+                TabBarButton {
+                    id: refreshButton
+                    dragWindow: root
+                    width: 40
+                    height: root.tabStripHeight
+                    icon.name: "view-refresh"
+                    icon.width: root.tabIconSize
+                    icon.height: root.tabIconSize
+                    dimmed: !root.activeView || root.allFrozen
+                    Accessible.name: "Refresh page"
+                    Controls.ToolTip.text: qsTr("Refresh page")
+                    Controls.ToolTip.visible: hovered
+                    onClicked: {
+                        if (!dimmed)
+                            root.triggerPageAction(WebEngineView.Reload)
+                    }
+                }
+
+                TabBarButton {
+                    id: menuButton
+                    dragWindow: root
+                    width: 40
+                    height: root.tabStripHeight
+                    icon.name: "application-menu"
+                    icon.width: root.tabIconSize
+                    icon.height: root.tabIconSize
+                    Accessible.name: "Application menu"
+                    Controls.ToolTip.text: qsTr("Application menu")
+                    Controls.ToolTip.visible: hovered
+                    onClicked: appMenu.open()
+
+                    Controls.Menu {
+                        id: appMenu
+                        x: menuButton.width - width
+                        y: menuButton.height
+                        onAboutToShow: figmaMenus.refresh()
+
+                        Controls.Menu {
+                            id: filePopupMenu
+                            title: qsTr("File")
+                            Controls.MenuSeparator { visible: figmaMenus.fileActionCount > 0 }
+                            Controls.MenuItem { text: qsTr("Home"); onTriggered: root.activateHome() }
+                            Controls.MenuItem { text: qsTr("New file tab"); onTriggered: root.openTab(root.newTabUrl) }
+                            Controls.MenuItem { text: qsTr("Export History"); onTriggered: root.openExportHistory() }
+                            Controls.MenuItem {
+                                text: qsTr("Close tab")
+                                enabled: root.activeIndex >= 0
+                                onTriggered: root.closeTab(root.activeIndex)
+                            }
+                            Controls.MenuSeparator { }
+                            Controls.MenuItem { text: qsTr("Quit"); onTriggered: Qt.quit() }
+                            Controls.MenuItem { text: qsTr("Reload page"); visible: !figmaMenus.usingHomeMenu; onTriggered: root.triggerPageAction(WebEngineView.Reload) }
+                            Controls.MenuItem { text: qsTr("About ReSketch…"); visible: !figmaMenus.usingHomeMenu; onTriggered: root.openAbout() }
+                        }
+                        Controls.Menu {
+                            id: preferencesPopupMenu
+                            title: qsTr("Preferences")
+                            Controls.MenuSeparator { visible: figmaMenus.preferencesActionCount > 0 }
+                            Controls.MenuItem { text: qsTr("Settings…"); onTriggered: root.openSettings() }
+                        }
+                    }
+                }
+
+                WindowControls {
+                    id: windowControlGroup
+                    targetWindow: root
+                    buttonSize: root.tabStripHeight
+                    iconSize: root.tabIconSize
+                }
+                }
+
+                MouseArea {
+                    id: blankTabStripDrag
+                    objectName: "blankTabStripDrag"
+                    x: tabsViewport.x + Math.min(tabsViewport.width,
+                                                 Math.max(0, tabsViewport.contentWidth
+                                                                - tabsViewport.contentX))
+                    y: 0
+                    z: 8
+                    width: Math.max(0, tabsViewport.x + tabsViewport.width - x)
+                    height: root.tabStripHeight - 1
+                    acceptedButtons: Qt.LeftButton
+                    onDoubleClicked: root.toggleMaximize()
                     DragHandler {
                         target: null
                         acceptedButtons: Qt.LeftButton
@@ -254,753 +1000,123 @@ Kirigami.ApplicationWindow {
                                 root.startSystemMove()
                         }
                     }
-                    TapHandler {
-                        acceptedButtons: Qt.LeftButton
-                        onTapped: homeButton.clicked()
-                    }
-
-                    Kirigami.Icon {
-                        width: root.tabIconSize
-                        height: root.tabIconSize
-                        anchors.centerIn: parent
-                        source: "go-home"
-                    }
-                }
-                Rectangle {
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    anchors.right: parent.right
-                    width: 1
-                    color: Kirigami.Theme.textColor
-                    opacity: 0.2
-                }
-                onClicked: root.activateHome()
-            }
-
-            TabBarButton {
-                id: leftTabOverflow
-                width: root.tabStripOverflow ? 28 : 0
-                height: root.tabStripHeight - 1
-                visible: root.tabStripOverflow
-                dragWindow: root
-                dimmed: tabsViewport.contentX <= 1
-                icon.name: "go-previous"
-                icon.width: root.tabIconSize
-                icon.height: root.tabIconSize
-                Accessible.name: qsTr("More tabs to the left")
-                Controls.ToolTip.text: qsTr("More tabs to the left")
-                Controls.ToolTip.visible: hovered && !dimmed
-                onClicked: {
-                    if (!dimmed)
-                        tabsViewport.scrollBy(root.tabWidth)
-                }
-                Rectangle {
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    anchors.right: parent.right
-                    width: 1
-                    color: Kirigami.Theme.textColor
-                    opacity: 0.2
-                }
-            }
-
-            Flickable {
-                id: tabsViewport
-                objectName: "tabsViewport"
-                property real wheelTargetX: 0
-                property bool smoothWheel: false
-                function scrollBy(distance, direct) {
-                    const limit = Math.max(0, contentWidth - width)
-                    const currentTarget = !direct && wheelScroll.running ? wheelTargetX : contentX
-                    wheelTargetX = Math.max(0, Math.min(limit, currentTarget - distance))
-                    smoothWheel = !direct && !appSettings.reduceMotion
-                    if (!smoothWheel)
-                        wheelScroll.stop()
-                    contentX = wheelTargetX
-                }
-                width: Math.max(0, root.tabAreaWidth
-                                   - leftTabOverflow.width - rightTabOverflow.width)
-                Behavior on width {
-                    enabled: root.animatingCloseGap && !appSettings.reduceMotion
-                    NumberAnimation {
-                        duration: 220
-                        easing.type: Easing.BezierSpline
-                        easing.bezierCurve: [0, 0.76, 0, 1, 1, 1]
-                    }
-                }
-                height: root.tabStripHeight
-                contentWidth: tabBar.width
-                contentHeight: tabBar.height
-                boundsBehavior: Flickable.StopAtBounds
-                clip: true
-                onDraggingChanged: {
-                    if (dragging) {
-                        wheelScroll.stop()
-                        smoothWheel = false
-                        wheelTargetX = contentX
-                    }
                 }
 
-                Behavior on contentX {
-                    enabled: tabsViewport.smoothWheel
-                    SmoothedAnimation {
-                        id: wheelScroll
-                        velocity: -1
-                        duration: 130
-                        maximumEasingTime: 75
+                Item {
+                    width: homeButton.width + leftTabOverflow.width + tabsViewport.width
+                           + rightTabOverflow.width
+                    height: 3
+                    z: 15
+                    clip: true
+
+                    Item {
+                        id: selectionBar
+                        objectName: "selectionBar"
+                        property real startOffset: 0
+                        property real endOffset: 0
+                        readonly property int displayIndex: root.selectionTabIndex()
+                        readonly property var currentTab: root.activeIndex < 0 ? null
+                                                         : root.groupFor(root.activeView)?.collapsed
+                                                           ? tabBar.contentChildren.find(tab => tab.tabView === root.views[displayIndex]) : tabBar.currentItem
+                        readonly property real targetX: root.activeIndex < 0 ? 0
+                                                        : tabsViewport.x - tabsViewport.contentX
+                                                          + (currentTab ? currentTab.x + currentTab.visualOffset
+                                                             + (currentTab.groupCollapsed ? 0 : currentTab.groupPrefix)
+                                                             : root.tabStripPosition(root.activeIndex))
+                        readonly property real targetWidth: root.activeIndex < 0
+                                                            ? homeButton.width - 1 : currentTab?.groupCollapsed
+                                                            ? root.groupHeaderWidth : root.tabWidth
+                        x: targetX + startOffset
+                        width: Math.max(0, targetWidth + endOffset - startOffset)
+                        height: 3
+                        visible: !!root.activeView && !root.hideHeldSelection
+                                 && (!currentTab || currentTab.index !== root.activeIndex
+                                     || !currentTab.closing)
+                    }
+
+                    Item {
+                        width: homeButton.width - 1
+                        height: 3
+                        clip: true
+                        visible: root.activeIndex < 0 || root.homeSelectionGlide
+
+                        Rectangle {
+                            x: selectionBar.x
+                            width: selectionBar.width
+                            height: 3
+                            visible: selectionBar.visible
+                            color: Kirigami.Theme.highlightColor
+                        }
+                    }
+
+                    Item {
+                        x: tabsViewport.x
+                        width: tabsViewport.width
+                        height: 3
+                        clip: true
+
+                        Rectangle {
+                            x: selectionBar.x - tabsViewport.x
+                            width: selectionBar.width
+                            height: 3
+                            visible: selectionBar.visible
+                            color: Kirigami.Theme.highlightColor
+                        }
+                    }
+
+                    SequentialAnimation {
+                        id: selectionGlide
                         onRunningChanged: {
                             if (!running)
-                                tabsViewport.smoothWheel = false
+                                root.homeSelectionGlide = false
                         }
-                    }
-                }
-
-                ScrollGestureArea {
-                    enabled: tabsViewport.contentWidth > tabsViewport.width
-                    flickable: tabsViewport
-                    horizontal: true
-                    wheelStep: root.tabWidth
-                }
-
-                Controls.TabBar {
-                    id: tabBar
-                    width: tabModel.count * root.tabWidth
-                    height: root.tabStripHeight
-                    background: Item { }
-
-                    Repeater {
-                        id: tabRepeater
-                        model: tabModel
-                        onItemAdded: Qt.callLater(root.processPendingClose)
-
-                        Controls.TabButton {
-                            id: tabButton
-                            required property int index
-                            required property string title
-                            required property bool filePage
-                            required property bool newFilePage
-                            required property bool loading
-                            required property int progress
-                            required property bool animateOpen
-                            required property var tabView
-                            readonly property bool selected: root.activeView === tabView
-                            property bool settling: false
-                            property real dropOffset: 0
-                            property bool closing: false
-                            property bool closePending: false
-                            property var closingView: null
-                            property real closeDrop: 0
-                            property real openRise: 0
-                            property bool fillingClose: false
-                            property real fillOffset: 0
-                            readonly property real visualOffset: tabTranslate.x
-                            width: root.tabWidth
-                            height: root.tabStripHeight
-                            z: closing ? 20 : tabDrag.active || settling ? 10 : 0
-                            transform: Translate {
-                                id: tabTranslate
-                                x: tabDrag.active ? tabDrag.activeTranslation.x
-                                                  : tabButton.fillingClose ? tabButton.fillOffset
-                                                  : tabButton.settling ? tabButton.dropOffset
-                                                  : root.tabPreviewOffset(tabButton.index, tabButton.width)
-                                y: -tabButton.y + tabButton.closeDrop + tabButton.openRise
-
-                                Behavior on x {
-                                    enabled: root.draggedTabIndex >= 0 && root.tabDropIndex >= 0
-                                             && !tabDrag.active && !tabButton.settling
-                                             && !appSettings.reduceMotion
-                                    NumberAnimation {
-                                        duration: 220
-                                        easing.type: Easing.BezierSpline
-                                        easing.bezierCurve: [0, 0.76, 0, 1, 1, 1]
-                                    }
-                                }
-                            }
-                            NumberAnimation {
-                                id: tabSettle
-                                target: tabButton
-                                property: "dropOffset"
-                                to: 0
-                                duration: 220
-                                easing.type: Easing.BezierSpline
-                                easing.bezierCurve: [0, 0.76, 0, 1, 1, 1]
-                                onFinished: tabButton.settling = false
-                            }
-                            NumberAnimation {
-                                id: openToast
-                                target: tabButton
-                                property: "openRise"
-                                to: 0
-                                duration: 220
-                                easing.type: Easing.BezierSpline
-                                easing.bezierCurve: [0, 0.76, 0, 1, 1, 1]
-                                onFinished: root.finishTabOpening(tabButton.tabView)
-                            }
-                            Component.onCompleted: {
-                                if (animateOpen) {
-                                    tabModel.setProperty(index, "animateOpen", false)
-                                    if (!appSettings.reduceMotion) {
-                                        openRise = root.tabStripHeight
-                                        openToast.start()
-                                    } else
-                                        root.finishTabOpening(tabView)
-                                }
-                            }
-                            NumberAnimation {
-                                id: closeToast
-                                target: tabButton
-                                property: "closeDrop"
-                                to: root.tabStripHeight
-                                duration: 260
-                                easing.type: Easing.InOutQuad
-                                onFinished: {
-                                    const view = tabButton.closingView
-                                    Qt.callLater(() => root.finishClose(view))
-                                }
-                            }
-                            NumberAnimation {
-                                id: closeFill
-                                target: tabButton
-                                property: "fillOffset"
-                                to: 0
-                                duration: 220
-                                easing.type: Easing.BezierSpline
-                                easing.bezierCurve: [0, 0.76, 0, 1, 1, 1]
-                                onFinished: tabButton.fillingClose = false
-                            }
-                            function startCloseFill(distance) {
-                                const remaining = fillingClose ? fillOffset : 0
-                                closeFill.stop()
-                                fillOffset = remaining + distance
-                                fillingClose = true
-                                closeFill.start()
-                            }
-                            function startClose() {
-                                if (closing)
-                                    return
-                                closingView = tabView
-                                closing = true
-                                tabSettle.stop()
-                                if (appSettings.reduceMotion)
-                                    root.finishClose(closingView)
-                                else
-                                    closeToast.start()
-                            }
-                            text: ""
-                            Accessible.name: title
-                            checkable: false
-                            checked: selected
-                            opacity: selected ? 1 : 0.7
-                            background: Rectangle {
-                                color: tabButton.selected ? Qt.rgba(Kirigami.Theme.backgroundColor.r,
-                                                                    Kirigami.Theme.backgroundColor.g,
-                                                                    Kirigami.Theme.backgroundColor.b,
-                                                                    root.toolbarAlpha)
-                                                          : tabButton.hovered ? Qt.rgba(Kirigami.Theme.highlightColor.r,
-                                                                                         Kirigami.Theme.highlightColor.g,
-                                                                                         Kirigami.Theme.highlightColor.b, 0.12)
-                                                                              : "transparent"
-
-                                Rectangle {
-                                    anchors.left: parent.left
-                                    anchors.top: parent.top
-                                    anchors.bottom: parent.bottom
-                                    width: 1
-                                    color: Kirigami.Theme.textColor
-                                    opacity: tabButton.selected && tabButton.index !== 0 ? 0.2 : 0
-                                    Behavior on opacity {
-                                        enabled: !appSettings.reduceMotion
-                                        NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
-                                    }
-                                }
-                                Rectangle {
-                                    anchors.right: parent.right
-                                    anchors.top: parent.top
-                                    anchors.bottom: parent.bottom
-                                    width: 1
-                                    color: Kirigami.Theme.textColor
-                                    opacity: tabButton.selected ? 0.2 : 0
-                                    Behavior on opacity {
-                                        enabled: !appSettings.reduceMotion
-                                        NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
-                                    }
-                                }
-                            }
-                            onClicked: {
-                                if (!closing && !closePending && root.activeView !== tabView)
-                                    root.activateTab(root.views.indexOf(tabView))
-                            }
-
-                            TapHandler {
-                                acceptedButtons: Qt.LeftButton
-                                onTapped: (point) => {
-                                    if (!tabButton.closing && !tabButton.closePending
-                                            && point.position.x < closeTabButton.mapToItem(tabButton, 0, 0).x
-                                            && root.activeView !== tabButton.tabView)
-                                        root.activateTab(root.views.indexOf(tabButton.tabView))
-                                }
-                            }
-
-                            TapHandler {
-                                acceptedButtons: Qt.MiddleButton
-                                enabled: false
-                                property var pressedView: null
-                                onPressedChanged: {
-                                    if (pressed)
-                                        pressedView = tabButton.tabView
-                                }
-                                onTapped: {
-                                    const target = pressedView || tabButton.tabView
-                                    pressedView = null
-                                    Qt.callLater(() => root.closeTabByMiddleClick(target))
-                                }
-                            }
-                            TapHandler {
-                                acceptedButtons: Qt.RightButton
-                                onTapped: tabContextMenu.popup()
-                            }
-
-                            Controls.Menu {
-                                id: tabContextMenu
-                                Controls.MenuItem {
-                                    text: qsTr("Move to new window")
-                                    enabled: !!tabButton.tabView
-                                             && root.views.length > 1
-                                             && Policy.isFigmaUrl(tabButton.tabView.tabUrl)
-                                    onTriggered: {
-                                        const target = tabButton.tabView
-                                        Qt.callLater(() => root.moveTabToNewWindow(root.views.indexOf(target)))
-                                    }
-                                }
-                                Controls.MenuItem {
-                                    text: qsTr("Close")
-                                    onTriggered: {
-                                        const target = tabButton.tabView
-                                        Qt.callLater(() => root.closeTab(root.views.indexOf(target)))
-                                    }
-                                }
-                                Controls.MenuItem {
-                                    text: qsTr("Refresh")
-                                    enabled: !root.allFrozen
-                                    onTriggered: root.refreshTab(root.views.indexOf(tabButton.tabView))
-                                }
-                                Controls.MenuItem {
-                                    text: qsTr("Copy URL")
-                                    enabled: !!tabButton.tabView
-                                             && Policy.isFigmaUrl(tabButton.tabView.tabUrl)
-                                    onTriggered: appSettings.copyToClipboard(String(tabButton.tabView.tabUrl))
-                                }
-                            }
-
-                            contentItem: Item {
-                                Kirigami.Icon {
-                                    width: root.tabIconSize
-                                    height: root.tabIconSize
-                                    anchors.left: parent.left
-                                    anchors.leftMargin: root.tabContentLeftMargin
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    source: tabButton.filePage ? "text-x-generic" : "go-home"
-                                    visible: !tabButton.loading
-                                }
-
-                                Kirigami.Icon {
-                                    id: loadingIcon
-                                    width: root.tabIconSize
-                                    height: root.tabIconSize
-                                    anchors.left: parent.left
-                                    anchors.leftMargin: root.tabContentLeftMargin
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    source: "view-refresh"
-                                    visible: tabButton.loading
-                                    RotationAnimation on rotation {
-                                        from: 0
-                                        to: 360
-                                        duration: 900
-                                        loops: Animation.Infinite
-                                        running: loadingIcon.visible && !appSettings.reduceMotion
-                                        onRunningChanged: {
-                                            if (!running)
-                                                loadingIcon.rotation = 0
-                                        }
-                                    }
-                                }
-
-                                Controls.Label {
-                                    anchors.left: loadingIcon.right
-                                    anchors.leftMargin: Kirigami.Units.smallSpacing
-                                    anchors.right: closeTabButton.left
-                                    anchors.rightMargin: Kirigami.Units.smallSpacing
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: Policy.tabTitle(tabButton.title)
-                                    elide: Text.ElideRight
-                                    horizontalAlignment: Text.AlignLeft
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-                                TabBarButton {
-                                    id: closeTabButton
-                                    property var pressedView: null
-                                    width: root.tabStripHeight
-                                    height: root.tabStripHeight
-                                    icon.name: "window-close"
-                                    icon.width: root.tabIconSize
-                                    icon.height: root.tabIconSize
-                                    anchors.right: parent.right
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    Accessible.name: "Close " + tabButton.title
-                                    Controls.ToolTip.text: Accessible.name
-                                    Controls.ToolTip.visible: hovered
-                                    onPressedChanged: {
-                                        if (pressed)
-                                            pressedView = tabButton.tabView
-                                    }
-                                    onClicked: {
-                                        const target = pressedView || tabButton.tabView
-                                        pressedView = null
-                                        root.closeTab(root.views.indexOf(target))
-                                    }
-                                }
-
-                                Item {
-                                    anchors.left: parent.left
-                                    anchors.right: closeTabButton.left
-                                    anchors.top: parent.top
-                                    anchors.bottom: parent.bottom
-
-                                    DragHandler {
-                                        id: tabDrag
-                                        property real lastDragX: 0
-                                        enabled: !tabButton.closing && !tabButton.closePending
-                                        target: null
-                                        acceptedButtons: Qt.LeftButton
-                                        onActiveChanged: {
-                                            if (active) {
-                                                if (tabButton.selected) {
-                                                    selectionGlide.stop()
-                                                    root.homeSelectionGlide = false
-                                                    selectionBar.startOffset = 0
-                                                    selectionBar.endOffset = 0
-                                                }
-                                                lastDragX = activeTranslation.x
-                                                tabSettle.stop()
-                                                tabButton.settling = false
-                                                tabButton.dropOffset = 0
-                                                root.draggedTabIndex = tabButton.index
-                                                root.tabDropIndex = tabButton.index
-                                                root.beginItemDrag(tabButton.tabView, tabButton, centroid.scenePosition)
-                                            } else if (root.draggedTabIndex >= 0) {
-                                                const point = centroid.scenePosition
-                                                if (root.outsideWindow(point)) {
-                                                    root.draggedTabIndex = -1
-                                                    root.tabDropIndex = -1
-                                                    root.finishItemDrag(point)
-                                                    return
-                                                }
-                                                root.cancelItemDrag()
-                                                const source = root.draggedTabIndex
-                                                const destination = root.tabDropIndex
-                                                const dropOffset = tabButton.x + lastDragX
-                                                                   - destination * tabButton.width
-                                                tabButton.dropOffset = dropOffset
-                                                tabButton.settling = !appSettings.reduceMotion
-                                                                     && Math.abs(dropOffset) > 0.5
-                                                root.draggedTabIndex = -1
-                                                root.tabDropIndex = -1
-                                                root.reorderTab(source, destination)
-                                                if (tabButton.settling)
-                                                    tabSettle.start()
-                                                else
-                                                    tabButton.dropOffset = 0
-                                            }
-                                        }
-                                        onActiveTranslationChanged: {
-                                            if (active) {
-                                                lastDragX = activeTranslation.x
-                                                root.tabDropIndex = Math.max(0, Math.min(tabModel.count - 1,
-                                                    Math.round(root.draggedTabIndex + activeTranslation.x / tabButton.width)))
-                                                root.updateItemDrag(centroid.scenePosition)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
+                        onFinished: Qt.callLater(root.processPendingClose)
+                        NumberAnimation {
+                            id: selectionStretch
+                            target: selectionBar
+                            to: 0
+                            duration: 150
+                            easing.type: Easing.BezierSpline
+                            easing.bezierCurve: [0, 0.76, 0, 1, 1, 1]
+                        }
+                        NumberAnimation {
+                            id: selectionContract
+                            target: selectionBar
+                            to: 0
+                            duration: 150
+                            easing.type: Easing.BezierSpline
+                            easing.bezierCurve: [0, 0.76, 0, 1, 1, 1]
                         }
                     }
                 }
 
                 Rectangle {
-                    x: (root.tabDropIndex + (root.tabDropIndex > root.draggedTabIndex ? 1 : 0)) * root.tabWidth - width / 2
-                    width: 3
-                    height: root.tabStripHeight
-                    z: 20
-                    visible: root.tabDropIndex >= 0 && root.tabDropIndex !== root.draggedTabIndex
-                    color: Kirigami.Theme.highlightColor
-                }
-            }
-
-            TabBarButton {
-                id: rightTabOverflow
-                width: root.tabStripOverflow ? 28 : 0
-                height: root.tabStripHeight - 1
-                visible: root.tabStripOverflow
-                dragWindow: root
-                dimmed: tabsViewport.contentX >= tabsViewport.contentWidth
-                                               - tabsViewport.width - 1
-                icon.name: "go-next"
-                icon.width: root.tabIconSize
-                icon.height: root.tabIconSize
-                Accessible.name: qsTr("More tabs to the right")
-                Controls.ToolTip.text: qsTr("More tabs to the right")
-                Controls.ToolTip.visible: hovered && !dimmed
-                onClicked: {
-                    if (!dimmed)
-                        tabsViewport.scrollBy(-root.tabWidth)
-                }
-                Rectangle {
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
                     anchors.left: parent.left
-                    width: 1
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: 1
                     color: Kirigami.Theme.textColor
                     opacity: 0.2
                 }
-            }
 
-            TabBarButton {
-                id: addTabButton
-                dragWindow: root
-                width: 40
-                height: root.tabStripHeight
-                icon.name: "tab-new"
-                icon.width: root.tabIconSize
-                icon.height: root.tabIconSize
-                Accessible.name: "New tab"
-                Controls.ToolTip.text: qsTr("New file tab")
-                Controls.ToolTip.visible: hovered
-                onClicked: root.openTab(root.newTabUrl)
-            }
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.bottom: parent.bottom
+                    width: root.activeView
+                           ? Math.max(4, parent.width * Math.min(100, root.activeView.loadProgress) / 100)
+                           : 0
+                    height: 2
+                    z: 2
+                    visible: !!root.activeView && root.activeView.loading
+                    color: Kirigami.Theme.highlightColor
 
-            TabBarButton {
-                id: overviewButton
-                dragWindow: root
-                width: 40
-                height: root.tabStripHeight
-                dimmed: !root.homeView && !root.overviewVisible
-                icon.name: "view-grid"
-                icon.width: root.tabIconSize
-                icon.height: root.tabIconSize
-                Accessible.name: "Tab overview"
-                Controls.ToolTip.text: qsTr("Tab overview")
-                Controls.ToolTip.visible: hovered
-                onClicked: {
-                    if (!dimmed)
-                        root.toggleOverview()
-                }
-            }
-
-            TabBarButton {
-                id: refreshButton
-                dragWindow: root
-                width: 40
-                height: root.tabStripHeight
-                icon.name: "view-refresh"
-                icon.width: root.tabIconSize
-                icon.height: root.tabIconSize
-                dimmed: !root.activeView || root.allFrozen
-                Accessible.name: "Refresh page"
-                Controls.ToolTip.text: qsTr("Refresh page")
-                Controls.ToolTip.visible: hovered
-                onClicked: {
-                    if (!dimmed)
-                        root.triggerPageAction(WebEngineView.Reload)
-                }
-            }
-
-            TabBarButton {
-                id: menuButton
-                dragWindow: root
-                width: 40
-                height: root.tabStripHeight
-                icon.name: "application-menu"
-                icon.width: root.tabIconSize
-                icon.height: root.tabIconSize
-                Accessible.name: "Application menu"
-                Controls.ToolTip.text: qsTr("Application menu")
-                Controls.ToolTip.visible: hovered
-                onClicked: appMenu.open()
-
-                Controls.Menu {
-                    id: appMenu
-                    x: menuButton.width - width
-                    y: menuButton.height
-                    onAboutToShow: figmaMenus.refresh()
-
-                    Controls.Menu {
-                        id: filePopupMenu
-                        title: qsTr("File")
-                        Controls.MenuSeparator { visible: figmaMenus.fileActionCount > 0 }
-                        Controls.MenuItem { text: qsTr("Home"); onTriggered: root.activateHome() }
-                        Controls.MenuItem { text: qsTr("New file tab"); onTriggered: root.openTab(root.newTabUrl) }
-                        Controls.MenuItem { text: qsTr("Export History"); onTriggered: root.openExportHistory() }
-                        Controls.MenuItem {
-                            text: qsTr("Close tab")
-                            enabled: root.activeIndex >= 0
-                            onTriggered: root.closeTab(root.activeIndex)
+                    Behavior on width {
+                        enabled: !appSettings.reduceMotion
+                        NumberAnimation {
+                            duration: 120
+                            easing.type: Easing.BezierSpline
+                            easing.bezierCurve: [0, 0.76, 0, 1, 1, 1]
                         }
-                        Controls.MenuSeparator { }
-                        Controls.MenuItem { text: qsTr("Quit"); onTriggered: Qt.quit() }
-                        Controls.MenuItem { text: qsTr("Reload page"); visible: !figmaMenus.usingHomeMenu; onTriggered: root.triggerPageAction(WebEngineView.Reload) }
-                        Controls.MenuItem { text: qsTr("About ReSketch…"); visible: !figmaMenus.usingHomeMenu; onTriggered: root.openAbout() }
-                    }
-                    Controls.Menu {
-                        id: preferencesPopupMenu
-                        title: qsTr("Preferences")
-                        Controls.MenuSeparator { visible: figmaMenus.preferencesActionCount > 0 }
-                        Controls.MenuItem { text: qsTr("Settings…"); onTriggered: root.openSettings() }
-                    }
-                }
-            }
-
-            WindowControls {
-                id: windowControlGroup
-                targetWindow: root
-                buttonSize: root.tabStripHeight
-                iconSize: root.tabIconSize
-            }
-            }
-
-            MouseArea {
-                id: blankTabStripDrag
-                objectName: "blankTabStripDrag"
-                x: tabsViewport.x + Math.min(tabsViewport.width,
-                                             Math.max(0, tabsViewport.contentWidth
-                                                            - tabsViewport.contentX))
-                y: 0
-                z: 8
-                width: Math.max(0, tabsViewport.x + tabsViewport.width - x)
-                height: root.tabStripHeight - 1
-                acceptedButtons: Qt.LeftButton
-                onDoubleClicked: root.toggleMaximize()
-                DragHandler {
-                    target: null
-                    acceptedButtons: Qt.LeftButton
-                    onActiveChanged: {
-                        if (active)
-                            root.startSystemMove()
-                    }
-                }
-            }
-
-            Item {
-                width: homeButton.width + leftTabOverflow.width + tabsViewport.width
-                       + rightTabOverflow.width
-                height: 3
-                z: 15
-                clip: true
-
-                Item {
-                    id: selectionBar
-                    objectName: "selectionBar"
-                    property real startOffset: 0
-                    property real endOffset: 0
-                    readonly property var currentTab: root.activeIndex >= 0 ? tabBar.currentItem : null
-                    readonly property real targetX: root.activeIndex < 0 ? 0
-                                                    : tabsViewport.x - tabsViewport.contentX
-                                                      + (currentTab && currentTab.tabView === root.activeView
-                                                         ? currentTab.x + currentTab.visualOffset
-                                                         : root.activeIndex * root.tabWidth)
-                    readonly property real targetWidth: root.activeIndex < 0
-                                                        ? homeButton.width - 1 : root.tabWidth
-                    x: targetX + startOffset
-                    width: Math.max(0, targetWidth + endOffset - startOffset)
-                    height: 3
-                    visible: !!root.activeView && !root.hideHeldSelection
-                             && (!currentTab || currentTab.index !== root.activeIndex
-                                 || !currentTab.closing)
-                }
-
-                Item {
-                    width: homeButton.width - 1
-                    height: 3
-                    clip: true
-                    visible: root.activeIndex < 0 || root.homeSelectionGlide
-
-                    Rectangle {
-                        x: selectionBar.x
-                        width: selectionBar.width
-                        height: 3
-                        visible: selectionBar.visible
-                        color: Kirigami.Theme.highlightColor
-                    }
-                }
-
-                Item {
-                    x: tabsViewport.x
-                    width: tabsViewport.width
-                    height: 3
-                    clip: true
-
-                    Rectangle {
-                        x: selectionBar.x - tabsViewport.x
-                        width: selectionBar.width
-                        height: 3
-                        visible: selectionBar.visible
-                        color: Kirigami.Theme.highlightColor
-                    }
-                }
-
-                SequentialAnimation {
-                    id: selectionGlide
-                    onRunningChanged: {
-                        if (!running)
-                            root.homeSelectionGlide = false
-                    }
-                    onFinished: Qt.callLater(root.processPendingClose)
-                    NumberAnimation {
-                        id: selectionStretch
-                        target: selectionBar
-                        to: 0
-                        duration: 150
-                        easing.type: Easing.BezierSpline
-                        easing.bezierCurve: [0, 0.76, 0, 1, 1, 1]
-                    }
-                    NumberAnimation {
-                        id: selectionContract
-                        target: selectionBar
-                        to: 0
-                        duration: 150
-                        easing.type: Easing.BezierSpline
-                        easing.bezierCurve: [0, 0.76, 0, 1, 1, 1]
-                    }
-                }
-            }
-
-            Rectangle {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                height: 1
-                color: Kirigami.Theme.textColor
-                opacity: 0.2
-            }
-
-            Rectangle {
-                anchors.left: parent.left
-                anchors.bottom: parent.bottom
-                width: root.activeView
-                       ? Math.max(4, parent.width * Math.min(100, root.activeView.loadProgress) / 100)
-                       : 0
-                height: 2
-                z: 2
-                visible: !!root.activeView && root.activeView.loading
-                color: Kirigami.Theme.highlightColor
-
-                Behavior on width {
-                    enabled: !appSettings.reduceMotion
-                    NumberAnimation {
-                        duration: 120
-                        easing.type: Easing.BezierSpline
-                        easing.bezierCurve: [0, 0.76, 0, 1, 1, 1]
                     }
                 }
             }
@@ -1010,6 +1126,16 @@ Kirigami.ApplicationWindow {
             id: browserArea
             anchors.fill: parent
             clip: true
+            MouseArea {
+                anchors.top: parent.top
+                width: parent.width
+                height: 6
+                z: 200
+                visible: root.webFullscreen && !root.fullscreenToolbarHovered
+                hoverEnabled: true
+                acceptedButtons: Qt.NoButton
+                onEntered: root.fullscreenToolbarHovered = true
+            }
 
             Rectangle {
                 objectName: "browserBackground"
@@ -1295,6 +1421,7 @@ Kirigami.ApplicationWindow {
 
                                         Controls.Menu {
                                             id: overviewMenu
+                                            TabGroupMenu { appWindow: root; tabView: overviewCard.previewView; enabled: overviewCard.tabIndex >= 0 }
                                             Controls.MenuItem {
                                                 text: qsTr("Move to new window")
                                                 enabled: !!overviewCard.previewView
@@ -1405,6 +1532,7 @@ Kirigami.ApplicationWindow {
                                         if (overviewCard.tabIndex >= 0)
                                             root.beginItemDrag(overviewCard.previewView, overviewCard, centroid.scenePosition)
                                     } else if (overviewCard.dragging) {
+                                        const stripPositions = root.captureTabStripPositions()
                                         const view = overviewCard.previewView
                                         const point = centroid.scenePosition
                                         const destination = root.overviewDropIndex
@@ -1426,7 +1554,7 @@ Kirigami.ApplicationWindow {
                                             root.finishItemDrag(point)
                                         } else {
                                             root.cancelItemDrag()
-                                            root.reorderTab(root.views.indexOf(view), destination)
+                                            root.reorderTab(root.views.indexOf(view), destination, stripPositions)
                                             const slot = root.overviewFilteredSlot(root.views.indexOf(view))
                                             overviewCard.dragOffsetX = visualX - root.overviewCardX(slot)
                                             overviewCard.dragOffsetY = visualY - root.overviewCardY(slot)
@@ -1506,13 +1634,16 @@ Kirigami.ApplicationWindow {
     WindowResizeHandles {
         parent: root.contentItem
         anchors.fill: parent
-        active: root.framelessTabBar
+        active: root.framelessTabBar && !root.webFullscreen
         targetWindow: root
     }
 
     ListModel { id: tabModel }
     ListModel { id: overviewModel }
-    onViewsChanged: syncOverviewModel()
+    onViewsChanged: {
+        tabGroups = tabGroups.filter(group => views.some(view => view.tabGroupId === group.id))
+        syncOverviewModel()
+    }
     onHomeViewChanged: syncOverviewModel()
 
     DropArea {
@@ -1749,6 +1880,7 @@ Kirigami.ApplicationWindow {
         offTheRecord: !!root.sharedProfile
         onDownloadRequested: function(download) { root.handleDownload(download) }
         onDownloadFinished: function(download) { root.completeDownload(download) }
+        onPresentNotification: function(notification) { appSettings.showDesktopNotification(notification, root) }
     }
 
     ParallelAnimation {
@@ -1866,7 +1998,14 @@ Kirigami.ApplicationWindow {
             property double lastUsedAt: Date.now()
             property bool reloadAfterFreeze: false
             property bool tabOpening: false
+            property string tabGroupId: ""
             property bool dedicatedHome: false
+            readonly property bool notificationSource: dedicatedHome && !ownerWindow.primaryWindow
+                                                       && appSettings.desktopNotifications
+            onNotificationSourceChanged: {
+                if (!loading && Policy.isFigmaUrl(url))
+                    runJavaScript(NotificationPolicy.script(notificationSource))
+            }
             property bool googleSignIn: false
             property bool pendingPopup: false
             property var popupSource: null
@@ -1966,6 +2105,12 @@ Kirigami.ApplicationWindow {
                 injectionPoint: WebEngineScript.DocumentReady,
                 worldId: WebEngineScript.MainWorld,
                 runsOnSubFrames: false
+            }, {
+                name: "resketch-notification-policy",
+                sourceCode: NotificationPolicy.script(webView.notificationSource),
+                injectionPoint: WebEngineScript.DocumentCreation,
+                worldId: WebEngineScript.MainWorld,
+                runsOnSubFrames: true
             }]
             transform: Translate { x: webView.frameContainer ? 0 : webView.slideX }
 
@@ -2083,9 +2228,14 @@ Kirigami.ApplicationWindow {
             }
 
             onPermissionRequested: function(permission) {
+                if (permission.permissionType === WebEnginePermission.PermissionType.Notifications) {
+                    if (webView.notificationSource && Policy.isFigmaUrl(permission.origin)) permission.grant()
+                    else permission.deny()
+                    return
+                }
                 if (Policy.isFigmaUrl(permission.origin)
-                        && (permission.permissionType === WebEnginePermission.ClipboardReadWrite // qmllint disable missing-property
-                            || permission.permissionType === WebEnginePermission.LocalFontsAccess)) // qmllint disable missing-property
+                        && (permission.permissionType === WebEnginePermission.PermissionType.ClipboardReadWrite
+                            || permission.permissionType === WebEnginePermission.PermissionType.LocalFontsAccess))
                     permission.grant()
                 else
                     permission.deny()
@@ -2277,6 +2427,7 @@ Kirigami.ApplicationWindow {
         view.runJavaScript(root.figmaAppearanceScript, () => {
             if (view) appSettings.repaintWebView(view)
         })
+        view.runJavaScript(NotificationPolicy.script(view.notificationSource))
     }
 
     function handleDownload(download) {
@@ -2613,7 +2764,7 @@ Kirigami.ApplicationWindow {
     }
 
     function updateTabLifecycle() {
-        const protectedHome = appSettings.keepHomeAwake ? homeView : null
+        const protectedHome = homeMustStayAwake ? homeView : null
         if (protectedHome) {
             protectedHome.requestedSleepState = WebEngineView.LifecycleState.Active
             if (protectedHome.lifecycleState !== WebEngineView.LifecycleState.Active)
@@ -2672,7 +2823,7 @@ Kirigami.ApplicationWindow {
     }
 
     function sleepTab(view, state) {
-        if (view === homeView && appSettings.keepHomeAwake) {
+        if (view === homeView && homeMustStayAwake) {
             view.requestedSleepState = WebEngineView.LifecycleState.Active
             return
         }
@@ -2698,7 +2849,7 @@ Kirigami.ApplicationWindow {
                 || view.sleepCaptureSerial !== serial) return
         view.sleepCapturePending = false
         if ((view !== homeView && !views.includes(view))
-                || (view === homeView && appSettings.keepHomeAwake)
+                || (view === homeView && homeMustStayAwake)
                 || String(view.url) !== address || view.loading
                 || (!allFrozen && (view.visible || view === activeView || view === outgoingView))
                 || view.requestedSleepState === WebEngineView.LifecycleState.Active)
@@ -2716,7 +2867,7 @@ Kirigami.ApplicationWindow {
         for (const view of [homeView].concat(views)) {
             if (!view)
                 continue
-            if (view === homeView && appSettings.keepHomeAwake)
+            if (view === homeView && homeMustStayAwake)
                 continue
             if (view.loading) {
                 view.reloadAfterFreeze = true
@@ -2866,6 +3017,7 @@ Kirigami.ApplicationWindow {
         frame.ownerWindow = root
         frame.parent = browserArea
         view.ownerWindow = root
+        view.tabGroupId = ""
         view.sleepCapturePending = false
         view.requestedSleepState = WebEngineView.LifecycleState.Active
         view.tabOpening = false
@@ -3007,6 +3159,20 @@ Kirigami.ApplicationWindow {
             showMaximized()
     }
 
+    function toggleWebFullscreen() {
+        if (!webFullscreen) {
+            visibilityBeforeFullscreen = visibility
+            webFullscreen = true
+            fullscreenToolbarHovered = false
+            showFullScreen()
+        } else {
+            webFullscreen = false
+            fullscreenToolbarHovered = false
+            if (visibilityBeforeFullscreen === Window.Maximized) showMaximized()
+            else showNormal()
+        }
+    }
+
     function triggerPageAction(action) {
         if (activeView)
             activeView.triggerWebAction(action)
@@ -3047,6 +3213,8 @@ Kirigami.ApplicationWindow {
     }
 
     function selectTabInStrip(next, index) {
+        const group = groupFor(next)
+        if (group && group.collapsed) updateTabGroup(group.id, {collapsed: false})
         const previous = activeView
         const previousIndex = activeIndex
         const waitForOpening = !appSettings.reduceMotion && !!next.tabOpening
@@ -3061,7 +3229,7 @@ Kirigami.ApplicationWindow {
         wheelScroll.stop()
         tabsViewport.smoothWheel = false
         if (index >= 0) {
-            const left = index * tabWidth
+            const left = tabStripPosition(index)
             const right = left + tabWidth
             if (left < tabsViewport.contentX)
                 tabsViewport.scrollBy(tabsViewport.contentX - left, false)
@@ -3173,6 +3341,80 @@ Kirigami.ApplicationWindow {
         return view
     }
 
+    function groupFor(view) {
+        return view ? tabGroups.find(group => group.id === view.tabGroupId) || null : null
+    }
+
+    function tabGroupHeaderWidth(index, order) {
+        const tabs = order || views
+        const group = groupFor(tabs[index])
+        return group && (index === 0 || tabs[index - 1].tabGroupId !== group.id) ? groupHeaderWidth : 0
+    }
+
+    function tabSlotWidth(index, order) {
+        const tabs = order || views
+        const group = groupFor(tabs[index])
+        return tabGroupHeaderWidth(index, tabs) + (group && group.collapsed ? 0 : tabWidth)
+    }
+
+    function tabStripPosition(index, order) {
+        const tabs = order || views
+        let position = 0
+        for (let i = 0; i < Math.min(index, tabs.length); ++i) position += tabSlotWidth(i, tabs)
+        return position
+    }
+
+    function selectionTabIndex() {
+        const group = groupFor(activeView)
+        return group && group.collapsed ? views.findIndex(view => view.tabGroupId === group.id) : activeIndex
+    }
+
+    function tabDropTarget(position) {
+        let best = 0, distance = Infinity
+        for (let i = 0; i < views.length; ++i) {
+            if (!tabSlotWidth(i)) continue
+            const delta = Math.abs(tabStripPosition(i) - position)
+            if (delta < distance) { best = i; distance = delta }
+        }
+        return best
+    }
+
+    function createTabGroup(view) {
+        if (!view || views.indexOf(view) < 0) return
+        const owner = primaryWindow || root
+        const number = owner.nextGroupNumber++
+        const id = Date.now().toString(36) + "-" + number
+        assignTabGroup(view, "")
+        view.tabGroupId = id
+        tabGroups = tabGroups.concat({id: id, title: qsTr("Tab Group %1").arg(number), color: Kirigami.Theme.highlightColor, collapsed: false})
+        return id
+    }
+
+    function updateTabGroup(id, changes) {
+        tabGroups = tabGroups.map(group => group.id === id ? Object.assign({}, group, changes) : group)
+    }
+
+    function assignTabGroup(view, id) {
+        if (!view || views.indexOf(view) < 0 || view.tabGroupId === id) return
+        const positions = captureTabStripPositions()
+        const members = views.filter(item => item !== view && item.tabGroupId === (id || view.tabGroupId))
+        const last = members.length ? members[members.length - 1] : null
+        const from = views.indexOf(view)
+        if (last) {
+            const lastIndex = views.indexOf(last)
+            const to = lastIndex > from ? lastIndex : lastIndex + 1
+            reorderTab(from, to, positions, true)
+        }
+        view.tabGroupId = id
+        if (id) updateTabGroup(id, {collapsed: false})
+        tabGroups = tabGroups.filter(group => views.some(item => item.tabGroupId === group.id))
+    }
+
+    function ungroupTabs(id) {
+        for (const view of views) if (view.tabGroupId === id) view.tabGroupId = ""
+        tabGroups = tabGroups.filter(group => group.id !== id)
+    }
+
     function loadRestoredTab(view) {
         const address = String(view.deferredRestoreUrl)
         if (!address) return
@@ -3196,6 +3438,8 @@ Kirigami.ApplicationWindow {
         const view = existingView || createBrowserView()
         if (!view)
             return
+        if (!existingView && sourceView && sourceView.tabGroupId)
+            view.tabGroupId = sourceView.tabGroupId
         if (deferLoad) {
             view.deferredRestoreUrl = address
         }
@@ -3483,40 +3727,80 @@ Kirigami.ApplicationWindow {
         closeGapTimer.restart()
         for (let next = 0; next < tabModel.count; ++next) {
             const tab = tabRepeater.itemAt(next)
-            const distance = (oldViews.indexOf(views[next]) - next) * tabWidth
+            const distance = tabStripPosition(oldViews.indexOf(views[next]), oldViews) - tabStripPosition(next)
             if (tab && distance > 0)
                 tab.startCloseFill(distance)
         }
     }
 
     function tabPreviewOffset(index, width) {
-        if (draggedTabIndex < 0 || tabDropIndex < 0)
+        const from = overviewDraggedView && overviewDraggedView !== homeView
+                       ? views.indexOf(overviewDraggedView) : draggedTabIndex
+        const to = overviewDraggedView && overviewDraggedView !== homeView
+                     ? overviewDropIndex : tabDropIndex
+        if (from < 0 || to < 0)
             return 0
-        if (index > draggedTabIndex && index <= tabDropIndex)
-            return -width
-        if (index < draggedTabIndex && index >= tabDropIndex)
-            return width
+        if (overviewDraggedView && index === from) return tabStripPosition(to) - tabStripPosition(from)
+        if (index > from && index <= to)
+            return -tabSlotWidth(from)
+        if (index < from && index >= to)
+            return tabSlotWidth(from)
         return 0
     }
 
-    function reorderTab(from, to) {
-        if (from < 0 || to < 0 || from >= views.length || to >= views.length || from === to)
+    function captureTabStripPositions() {
+        return views.map((view, index) => ({view: view, x: tabStripPosition(index)
+                                            + (tabRepeater.itemAt(index)?.visualOffset || 0)}))
+    }
+
+    function reorderTab(from, to, stripPositions, preserveGroup) {
+        if (from < 0 || to < 0 || from >= views.length || to >= views.length
+                || from === to && !stripPositions)
             return
         selectionGlide.stop()
         homeSelectionGlide = false
         selectionBar.startOffset = 0
         selectionBar.endOffset = 0
-        views.splice(to, 0, views.splice(from, 1)[0])
-        views = views.slice()
-        tabModel.move(from, to, 1)
+        if (from !== to) {
+            const moved = views[from]
+            if (!preserveGroup) {
+                const target = views[to]
+                if (moved.tabGroupId !== target.tabGroupId) moved.tabGroupId = target.tabGroupId
+            }
+            views.splice(to, 0, views.splice(from, 1)[0])
+            views = views.slice()
+            tabModel.move(from, to, 1)
+        }
+        if (stripPositions && !appSettings.reduceMotion)
+            for (let index = 0; index < views.length; ++index) {
+                const before = stripPositions.find(item => item.view === views[index])
+                const offset = before ? before.x - tabStripPosition(index) : 0
+                if (Math.abs(offset) > 0.5)
+                    tabRepeater.itemAt(index)?.startReorderFill(offset)
+            }
         if (overviewVisible)
             Qt.callLater(root.syncOverviewFrames)
         tabBar.currentIndex = activeIndex
         Qt.callLater(root.processPendingClose)
     }
 
+    Controls.Dialog {
+        id: groupRenameDialog
+        property string groupId: ""
+        title: qsTr("Rename tab group")
+        modal: true
+        anchors.centerIn: parent
+        standardButtons: Controls.Dialog.Ok | Controls.Dialog.Cancel
+        onAccepted: {
+            if (groupNameEditor.text.trim()) updateTabGroup(groupId, {title: groupNameEditor.text.trim()})
+        }
+        Controls.TextField { id: groupNameEditor; width: 280; placeholderText: qsTr("Group name") }
+    }
+
     Shortcut { sequence: "Ctrl+T"; onActivated: root.openTab(root.newTabUrl) }
     Shortcut { sequence: "Ctrl+W"; onActivated: root.closeTab(root.activeIndex) }
+    Shortcut { sequence: "F11"; onActivated: root.toggleWebFullscreen() }
+    Shortcut { sequence: "Escape"; enabled: root.webFullscreen; onActivated: root.toggleWebFullscreen() }
     Shortcut {
         sequence: "Ctrl+Shift+Alt+Left"
         context: Qt.ApplicationShortcut
