@@ -783,35 +783,89 @@ Item {
             app.showNormal()
         }
 
-        function test_shift_click_selects_range_in_strip_and_overview() {
+        function test_shift_click_toggles_explicit_tabs_in_strip_and_overview() {
             appSettings.reduceMotion = true
             const first = app.views[0], second = app.views[1], third = app.views[2], fourth = app.views[3]
-            mouseClick(tabButton(0), 80, 20)
-            mouseClick(tabButton(2), 80, 20, Qt.LeftButton, Qt.ShiftModifier)
-            compare(app.selectedTabViews, [first, second, third])
-            compare(app.tabSelectionAnchor, first)
-            compare(app.activeView, third)
+            compare(app.selectedTabViews, [])
+            mouseClick(tabButton(0), 80, 20, Qt.LeftButton, Qt.ShiftModifier)
+            compare(app.selectedTabViews, [first])
+            compare(app.activeView, third, "Selection never starts from or switches the focused tab")
             verify(tabButton(0).multiSelected)
-            verify(tabButton(1).multiSelected)
-            verify(!tabButton(3).multiSelected)
-            mouseClick(tabButton(1), 80, 20, Qt.LeftButton, Qt.ShiftModifier)
-            compare(app.selectedTabViews, [first, second], "The range keeps its original anchor")
+            verify(!tabButton(1).multiSelected)
+            mouseClick(tabButton(2), 80, 20, Qt.LeftButton, Qt.ShiftModifier)
+            compare(app.selectedTabViews, [first, third])
+            mouseClick(tabButton(0), 80, 20, Qt.LeftButton, Qt.ShiftModifier)
+            compare(app.selectedTabViews, [third], "Shift-click toggles the clicked tab exactly once")
             app.toggleOverview()
             const card = overviewCard(fourth)
             mouseClick(card, card.width / 2, card.height / 2, Qt.LeftButton, Qt.ShiftModifier)
-            compare(app.overviewVisible, true, "Shift selection must keep overview open")
-            compare(app.selectedTabViews, [first, second, third, fourth])
-            compare(app.activeView, second, "Overview range selection does not switch the webview")
-            compare(findChild(overviewCard(first), "overviewCardBorder").border.width, 2)
-            const id = app.createTabGroup(first, "Selected tabs", "#ab3344")
-            app.assignSelectedTabGroup(second, id)
-            for (const view of [first, second, third, fourth]) compare(view.tabGroupId, id)
-            app.ungroupTabs(id)
-            const target = overviewCard(third)
+            compare(app.overviewVisible, true)
+            compare(app.selectedTabViews, [third, fourth])
+            compare(app.activeView, third)
+            compare(findChild(overviewCard(fourth), "overviewCardBorder").border.width, 2)
+            mouseClick(card, card.width / 2, card.height / 2, Qt.LeftButton, Qt.ShiftModifier)
+            compare(app.selectedTabViews, [third])
+            const target = overviewCard(second)
             mouseClick(target, target.width / 2, target.height / 2)
             compare(app.overviewVisible, false)
-            compare(app.selectedTabViews, [third], "A plain click clears the range")
-            compare(app.activeView, third)
+            compare(app.selectedTabViews, [])
+            compare(app.activeView, second)
+        }
+
+        function test_selection_escape_and_click_away() {
+            appSettings.reduceMotion = true
+            app.requestActivate()
+            tryVerify(() => app.active)
+            app.contentItem.forceActiveFocus()
+            app.selectFileTabs(app.views[0], Qt.ShiftModifier)
+            keyClick(Qt.Key_Escape)
+            compare(app.selectedTabViews, [])
+            app.selectFileTabs(app.views[0], Qt.ShiftModifier)
+            app.toggleToolbarAutoHide()
+            keyClick(Qt.Key_Escape)
+            compare(app.selectedTabViews, [])
+            verify(app.autoHideToolbar, "Escape clears selection before dismissing autohide")
+            keyClick(Qt.Key_Escape)
+            verify(!app.autoHideToolbar)
+            app.selectFileTabs(app.views[0], Qt.ShiftModifier)
+            mouseClick(tabButton(1), 80, 20)
+            compare(app.selectedTabViews, [])
+            app.selectFileTabs(app.views[0], Qt.ShiftModifier)
+            mouseClick(app.contentItem, app.width - 5, app.height - 5)
+            tryCompare(app, "selectedTabViews", [])
+            app.toggleOverview()
+            app.selectFileTabs(app.views[0], Qt.ShiftModifier, true)
+            mouseClick(findChild(app, "overviewSearch"), 100, 15)
+            tryCompare(app, "selectedTabViews", [])
+        }
+
+        function test_overview_drag_box_selects_cards_inside_groups() {
+            appSettings.reduceMotion = true
+            const first = app.views[0], second = app.views[1], third = app.views[2]
+            const id = app.createTabGroup(first, "Box", "#ab3344")
+            app.assignTabGroup(second, id)
+            app.toggleOverview()
+            wait(20)
+            const flick = findChild(app, "overviewFlickable")
+            const card = overviewCard(first), next = overviewCard(second)
+            const start = card.mapToItem(app.contentItem, -4, 4)
+            const end = next.mapToItem(app.contentItem, next.width + 4, next.height + 4)
+            mousePress(app.contentItem, start.x, start.y)
+            mouseMove(app.contentItem, end.x, end.y, 30)
+            verify(findChild(app, "overviewSelectionBox").visible)
+            compare(app.selectedTabViews, [first, second])
+            verify(!app.selectedTabViews.includes(app.homeView))
+            compare(app.overviewDraggedView, null)
+            mouseRelease(app.contentItem, end.x, end.y)
+            compare(findChild(app, "overviewSelectionBox").visible, false)
+            compare(app.selectedTabViews, [first, second])
+            const blank = card.mapToItem(app.contentItem, -4, card.height + 5)
+            mouseClick(app.contentItem, blank.x, blank.y)
+            tryCompare(app, "selectedTabViews", [])
+            app.updateTabGroup(id, {overviewCollapsed: true}, true)
+            app.selectOverviewRectangle(Qt.rect(0, 0, flick.contentWidth, flick.contentHeight), [])
+            verify(!app.selectedTabViews.includes(first) && !app.selectedTabViews.includes(second))
+            verify(app.selectedTabViews.includes(third))
         }
 
         function test_tab_pointer_click_does_not_restart_the_switch_animation() {
@@ -822,24 +876,22 @@ Item {
             tryCompare(app, "outgoingView", null)
         }
 
-        function test_shift_selection_survives_reorder_and_excludes_hidden_search_results() {
+        function test_shift_selection_survives_reorder_and_box_excludes_hidden_search_results() {
             appSettings.reduceMotion = true
             const first = app.views[0], second = app.views[1], third = app.views[2], fourth = app.views[3]
             first.url = "about:blank#match-one"
             third.url = "about:blank#match-two"
-            app.activateTab(0)
+            app.selectFileTabs(first, Qt.ShiftModifier)
             app.selectFileTabs(third, Qt.ShiftModifier)
             app.reorderTab(0, 3)
-            compare(app.selectedTabViews, [first, second, third], "Selection follows view identities when reordered")
-            compare(app.tabSelectionAnchor, first)
+            compare(app.selectedTabViews, [first, third], "Selection follows view identities when reordered")
             app.toggleOverview()
             findChild(app, "overviewSearch").text = "match"
-            compare(app.overviewFilteredCount(), 2)
-            const card = overviewCard(third)
-            mouseClick(card, card.width / 2, card.height / 2, Qt.LeftButton, Qt.ShiftModifier)
-            compare(app.selectedTabViews, [third, first], "Shift selects only cards visible in the search results")
+            const flick = findChild(app, "overviewFlickable")
+            app.selectOverviewRectangle(Qt.rect(0, 0, flick.contentWidth, flick.contentHeight), [])
+            compare(app.selectedTabViews, [third, first], "Drag-box selection ignores hidden results")
             app.closeSelectedTabs(third)
-            tryCompare(app, "views", [second, fourth], 5000, "Hidden search results are never closed by the selection")
+            tryCompare(app, "views", [second, fourth], 5000)
         }
 
         function test_shift_selection_new_group_and_bulk_close() {
@@ -847,14 +899,27 @@ Item {
             const targets = app.views.slice(0, 3), remaining = app.views[3]
             app.activateTab(0)
             app.toggleOverview()
-            const card = overviewCard(targets[2])
-            mouseClick(card, card.width / 2, card.height / 2, Qt.LeftButton, Qt.ShiftModifier)
+            for (const target of targets) {
+                const card = overviewCard(target)
+                mouseClick(card, card.width / 2, card.height / 2, Qt.LeftButton, Qt.ShiftModifier)
+            }
             app.requestTabGroup(targets[1])
             findChild(app, "tabGroupNameEditor").text = "Batch"
             findChild(app, "tabGroupNameDialog").accept()
             compare(app.tabGroups.length, 1)
             for (const view of targets) compare(view.tabGroupId, app.tabGroups[0].id)
-            app.closeSelectedTabs(targets[1])
+            tryCompare(findChild(app, "tabGroupNameDialog"), "visible", false)
+            waitForRendering(app.contentItem)
+            const selectedCard = overviewCard(targets[1])
+            mouseClick(selectedCard, selectedCard.width / 2, selectedCard.height / 2, Qt.RightButton)
+            const menu = findChild(selectedCard, "overviewTabMenu")
+            tryCompare(menu, "visible", true)
+            const close = Array.from({length: menu.count}, (_, index) => menu.itemAt(index))
+                .find(item => item.text === "Close selected tabs")
+            verify(close)
+            tryCompare(menu, "opened", true)
+            waitForRendering(app.contentItem)
+            mouseClick(close, close.width / 2, close.height / 2)
             tryCompare(app, "views", [remaining])
             compare(app.tabGroups.length, 0)
             compare(app.selectedTabViews.length, 0)
@@ -1085,7 +1150,6 @@ Item {
             if (app.webFullscreen) app.toggleWebFullscreen()
             if (app.autoHideToolbar) app.toggleToolbarAutoHide()
             app.selectedTabViews = []
-            app.tabSelectionAnchor = null
             app.width = 1280
             app.height = 800
             appSettings.rememberOpenedTabs = false
