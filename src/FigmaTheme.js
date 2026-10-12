@@ -177,8 +177,13 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
         + '[data-resketch-sidebar] :is(.ublpttv, .ublptty), '
         + '[data-resketch-sidebar] .ublptt9[data-fpl-has-trail]:hover .ublpttw:before '
         + '{ background:linear-gradient(90deg, rgb(from var(--ublptt0) r g b / 0) 0, var(--ublptt0) 10px) !important; }'
-        // Search suggestions float beyond the sidebar and need an opaque surface.
-        + '[data-resketch-sidebar] [data-testid="facetedSearchModal"], [data-resketch-sidebar] [data-testid="facetedSearchModal"] [data-preferred-theme] { --color-bg:var(--resketch-sidebar-surface) !important; }'
+        // Floating Home popups need their own opaque surface, even inside a
+        // translucent sidebar. Their headers and rows inherit this background.
+        + '[data-resketch-sidebar] :is([data-testid="facetedSearchModal"], [class*="user_notifications_dropdown--dropdownContainer--"]), '
+        + '[data-resketch-sidebar] :is([data-testid="facetedSearchModal"], [class*="user_notifications_dropdown--dropdownContainer--"]) [data-preferred-theme] '
+        + '{ --color-bg:var(--resketch-sidebar-surface) !important; }'
+        + '[data-resketch-sidebar] [class*="user_notifications_dropdown--dropdownContainer--"] '
+        + '{ background:var(--resketch-sidebar-surface) !important; border:1px solid var(--color-border); }'
         + '[data-resketch-sidebar-ancestor] { background-color:transparent !important; }'
         + '[data-resketch-sidebar-canvas] { clip-path:var(--resketch-sidebar-clip) !important; }'
         + '#resketch-sidebar-underlay { position:fixed; inset:0; z-index:-1; pointer-events:none; }');

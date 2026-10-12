@@ -12,8 +12,9 @@ Kirigami.ApplicationWindow {
     property int selectedSection: 0
     readonly property var sections: [
         {title: "Appearance", icon: "preferences-desktop-theme", keywords: "theme colors CSS transparency opacity blur window controls decorations motion"},
-        {title: "Tabs", icon: "tab-duplicate", keywords: "sleep remember restore loaded notifications Home"},
-        {title: "Performance", icon: "preferences-system-performance", keywords: "memory preview quality menus Chromium GPU Vulkan canvas flags switches"}
+        {title: "Tabs", icon: "tab-duplicate", keywords: "sleep remember restore loaded Home"},
+        {title: "Performance", icon: "preferences-system-performance", keywords: "memory preview quality menus Chromium GPU Vulkan canvas flags switches"},
+        {title: "Notifications", icon: "preferences-desktop-notification", keywords: "desktop alerts enable disable Home"}
     ]
     readonly property var filteredSections: sections.map((section, index) => ({title: section.title, icon: section.icon, keywords: section.keywords, section: index}))
         .filter(section => (section.title + " " + section.keywords).toLowerCase().includes(settingsSearch.text.toLowerCase()))
@@ -354,15 +355,6 @@ Kirigami.ApplicationWindow {
                                     }
 
                                     Controls.CheckBox {
-                                        objectName: "desktopNotifications"
-                                        text: "Desktop notifications from Home"
-                                        checked: appSettings.desktopNotifications
-                                        onToggled: appSettings.desktopNotifications = checked
-                                        Controls.ToolTip.text: "Use KDE desktop notifications. Only the primary Home page receives notifications and stays running in the background."
-                                        Controls.ToolTip.visible: hovered
-                                    }
-
-                                    Controls.CheckBox {
                                         text: "Keep Home running"
                                         enabled: !appSettings.desktopNotifications
                                         checked: appSettings.keepHomeAwake
@@ -387,6 +379,27 @@ Kirigami.ApplicationWindow {
                                     text: "The maximum tab count takes priority over the minimum loaded tabs."
                                     opacity: 0.72
                                     wrapMode: Text.WordWrap
+                                }
+                            }
+                        }
+                        Controls.Frame {
+                            Layout.fillWidth: true
+                            visible: settingsWindow.selectedSection === 3
+                            padding: 0
+                            background: Item { }
+                            contentItem: ColumnLayout {
+                                spacing: Kirigami.Units.largeSpacing
+                                Controls.CheckBox {
+                                    objectName: "desktopNotifications"
+                                    text: "Enable desktop notifications"
+                                    checked: appSettings.desktopNotifications
+                                    onToggled: appSettings.desktopNotifications = checked
+                                }
+                                Controls.Label {
+                                    Layout.fillWidth: true
+                                    text: "Receive Figma activity through your desktop's notification system. Home stays running to receive updates. Turning this off stops notification checks and desktop alerts immediately."
+                                    wrapMode: Text.WordWrap
+                                    opacity: 0.72
                                 }
                             }
                         }

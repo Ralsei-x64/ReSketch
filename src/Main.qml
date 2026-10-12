@@ -2146,7 +2146,7 @@ Kirigami.ApplicationWindow {
     property bool notificationPolling: false
     property double lastNotificationPoll: 0
     Timer {
-        interval: 30000
+        interval: 5000
         repeat: true
         running: !!root.homeView && root.homeView.notificationSource
         onTriggered: root.pollHomeNotifications()
@@ -2154,7 +2154,8 @@ Kirigami.ApplicationWindow {
     Timer {
         interval: 500
         repeat: true
-        running: root.notificationPolling && !!root.homeView && root.homeView.notificationSource && !root.homeView.loading
+        running: !!root.homeView && root.homeView.notificationSource && !root.homeView.loading
+                 && Policy.isFileBrowserUrl(root.homeView.url)
         onTriggered: root.homeView.runJavaScript(NotificationPolicy.drainFeedScript(), root.receiveHomeNotifications)
     }
 
@@ -2807,7 +2808,7 @@ Kirigami.ApplicationWindow {
     function pollHomeNotifications() {
         const view = homeView
         if (!view || !view.notificationSource || view.loading || !Policy.isFileBrowserUrl(view.url)
-                || notificationPolling || Date.now() - lastNotificationPoll < 10000) return
+                || notificationPolling || Date.now() - lastNotificationPoll < 1000) return
         lastNotificationPoll = Date.now()
         notificationPolling = true
         view.runJavaScript(NotificationPolicy.feedScript(FigmaMenu.storeSource), receiveHomeNotifications)
@@ -2820,6 +2821,7 @@ Kirigami.ApplicationWindow {
         if (!homeView?.notificationSource || !Policy.isFileBrowserUrl(homeView.url)) return
         for (const item of data.notifications || [])
             appSettings.showHomeNotification(item.title, item.body, item.url, root)
+        if (data.refresh) pollHomeNotifications()
     }
 
     function openNotificationLink(address) {

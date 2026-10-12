@@ -1021,7 +1021,9 @@ Item {
                           + '<div class="gpu-view-content"></div><nav class="fb-sidebar">'
                           + '<div data-testid="facetedSearchModal" style="background:var(--color-bg)">'
                           + '<div data-preferred-theme="light" style="background:var(--color-bg)">Suggestions</div>'
-                          + '</div><div class="ublptt9"><div class="ublpttv"></div><div class="ublptty"></div></div></nav>'
+                          + '</div><div class="user_notifications_dropdown--dropdownContainer--fixture" style="--color-border:#8899aa;background:var(--color-bg)">'
+                          + '<div id="notification-row" data-preferred-theme="light" style="background:var(--color-bg)">Notification</div></div>'
+                          + '<div class="ublptt9"><div class="ublpttv"></div><div class="ublptty"></div></div></nav>'
             let initialized = false
             view.runJavaScript('document.body.innerHTML=' + JSON.stringify(fixture), () => initialized = true)
             tryVerify(() => initialized)
@@ -1043,6 +1045,9 @@ Item {
                     + 'marked:p.hasAttribute("data-resketch-sidebar"),'
                     + 'search:getComputedStyle(document.querySelector("[data-testid=facetedSearchModal]")).backgroundColor,'
                     + 'suggestions:getComputedStyle(document.querySelector("[data-preferred-theme]")).backgroundColor,'
+                    + 'notifications:getComputedStyle(document.querySelector("[class*=user_notifications_dropdown--dropdownContainer--]")).backgroundColor,'
+                    + 'notificationRow:getComputedStyle(document.getElementById("notification-row")).backgroundColor,'
+                    + 'notificationBorder:getComputedStyle(document.querySelector("[class*=user_notifications_dropdown--dropdownContainer--]")).borderTopWidth,'
                     + 'actions:[...document.querySelectorAll(".ublpttv,.ublptty")].map(e=>getComputedStyle(e).backgroundImage),'
                     + 'clip:getComputedStyle(document.querySelector(".gpu-view-content")).clipPath}:null})()',
                     value => { result = value })
@@ -1051,6 +1056,9 @@ Item {
             compare(result.bg, "rgba(0, 0, 0, 0)")
             compare(result.search, "rgb(238, 238, 238)")
             compare(result.suggestions, result.search)
+            compare(result.notifications, result.search)
+            compare(result.notificationRow, result.search)
+            compare(result.notificationBorder, "1px")
             for (const gradient of result.actions)
                 verify(gradient.includes("rgba(0, 0, 0, 0) 10px"), "Hidden-layer action fades must stay transparent: " + gradient)
             verify(result.clip.indexOf("polygon") === 0)
@@ -1064,6 +1072,8 @@ Item {
             compare(result.clip, "none")
             compare(view.backgroundColor.a, 0)
             compare(result.search, "rgb(238, 238, 238)")
+            compare(result.notifications, result.search)
+            compare(result.notificationRow, result.search)
             for (const gradient of result.actions)
                 verify(gradient.includes("rgba(0, 0, 0, 0) 10px"), "Canvas-backed sidebars must also avoid black action fades")
 
@@ -1071,6 +1081,8 @@ Item {
             applySidebar()
             tryVerify(() => { inspect(); return result && result.search === "rgb(34, 34, 34)" })
             compare(result.suggestions, result.search)
+            compare(result.notifications, result.search)
+            compare(result.notificationRow, result.search)
 
             appSettings.translucentSidebars = false
             applySidebar()
@@ -1699,6 +1711,25 @@ Item {
                 return null
             }
             return find((window || app).contentItem)
+        }
+
+        function test_settings_notification_toggle_changes_home_source_immediately() {
+            app.openSettings()
+            const settings = findChild(app, "settingsWindow")
+            verify(settings && settings.visible)
+            settings.selectedSection = settings.sections.findIndex(section => section.title === "Notifications")
+            verify(settings.selectedSection >= 0)
+            const toggle = findChild(settings, "desktopNotifications")
+            verify(toggle && toggle.visible)
+            toggle.checked = true
+            toggle.toggled()
+            compare(appSettings.desktopNotifications, true)
+            compare(app.homeView.notificationSource, true)
+            compare(app.homeMustStayAwake, true)
+            toggle.checked = false
+            toggle.toggled()
+            compare(appSettings.desktopNotifications, false)
+            compare(app.homeView.notificationSource, false)
         }
 
         function test_secondary_windows_release_and_reopen_without_losing_settings() {

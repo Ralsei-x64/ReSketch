@@ -12,7 +12,10 @@ function script(allowed) {
         let enabled = ${!!allowed};
         window.__resketchSetNotifications = value => {
             enabled = value;
-            if (!enabled) window.__resketchHomeFeed = null;
+            if (!enabled) {
+                window.__resketchHomeFeed?.unsubscribe?.();
+                window.__resketchHomeFeed = null;
+            }
         };
         function Notification(title, options) {
             if (!enabled) throw new DOMException('Notifications are handled by ReSketch Home.', 'NotAllowedError');
@@ -53,11 +56,32 @@ function feedScript(storeSource) {
         ${storeSource}
         const state = window.__resketchHomeFeed ||= {seen: null, queue: [], pending: false};
         if (state.pending) return JSON.stringify({pending: true});
-        const user = menuStore()?.getState();
+        const store = menuStore();
+        const user = store?.getState();
         if (!user?.user?.id) return JSON.stringify({pending: false});
         if (state.user !== user.user.id) {
             state.user = user.user.id;
             state.seen = null;
+            state.queue = [];
+            // Keep the baseline over Home reloads so activity arriving during a
+            // reload is not mistaken for old notification history.
+            try {
+                const saved = JSON.parse(sessionStorage.getItem('resketch-notifications-' + state.user));
+                if (Array.isArray(saved)) state.seen = new Map(saved);
+            } catch (_) {}
+        }
+        if (state.store !== store) {
+            state.unsubscribe?.();
+            state.store = store;
+            let previous = user;
+            state.unsubscribe = store.subscribe?.(() => {
+                const next = store.getState();
+                if (next.teamFeedBellStates !== previous.teamFeedBellStates
+                    || next.teamFeedRefreshNonce !== previous.teamFeedRefreshNonce
+                    || next.userNotifications !== previous.userNotifications
+                    || next.user?.id !== previous.user?.id) state.dirty = true;
+                previous = next;
+            });
         }
         try {
             if (!state.api) {
@@ -73,10 +97,11 @@ function feedScript(storeSource) {
             }
             function text(blocks) {
                 const template = document.createElement('template');
-                template.innerHTML = (blocks || []).map(block => block.html_text || block.emoji_shortcode || '').join('');
+                template.innerHTML = (Array.isArray(blocks) ? blocks : []).map(block => block?.html_text || block?.emoji_shortcode || '').join('');
                 return template.content.textContent.replace(/\\s+/g, ' ').trim();
             }
             state.pending = true;
+            state.dirty = false;
             const account = state.user;
             const request = state.request = (state.request || 0) + 1;
             const timeout = setTimeout(() => { if (state.request === request) state.pending = false; }, 15000);
@@ -85,18 +110,25 @@ function feedScript(storeSource) {
                     if (window.__resketchHomeFeed !== state || !state.pending || state.request !== request
                         || menuStore()?.getState()?.user?.id !== account || !Array.isArray(data.meta)) return;
                     const baseline = !state.seen;
-                    state.seen ||= new Set();
+                    state.seen ||= new Map();
                     for (const item of data.meta) {
-                        const id = String(item.notification_id || '');
-                        if (!id || state.seen.has(id)) continue;
-                        state.seen.add(id);
-                        if (baseline || !item.is_unread) continue;
-                        const body = item.preferred_attachments?.find(attachment => attachment.body?.title)?.body;
+                        const id = String(item?.notification_id || '');
+                        if (!id) continue;
+                        const body = item.preferred_attachments?.find(attachment => attachment?.body?.title)?.body;
                         const title = text(body?.title);
-                        if (title) state.queue.push({id, title, body: [text(body?.subtitle), text(body?.description)].filter(Boolean).join('\\n'),
-                                                   url: item.deeplink?.href || ''});
+                        if (!title) continue;
+                        const message = [text(body?.subtitle), text(body?.description)].filter(Boolean).join('\\n');
+                        const url = item.deeplink?.href || '';
+                        // Figma batches new replies into existing IDs. Deduplicate
+                        // the activity, not just the notification's ID.
+                        const signature = JSON.stringify([body.created_at, title, message, url]);
+                        const previous = state.seen.get(id);
+                        state.seen.set(id, {signature, unread: !!item.is_unread});
+                        if (!baseline && item.is_unread && (!previous || !previous.unread || previous.signature !== signature))
+                            state.queue.push({id, title, body: message, url});
                     }
-                    while (state.seen.size > 500) state.seen.delete(state.seen.values().next().value);
+                    while (state.seen.size > 500) state.seen.delete(state.seen.keys().next().value);
+                    try { sessionStorage.setItem('resketch-notifications-' + account, JSON.stringify([...state.seen])); } catch (_) {}
                 })
                 .catch(() => {})
                 .finally(() => { clearTimeout(timeout); if (state.request === request) state.pending = false; });
@@ -107,5 +139,6 @@ function feedScript(storeSource) {
 
 function drainFeedScript() {
     return `JSON.stringify({pending: !!window.__resketchHomeFeed?.pending,
+                           refresh: !!window.__resketchHomeFeed?.dirty,
                            notifications: window.__resketchHomeFeed?.queue.splice(0) || []})`;
 }
