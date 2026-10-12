@@ -1385,7 +1385,7 @@ Kirigami.ApplicationWindow {
                                 objectName: "overviewCardDrag"
                                 target: null
                                 acceptedButtons: Qt.LeftButton
-                                enabled: overviewCard.tabIndex >= 0 && !overviewCard.closing
+                                enabled: !!overviewCard.previewView && !overviewCard.closing
                                          && root.overviewProgress >= 0.999 && !root.overviewClosing
                                          && !root.overviewAnimationRunning
                                 onActiveChanged: {
@@ -1395,7 +1395,8 @@ Kirigami.ApplicationWindow {
                                         overviewWheelScroll.stop()
                                         root.overviewDraggedView = overviewCard.previewView
                                         root.overviewDropIndex = overviewCard.tabIndex
-                                        root.beginItemDrag(overviewCard.previewView, overviewCard, centroid.scenePosition)
+                                        if (overviewCard.tabIndex >= 0)
+                                            root.beginItemDrag(overviewCard.previewView, overviewCard, centroid.scenePosition)
                                     } else if (overviewCard.dragging) {
                                         const view = overviewCard.previewView
                                         const point = centroid.scenePosition
@@ -1405,7 +1406,13 @@ Kirigami.ApplicationWindow {
                                         overviewCard.settling = true
                                         root.overviewDraggedView = null
                                         root.overviewDropIndex = -1
-                                        if (root.outsideWindow(point)) {
+                                        if (view === root.homeView) {
+                                            if (appSettings.reduceMotion) {
+                                                overviewCard.dragOffsetX = 0
+                                                overviewCard.dragOffsetY = 0
+                                                overviewCard.settling = false
+                                            } else cardSettle.start()
+                                        } else if (root.outsideWindow(point)) {
                                             overviewCard.dragOffsetX = 0
                                             overviewCard.dragOffsetY = 0
                                             overviewCard.settling = false
@@ -1428,6 +1435,7 @@ Kirigami.ApplicationWindow {
                                     if (!active) return
                                     overviewCard.dragOffsetX = activeTranslation.x
                                     overviewCard.dragOffsetY = activeTranslation.y
+                                    if (overviewCard.previewView === root.homeView) return
                                     const point = overviewFlickable.contentItem.mapFromItem(root.contentItem,
                                         centroid.scenePosition.x, centroid.scenePosition.y)
                                     root.overviewDropIndex = root.overviewDropTarget(point)
@@ -1461,6 +1469,7 @@ Kirigami.ApplicationWindow {
 
                 Controls.TextField {
                     id: overviewSearch
+                    objectName: "overviewSearch"
                     x: (parent.width - width) / 2
                     y: root.overviewMargin
                     width: Math.min(320, parent.width - root.overviewMargin * 2)
@@ -2417,7 +2426,7 @@ Kirigami.ApplicationWindow {
     function overviewMatches(slot) {
         const query = overviewSearch.text.trim().toLocaleLowerCase()
         if (slot === -1)
-            return !!homeView
+            return !!homeView && (!query || qsTr("Home").toLocaleLowerCase().includes(query))
         if (slot < 0)
             return false
         const view = views[slot]
@@ -2431,7 +2440,7 @@ Kirigami.ApplicationWindow {
     }
 
     function overviewFilteredCount() {
-        let count = homeView ? 1 : 0
+        let count = overviewMatches(-1) ? 1 : 0
         for (let slot = 0; slot < tabModel.count; ++slot)
             if (overviewMatches(slot))
                 ++count

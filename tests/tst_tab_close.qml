@@ -956,6 +956,77 @@ Item {
             compare(view.frameContainer, frame)
         }
 
+        function test_overview_search_only_includes_home_when_its_name_matches() {
+            app.activateHome()
+            app.toggleOverview()
+            tryCompare(app, "overviewProgress", 1)
+            const search = findChild(app, "overviewSearch")
+            const home = overviewCard(app.homeView)
+            compare(home.visible, true)
+            compare(app.overviewFilteredCount(), app.views.length + 1)
+            search.text = "about:blank"
+            compare(home.visible, false)
+            compare(app.overviewFilteredCount(), app.views.length)
+            compare(overviewCard(app.views[0]).gridSlot, 0, "No empty space for hidden Home")
+            search.text = " HoMe "
+            compare(home.visible, true)
+            search.text = "ho"
+            compare(home.visible, true)
+            search.text = "no matching tab"
+            compare(home.visible, false)
+            compare(app.overviewFilteredCount(), 0)
+            search.text = ""
+            compare(home.visible, true)
+            compare(app.overviewFilteredCount(), app.views.length + 1)
+            compare(overviewCard(app.views[0]).gridSlot, 1)
+        }
+
+        function test_home_card_drag_returns_to_its_slot_data() {
+            return [{tag: "with-files", onlyHome: false, outside: false},
+                    {tag: "only-home-outside", onlyHome: true, outside: true}]
+        }
+
+        function test_home_card_drag_returns_to_its_slot(data) {
+            if (data.onlyHome) {
+                appSettings.reduceMotion = true
+                for (const view of app.views.slice()) app.closeTab(app.views.indexOf(view))
+                tryVerify(() => app.views.length === 0)
+                appSettings.reduceMotion = false
+            }
+            const selected = app.activeView
+            const order = app.views.slice()
+            app.toggleOverview()
+            tryCompare(app, "overviewProgress", 1)
+            const card = overviewCard(app.homeView)
+            const frame = app.homeView.frameContainer
+            const origin = Qt.point(card.x, card.y)
+            const start = card.mapToItem(app.contentItem, card.width / 2, card.height / 2)
+            const end = Qt.point(data.outside ? app.width + 50 : start.x + 150, start.y + 80)
+            mousePress(app.contentItem, start.x, start.y)
+            mouseMove(app.contentItem, start.x + 30, start.y, 20)
+            mouseMove(app.contentItem, end.x, end.y, 20)
+            tryCompare(app, "overviewDraggedView", app.homeView)
+            verify(card.dragOffsetX > 0)
+            compare(frame.parent, card)
+            compare(app.dragView, null, "Home does not start a transferable tab drag")
+            compare(app.overviewDropIndex, -1)
+            mouseRelease(app.contentItem, end.x, end.y)
+            tryCompare(app, "overviewDraggedView", null)
+            verify(card.settling)
+            verify(card.dragOffsetX > 0, "Home animates back instead of snapping")
+            tryCompare(card, "settling", false)
+            compare(card.dragOffsetX, 0)
+            compare(card.dragOffsetY, 0)
+            compare(card.x, origin.x)
+            compare(card.y, origin.y)
+            compare(frame.parent, card)
+            compare(app.overviewVisible, true)
+            compare(app.activeView, selected)
+            compare(app.views.length, order.length)
+            for (let i = 0; i < order.length; ++i) compare(app.views[i], order[i])
+            compare(app.detachedWindows.length, 0)
+        }
+
         function test_overview_drag_reorders_whole_card() {
             const selected = app.activeView
             app.toggleOverview()
