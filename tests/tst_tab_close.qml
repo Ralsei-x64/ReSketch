@@ -32,6 +32,7 @@ Item {
         property bool sleepingTabPreviews: false
         property bool keepHomeAwake: true
         property bool rememberOpenedTabs: false
+        property bool deferRestoredTabs: true
         property var rememberedFileTabs: []
         property bool releaseClosedWindows: true
         property bool cullOffscreenOverviewEffects: true
@@ -143,19 +144,55 @@ Item {
             }
         }
 
-        function test_remembered_files_restore_behind_home_and_update_session_urls() {
+        function test_remembered_files_restore_behind_home_and_update_session_urls_data() {
+            return [{tag: "on_selection", defer: true}, {tag: "immediately", defer: false}]
+        }
+
+        function test_remembered_files_restore_behind_home_and_update_session_urls(data) {
             const files = ["https://www.figma.com/design/Restore_A/First", "https://www.figma.com/board/Restore_B/Second"]
             appSettings.rememberOpenedTabs = true
+            appSettings.deferRestoredTabs = data.defer
+            appSettings.reduceMotion = true
             appSettings.rememberedFileTabs = files
             const component = Qt.createComponent("../src/Main.qml")
             compare(component.status, Component.Ready)
             const window = component.createObject(app, {sharedProfile: testProfile})
             verify(window)
             window.homeView.stop()
-            for (const view of window.views) view.stop()
+            if (!data.defer)
+                for (const view of window.views) view.stop()
             compare(window.views.length, 2)
             compare(window.activeView, window.homeView)
             compare(window.sessionFileUrls, files)
+            if (data.defer) {
+                window.updateTabLifecycle()
+                window.toggleOverview()
+                wait(100)
+                for (let i = 0; i < files.length; ++i) {
+                    compare(String(window.views[i].deferredRestoreUrl), files[i])
+                    compare(String(window.views[i].tabUrl), files[i])
+                    verify(!String(window.views[i].url).includes("figma.com"))
+                    compare(window.views[i].loading, false)
+                    compare(window.views[i].hasLoadedFrame, false)
+                    compare(window.views[i].visible, false)
+                    compare(tabButton(i, window).loading, false)
+                }
+                window.selectOverviewView(window.views[0])
+                compare(window.activeView, window.views[0])
+                compare(String(window.views[0].deferredRestoreUrl), "")
+                compare(String(window.views[0].url), files[0])
+                window.views[0].stop()
+                compare(String(window.views[1].deferredRestoreUrl), files[1])
+                window.activateTab(1)
+                compare(String(window.views[1].deferredRestoreUrl), "")
+                compare(String(window.views[1].url), files[1])
+                window.views[1].stop()
+            } else {
+                for (let i = 0; i < files.length; ++i) {
+                    compare(String(window.views[i].deferredRestoreUrl), "")
+                    compare(String(window.views[i].url), files[i])
+                }
+            }
             window.openTab("about:blank", null, true)
             window.views[2].stop()
             compare(window.sessionFileUrls, files)
@@ -263,6 +300,7 @@ Item {
 
         function cleanup() {
             appSettings.rememberOpenedTabs = false
+            appSettings.deferRestoredTabs = true
             appSettings.rememberedFileTabs = []
             nativeDropEvents.stop()
             nativeDropEvents.callback = null

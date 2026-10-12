@@ -67,7 +67,7 @@ Kirigami.ApplicationWindow {
     property var views: []
     readonly property list<string> sessionFileUrls: views.filter(view => !view.overviewClosingCard
                         && !pendingCloseViews.includes(view) && !closingViews.includes(view))
-                        .map(view => String(view.url)).filter(Policy.isFileUrl)
+                        .map(view => String(view.tabUrl)).filter(Policy.isFileUrl)
     property var pendingPopups: []
     property var homeView: null
     property var activeView: null
@@ -126,7 +126,7 @@ Kirigami.ApplicationWindow {
     flags: framelessTabBar ? Qt.Window | Qt.FramelessWindowHint : Qt.Window
     color: "transparent"
     background: Item { }
-    title: Policy.windowTitle(activeView ? activeView.url : "", activeView ? activeView.title : "")
+    title: Policy.windowTitle(activeView ? activeView.tabUrl : "", activeView ? activeView.title : "")
     onChromiumFrameLoadedChanged: appSettings.refreshWindowBlur(root)
     onClosing: {
         for (const view of pendingPopups.slice()) discardPendingPopup(view)
@@ -566,7 +566,7 @@ Kirigami.ApplicationWindow {
                                     text: qsTr("Move to new window")
                                     enabled: !!tabButton.tabView
                                              && root.views.length > 1
-                                             && Policy.isFigmaUrl(tabButton.tabView.url)
+                                             && Policy.isFigmaUrl(tabButton.tabView.tabUrl)
                                     onTriggered: {
                                         const target = tabButton.tabView
                                         Qt.callLater(() => root.moveTabToNewWindow(root.views.indexOf(target)))
@@ -587,8 +587,8 @@ Kirigami.ApplicationWindow {
                                 Controls.MenuItem {
                                     text: qsTr("Copy URL")
                                     enabled: !!tabButton.tabView
-                                             && Policy.isFigmaUrl(tabButton.tabView.url)
-                                    onTriggered: appSettings.copyToClipboard(String(tabButton.tabView.url))
+                                             && Policy.isFigmaUrl(tabButton.tabView.tabUrl)
+                                    onTriggered: appSettings.copyToClipboard(String(tabButton.tabView.tabUrl))
                                 }
                             }
 
@@ -1260,7 +1260,7 @@ Kirigami.ApplicationWindow {
                                     anchors.leftMargin: Kirigami.Units.smallSpacing
                                     anchors.verticalCenter: parent.verticalCenter
                                     source: overviewCard.previewView
-                                              && Policy.isFileUrl(overviewCard.previewView.url)
+                                              && Policy.isFileUrl(overviewCard.previewView.tabUrl)
                                               ? "text-x-generic" : "go-home"
                                 }
                                 Controls.Label {
@@ -1272,7 +1272,7 @@ Kirigami.ApplicationWindow {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: overviewCard.tabIndex < 0 ? qsTr("Home")
                                           : overviewCard.previewView
-                                            ? Policy.pageLabel(overviewCard.previewView.url,
+                                            ? Policy.pageLabel(overviewCard.previewView.tabUrl,
                                                                overviewCard.previewView.title) : ""
                                     elide: Text.ElideRight
                                 }
@@ -1299,7 +1299,7 @@ Kirigami.ApplicationWindow {
                                                 text: qsTr("Move to new window")
                                                 enabled: !!overviewCard.previewView
                                                          && root.views.length > 1
-                                                         && Policy.isFigmaUrl(overviewCard.previewView.url)
+                                                         && Policy.isFigmaUrl(overviewCard.previewView.tabUrl)
                                                 onTriggered: {
                                                     const view = overviewCard.previewView
                                                     Qt.callLater(() => root.moveTabToNewWindow(root.views.indexOf(view)))
@@ -1322,8 +1322,8 @@ Kirigami.ApplicationWindow {
                                             Controls.MenuItem {
                                                 text: qsTr("Copy URL")
                                                 enabled: !!overviewCard.previewView
-                                                         && Policy.isFigmaUrl(overviewCard.previewView.url)
-                                                onTriggered: appSettings.copyToClipboard(String(overviewCard.previewView.url))
+                                                         && Policy.isFigmaUrl(overviewCard.previewView.tabUrl)
+                                                onTriggered: appSettings.copyToClipboard(String(overviewCard.previewView.tabUrl))
                                             }
                                         }
                                     }
@@ -1877,6 +1877,12 @@ Kirigami.ApplicationWindow {
                 onTriggered: webView.ownerWindow.discardPendingPopup(webView)
             }
             property bool hasLoadedFrame: false
+            property url deferredRestoreUrl: ""
+            readonly property url tabUrl: String(deferredRestoreUrl) || url
+            onDeferredRestoreUrlChanged: {
+                webView.ownerWindow.syncTab(webView)
+                webView.ownerWindow.syncTabLoading(webView)
+            }
             property var sleepPreview: null
             property bool sleepCapturePending: false
             property int sleepCaptureSerial: 0
@@ -2252,15 +2258,15 @@ Kirigami.ApplicationWindow {
         const index = views.indexOf(view)
         if (index < 0)
             return
-        tabModel.setProperty(index, "filePage", Policy.isFileUrl(view.url))
-        tabModel.setProperty(index, "newFilePage", Policy.isNewFileTabUrl(view.url))
-        tabModel.setProperty(index, "title", Policy.pageLabel(view.url, view.title))
+        tabModel.setProperty(index, "filePage", Policy.isFileUrl(view.tabUrl))
+        tabModel.setProperty(index, "newFilePage", Policy.isNewFileTabUrl(view.tabUrl))
+        tabModel.setProperty(index, "title", Policy.pageLabel(view.tabUrl, view.title))
     }
 
     function syncTabLoading(view) {
         const index = views.indexOf(view)
         if (index < 0) return
-        tabModel.setProperty(index, "loading", view.loading)
+        tabModel.setProperty(index, "loading", !String(view.deferredRestoreUrl) && view.loading)
         tabModel.setProperty(index, "progress", view.loading ? view.loadProgress : 100)
     }
 
@@ -2328,6 +2334,7 @@ Kirigami.ApplicationWindow {
             view.slideX = 0
             view.slideZ = 0
             view.visible = !allFrozen
+                           && !String(view.deferredRestoreUrl)
                            && (overviewVisible ? view.lifecycleState === WebEngineView.LifecycleState.Active
                                                 && !!view.frameContainer
                                                 && !!view.frameContainer.previewCard
@@ -2370,7 +2377,7 @@ Kirigami.ApplicationWindow {
             view.frameContainer.previewCard = card
             view.frameContainer.parent = card
         }
-        view.visible = view.lifecycleState === WebEngineView.LifecycleState.Active
+        view.visible = !String(view.deferredRestoreUrl) && view.lifecycleState === WebEngineView.LifecycleState.Active
         return true
     }
 
@@ -2442,9 +2449,9 @@ Kirigami.ApplicationWindow {
             return false
         if (!query)
             return true
-        const title = Policy.pageLabel(view.url, view.title)
+        const title = Policy.pageLabel(view.tabUrl, view.title)
         return title.toLocaleLowerCase().includes(query)
-               || String(view.url).toLocaleLowerCase().includes(query)
+               || String(view.tabUrl).toLocaleLowerCase().includes(query)
     }
 
     function overviewFilteredCount() {
@@ -2528,6 +2535,7 @@ Kirigami.ApplicationWindow {
             activateView(target, target === homeView ? -1 : views.indexOf(target))
             return
         }
+        loadRestoredTab(target)
         for (const view of [homeView].concat(views))
             view.finishOverviewEntrance()
         overviewFinishTimer.stop()
@@ -2630,6 +2638,7 @@ Kirigami.ApplicationWindow {
         const minimumBackground = Math.max(0, appSettings.minimumLoadedTabs - foreground)
         let awake = 0
         for (const view of background) {
+            if (String(view.deferredRestoreUrl)) continue
             if (overviewVisible && appSettings.sleepingTabPreviews
                     && view.lifecycleState !== WebEngineView.LifecycleState.Active)
                 continue
@@ -2769,6 +2778,10 @@ Kirigami.ApplicationWindow {
         if (index < 0 || index >= views.length || allFrozen)
             return
         const view = views[index]
+        if (String(view.deferredRestoreUrl)) {
+            loadRestoredTab(view)
+            return
+        }
         const discarded = view.lifecycleState === WebEngineView.LifecycleState.Discarded
         view.lifecycleState = WebEngineView.LifecycleState.Active
         if (!discarded)
@@ -2857,11 +2870,12 @@ Kirigami.ApplicationWindow {
         view.requestedSleepState = WebEngineView.LifecycleState.Active
         view.tabOpening = false
         views = views.concat(view)
-        tabModel.append({tabView: view, title: Policy.pageLabel(view.url, view.title),
-                         filePage: Policy.isFileUrl(view.url), newFilePage: Policy.isNewFileTabUrl(view.url),
+        tabModel.append({tabView: view, title: Policy.pageLabel(view.tabUrl, view.title),
+                         filePage: Policy.isFileUrl(view.tabUrl), newFilePage: Policy.isNewFileTabUrl(view.tabUrl),
                          loading: view.loading, progress: view.loading ? view.loadProgress : 100,
                          animateOpen: false})
         if (overviewVisible) {
+            loadRestoredTab(view)
             activeView = view
             overviewSelectedView = view
             tabBar.currentIndex = activeIndex
@@ -3089,6 +3103,7 @@ Kirigami.ApplicationWindow {
         allFrozen = false
         next.lastUsedAt = Date.now()
         next.lifecycleState = WebEngineView.LifecycleState.Active
+        loadRestoredTab(next)
         if (next.reloadAfterFreeze) {
             next.reloadAfterFreeze = false
             next.reload()
@@ -3158,7 +3173,15 @@ Kirigami.ApplicationWindow {
         return view
     }
 
-    function openTab(address, request, background, sourceView, existingView) {
+    function loadRestoredTab(view) {
+        const address = String(view.deferredRestoreUrl)
+        if (!address) return
+        view.lifecycleState = WebEngineView.LifecycleState.Active
+        view.url = address
+        view.deferredRestoreUrl = ""
+    }
+
+    function openTab(address, request, background, sourceView, existingView, deferLoad) {
         const keepOverview = overviewVisible
         const sourceIndex = sourceView ? views.indexOf(sourceView) : -1
         const insertIndex = sourceIndex >= 0 ? sourceIndex + 1 : views.length
@@ -3173,6 +3196,9 @@ Kirigami.ApplicationWindow {
         const view = existingView || createBrowserView()
         if (!view)
             return
+        if (deferLoad) {
+            view.deferredRestoreUrl = address
+        }
         if (keepOverview && !appSettings.reduceMotion)
             view.overviewEntrance = 0
         view.tabOpening = !appSettings.reduceMotion
@@ -3181,7 +3207,7 @@ Kirigami.ApplicationWindow {
                                       title: Policy.pageLabel(address || newTabUrl, ""),
                                       filePage: Policy.isFileUrl(address || newTabUrl),
                                       newFilePage: Policy.isNewFileTabUrl(address || newTabUrl),
-                                      loading: true, progress: 0,
+                                      loading: !deferLoad, progress: 0,
                                       animateOpen: !appSettings.reduceMotion})
         if (!background && !keepOverview)
             activateTab(insertIndex)
@@ -3194,7 +3220,7 @@ Kirigami.ApplicationWindow {
         }
         if (request)
             view.acceptAsNewWindow(request)
-        else if (!existingView)
+        else if (!existingView && !deferLoad)
             view.url = address || newTabUrl
         syncTab(view)
         if (existingView) syncTabLoading(view)
@@ -3535,7 +3561,7 @@ Kirigami.ApplicationWindow {
             openTab(startupUrl)
         if (!primaryWindow && appSettings.rememberOpenedTabs)
             for (const address of appSettings.rememberedFileTabs)
-                openTab(address, null, true)
+                openTab(address, null, true, null, null, appSettings.deferRestoredTabs)
         show()
     }
 }

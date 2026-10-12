@@ -324,6 +324,16 @@ Kirigami.ApplicationWindow {
                         }
 
                         Controls.CheckBox {
+                            objectName: "deferRestoredTabs"
+                            text: "Load restored tabs only when selected"
+                            enabled: appSettings.rememberOpenedTabs
+                            checked: appSettings.deferRestoredTabs
+                            onToggled: appSettings.deferRestoredTabs = checked
+                            Controls.ToolTip.text: "On startup, leave remembered files unloaded until you select their tab or overview card."
+                            Controls.ToolTip.visible: hovered
+                        }
+
+                        Controls.CheckBox {
                             text: "Keep Home running"
                             checked: appSettings.keepHomeAwake
                             onToggled: appSettings.keepHomeAwake = checked

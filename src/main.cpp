@@ -169,6 +169,7 @@ class AppSettings : public QObject
     Q_PROPERTY(bool sleepingTabPreviews READ sleepingTabPreviews WRITE setSleepingTabPreviews NOTIFY changed)
     Q_PROPERTY(bool keepHomeAwake READ keepHomeAwake WRITE setKeepHomeAwake NOTIFY changed)
     Q_PROPERTY(bool rememberOpenedTabs READ rememberOpenedTabs WRITE setRememberOpenedTabs NOTIFY changed)
+    Q_PROPERTY(bool deferRestoredTabs READ deferRestoredTabs WRITE setDeferRestoredTabs NOTIFY changed)
     Q_PROPERTY(QStringList rememberedFileTabs READ rememberedFileTabs NOTIFY changed)
     Q_PROPERTY(bool releaseClosedWindows READ releaseClosedWindows WRITE setReleaseClosedWindows NOTIFY changed)
     Q_PROPERTY(bool cullOffscreenOverviewEffects READ cullOffscreenOverviewEffects WRITE setCullOffscreenOverviewEffects NOTIFY changed)
@@ -212,6 +213,13 @@ public:
     }
     bool menuIntegration() const { return store.value(QStringLiteral("menuIntegration"), true).toBool(); }
     bool rememberOpenedTabs() const { return store.value(QStringLiteral("rememberOpenedTabs"), false).toBool(); }
+    bool deferRestoredTabs() const { return store.value(QStringLiteral("deferRestoredTabs"), true).toBool(); }
+    void setDeferRestoredTabs(bool value)
+    {
+        if (deferRestoredTabs() == value) return;
+        store.setValue(QStringLiteral("deferRestoredTabs"), value);
+        emit changed();
+    }
     QStringList rememberedFileTabs() const
     {
         return rememberOpenedTabs() ? fileTabs(store.value(QStringLiteral("openedFileTabs")).toStringList()) : QStringList{};

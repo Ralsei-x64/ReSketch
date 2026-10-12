@@ -138,6 +138,10 @@ int main(int argc, char **argv)
                                      QStringLiteral("https://www.figma.com/files/recent"), QStringLiteral("https://figma.com.evil.test/design/bad"),
                                      QStringLiteral("http://figma.com/design/bad"), QStringLiteral("https://user@figma.com/design/bad")};
         assert(!settings.rememberOpenedTabs());
+        assert(settings.deferRestoredTabs());
+        settings.setDeferRestoredTabs(false);
+        { AppSettings nextLaunch; assert(!nextLaunch.deferRestoredTabs()); }
+        settings.setDeferRestoredTabs(true);
         QWindow sessionWindow;
         sessionWindow.setProperty("sessionFileUrls", candidates);
         settings.registerMainWindow(&sessionWindow);
@@ -191,6 +195,14 @@ int main(int argc, char **argv)
     settings.setRememberOpenedTabs(false);
     evaluate("destination.closeTab(0);");
     puts("Live QML session URL tracking and window-close persistence checks passed");
+    evaluate("destination.openTab('https://www.figma.com/design/Deferred_A/Deferred-File', null, true, null, null, true);");
+    settings.setRememberOpenedTabs(true);
+    settings.saveOpenedTabs(destination);
+    assert(settings.rememberedFileTabs() == QStringList{QStringLiteral("https://www.figma.com/design/Deferred_A/Deferred-File")});
+    assert(evaluate("String(destination.views[destination.views.length - 1].deferredRestoreUrl)").toString() == settings.rememberedFileTabs().first());
+    settings.setRememberOpenedTabs(false);
+    evaluate("destination.closeTab(destination.views.length - 1);");
+    puts("Deferred restored tabs retain their file URL for the next session");
     {
         QQuickItem container(destination->contentItem());
         PaintProbe probe(&container);
