@@ -12,17 +12,6 @@ cmake --build build
 ./build/resketch
 ```
 
-## Recovering broken settings
-
-Hold **Alt** while launching ReSketch until its window appears to open **Safe Mode Settings**.
-You can also run `resketch --safe-mode`. Safe mode uses software rendering and opens
-only Settings, bypassing Chromium, custom switches, Figma modifications, and UI
-effects. It leaves your saved preferences intact so you can repair them, then
-close the window and restart normally.
-
-**Reset Settings** at the bottom restores default preferences without removing
-your Figma sign-in, export history, or remembered export folders.
-
 ## Desktop links and sign in
 
 Install the app and register it for Figma desktop links:
