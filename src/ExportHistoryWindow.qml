@@ -10,8 +10,8 @@ import org.kde.kirigami as Kirigami
 
 Kirigami.ApplicationWindow {
     id: historyWindow
+    transientParent: null
     objectName: "exportHistoryWindow"
-    readonly property int chromeHeight: Math.max(40, Math.round(Kirigami.Units.gridUnit * 2.25))
     readonly property bool framelessControls: appSettings.windowControlsInTabBar && !appSettings.keepWindowDecorations
     property int activeRemovals: 0
     readonly property int removalDuration: 350
@@ -69,64 +69,26 @@ Kirigami.ApplicationWindow {
     pageStack.initialPage: Kirigami.Page {
         globalToolBarStyle: Kirigami.ApplicationHeaderStyle.None
         padding: 0
-        header: Rectangle {
-            height: historyWindow.chromeHeight
-            color: Kirigami.Theme.backgroundColor
-            RowLayout {
-                anchors.fill: parent
-                spacing: 0
-                Item {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Row {
-                        anchors.left: parent.left
-                        anchors.leftMargin: Kirigami.Units.largeSpacing + Kirigami.Units.smallSpacing
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: Kirigami.Units.smallSpacing
-                        Kirigami.Icon {
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: Kirigami.Units.iconSizes.smallMedium
-                            height: width
-                            source: "document-export"
-                        }
-                        Controls.Label {
-                            text: qsTr("Export History")
-                            font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.15
-                        }
-                    }
-                    MouseArea {
-                        anchors.fill: parent
-                        onPressed: historyWindow.startSystemMove()
-                    }
-                }
-                TabBarButton {
-                    dragWindow: historyWindow
-                    Layout.preferredWidth: historyWindow.chromeHeight
-                    Layout.preferredHeight: historyWindow.chromeHeight
-                    icon.name: "edit-clear-all"
-                    icon.width: Kirigami.Units.iconSizes.small
-                    icon.height: Kirigami.Units.iconSizes.small
-                    icon.color: Kirigami.Theme.negativeTextColor
-                    enabled: appSettings.exportHistory.length > 0
-                    Accessible.name: qsTr("Clear exports")
-                    Controls.ToolTip.text: qsTr("Clear the history without deleting exported files")
-                    Controls.ToolTip.visible: hovered
-                    onClicked: historyWindow.clearHistory()
-                }
-                WindowControls {
-                    targetWindow: historyWindow
-                    buttonSize: historyWindow.chromeHeight
-                    showMinimizeMaximize: false
-                }
-            }
-            Rectangle {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                height: 1
-                color: Kirigami.Theme.textColor
-                opacity: 0.2
-            }
+        header: ExternalWindowHeader {
+            id: historyHeader
+            targetWindow: historyWindow
+            title: qsTr("Export History")
+            iconName: "document-export"
+            actions: [TabBarButton {
+                objectName: "clearExportsButton"
+                dragWindow: historyWindow
+                width: historyHeader.height
+                height: historyHeader.height
+                icon.name: "edit-clear-all"
+                icon.width: Kirigami.Units.iconSizes.small
+                icon.height: Kirigami.Units.iconSizes.small
+                icon.color: Kirigami.Theme.negativeTextColor
+                enabled: appSettings.exportHistory.length > 0
+                Accessible.name: qsTr("Clear exports")
+                Controls.ToolTip.text: qsTr("Clear the history without deleting exported files")
+                Controls.ToolTip.visible: hovered
+                onClicked: historyWindow.clearHistory()
+            }]
         }
 
         ColumnLayout {

@@ -13,14 +13,15 @@ Kirigami.ApplicationWindow {
     property var inspectedView: null
     property var ownerWindow: null
     property var tasks: []
-    readonly property int chromeHeight: Math.max(40, Math.round(Kirigami.Units.gridUnit * 2.25))
     readonly property bool framelessControls: appSettings.windowControlsInTabBar && !appSettings.keepWindowDecorations
     objectName: mode === "tasks" ? "chromiumTaskManagerWindow" : "developerToolsWindow"
+    transientParent: null
+    modality: Qt.NonModal
     title: mode === "tasks" ? qsTr("Chromium Task Manager") : qsTr("Developer Tools")
     width: 900; height: 640
     minimumWidth: 580; minimumHeight: 360
     flags: framelessControls ? Qt.Window | Qt.FramelessWindowHint
-                             : Qt.Window | Qt.CustomizeWindowHint | Qt.WindowTitleHint | Qt.WindowCloseButtonHint
+                             : Qt.Window | Qt.CustomizeWindowHint | Qt.WindowTitleHint | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint | Qt.WindowCloseButtonHint
     pageStack.globalToolBar.style: Kirigami.ApplicationHeaderStyle.None
     onVisibleChanged: if (!visible) inspectedView = null
 
@@ -44,36 +45,10 @@ Kirigami.ApplicationWindow {
     pageStack.initialPage: Kirigami.Page {
         padding: 0
         globalToolBarStyle: Kirigami.ApplicationHeaderStyle.None
-        header: Rectangle {
-            height: tools.chromeHeight
-            color: Kirigami.Theme.backgroundColor
-            RowLayout {
-                anchors.fill: parent
-                spacing: 0
-                Item {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Row {
-                        anchors.left: parent.left
-                        anchors.leftMargin: Kirigami.Units.largeSpacing + Kirigami.Units.smallSpacing
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: Kirigami.Units.smallSpacing
-                        Kirigami.Icon {
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: Kirigami.Units.iconSizes.smallMedium; height: width
-                            source: tools.mode === "tasks" ? "view-process-all" : "tools-report-bug"
-                        }
-                        Controls.Label { text: tools.title; font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.15 }
-                    }
-                    MouseArea { anchors.fill: parent; onPressed: tools.startSystemMove() }
-                }
-                WindowControls { targetWindow: tools; buttonSize: tools.chromeHeight; showMinimizeMaximize: false }
-            }
-            Rectangle {
-                anchors.bottom: parent.bottom
-                width: parent.width; height: 1
-                color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.2)
-            }
+        header: ExternalWindowHeader {
+            targetWindow: tools
+            iconName: tools.mode === "tasks" ? "view-process-all" : "tools-report-bug"
+            showMinimizeMaximize: true
         }
 
         Loader {

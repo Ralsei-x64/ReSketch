@@ -2428,7 +2428,7 @@ Kirigami.ApplicationWindow {
     }
     AuxiliaryWindowLoader {
         id: developerToolsWindowLoader
-        sourceComponent: ChromiumToolsWindow { mode: "devtools"; visible: false }
+        sourceComponent: ChromiumToolsWindow { mode: "devtools"; ownerWindow: root; visible: false }
     }
 
     Timer {
@@ -2925,7 +2925,7 @@ Kirigami.ApplicationWindow {
                                      : Qt.Window | Qt.CustomizeWindowHint | Qt.WindowTitleHint | Qt.WindowCloseButtonHint
             title: qsTr("ReSketch — Google sign in")
             color: Kirigami.Theme.backgroundColor
-            transientParent: root
+            transientParent: null
             property var authView: null
 
             Item {
@@ -2935,58 +2935,14 @@ Kirigami.ApplicationWindow {
                 clip: true
             }
 
-            Rectangle {
+            ExternalWindowHeader {
                 id: googleHeader
+                targetWindow: googleWindow
                 width: parent.width
-                height: appSettings.windowControlsInTabBar ? root.tabStripHeight : 0
+                height: appSettings.windowControlsInTabBar ? implicitHeight : 0
                 visible: height > 0
-                color: Kirigami.Theme.backgroundColor
-
-                Row {
-                    anchors.fill: parent
-
-                    Item {
-                        width: parent.width - googleControls.width
-                        height: parent.height
-
-                        Row {
-                            anchors.left: parent.left
-                            anchors.leftMargin: Kirigami.Units.largeSpacing + Kirigami.Units.smallSpacing
-                            anchors.verticalCenter: parent.verticalCenter
-                            spacing: Kirigami.Units.smallSpacing
-                            Kirigami.Icon {
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: Kirigami.Units.iconSizes.smallMedium
-                                height: width
-                                source: "dialog-password"
-                            }
-                            Controls.Label {
-                                text: qsTr("Google sign in")
-                                font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.15
-                            }
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            acceptedButtons: Qt.LeftButton
-                            onPressed: googleWindow.startSystemMove()
-                        }
-                    }
-
-                    WindowControls {
-                        id: googleControls
-                        targetWindow: googleWindow
-                        buttonSize: root.tabStripHeight
-                        showMinimizeMaximize: false
-                    }
-                }
-                Rectangle {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    height: 1
-                    color: Kirigami.Theme.textColor
-                    opacity: 0.2
-                }
+                title: qsTr("Google sign in")
+                iconName: "dialog-password"
             }
 
             WindowResizeHandles {

@@ -891,6 +891,10 @@ Item {
             app.openTaskManager()
             const manager = findChild(app, "chromiumTaskManagerWindow")
             verify(manager && manager.visible)
+            compare(manager.transientParent, null, "The task manager stacks independently of the main window")
+            compare(manager.modality, Qt.NonModal)
+            verify(manager.flags & Qt.WindowMinimizeButtonHint)
+            verify(manager.flags & Qt.WindowMaximizeButtonHint)
             const list = findChild(manager, "chromiumTabList")
             compare(list.count, 5, "The task manager lists Home and each tab, not app processes")
             compare(manager.tasks[1].cpu, 12.5)
@@ -916,6 +920,8 @@ Item {
             app.openDeveloperTools()
             const developer = findChild(app, "developerToolsWindow")
             verify(developer && developer.visible)
+            compare(developer.transientParent, null, "Developer Tools stacks independently of the main window")
+            compare(developer.modality, Qt.NonModal)
             compare(developer.inspectedView, app.activeView)
             const inspector = findChild(developer, "chromiumDeveloperTools")
             verify(inspector)
@@ -1491,6 +1497,7 @@ Item {
             compare(app.pendingPopups.length, 0)
             compare(app.views.length, count + 1)
             compare(signin.authWindow.authView, signin)
+            compare(signin.authWindow.transientParent, null)
             value = null
             signin.runJavaScript("keepSignin", result => value = result)
             tryVerify(() => value === 456)
@@ -2295,6 +2302,7 @@ Item {
             app.openSettings()
             const settings = findChild(app, "settingsWindow")
             verify(settings && settings.visible)
+            compare(settings.transientParent, null)
             settings.width = 620
             const editor = findChild(settings, "customCssEditor")
             editor.text = "body { color: red; }"
@@ -2321,6 +2329,7 @@ Item {
             appSettings.changed()
             app.openAbout()
             const about = findChild(app, "aboutWindow")
+            compare(about.transientParent, null)
             about.close()
             wait(50)
             compare(findChild(app, "aboutWindow"), about, "Disabling release keeps closed windows ready")
@@ -2330,6 +2339,7 @@ Item {
             app.openExportHistory()
             const history = findChild(app, "exportHistoryWindow")
             verify(history && history.visible)
+            compare(history.transientParent, null)
             history.close()
             tryVerify(() => !findChild(app, "exportHistoryWindow"))
         }

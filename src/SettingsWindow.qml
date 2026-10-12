@@ -8,6 +8,7 @@ import org.kde.kirigami as Kirigami
 
 Kirigami.ApplicationWindow {
     id: settingsWindow
+    transientParent: null
     objectName: "settingsWindow"
     property int selectedSection: 0
     readonly property var sections: [
@@ -22,7 +23,6 @@ Kirigami.ApplicationWindow {
         cssSaveTimer.stop()
         appSettings.figmaCustomCss = customCssEditor.text
     }
-    readonly property int chromeHeight: Math.max(40, Math.round(Kirigami.Units.gridUnit * 2.25))
     readonly property bool framelessControls: !appSettings.safeMode && appSettings.windowControlsInTabBar && !appSettings.keepWindowDecorations
     width: 880
     height: 700
@@ -36,55 +36,10 @@ Kirigami.ApplicationWindow {
     pageStack.initialPage: Kirigami.Page {
         padding: 0
         globalToolBarStyle: Kirigami.ApplicationHeaderStyle.None
-        header: Rectangle {
-            height: settingsWindow.chromeHeight
-            color: Kirigami.Theme.backgroundColor
-
-            Row {
-                anchors.fill: parent
-
-                Item {
-                    width: parent.width - settingsControls.width
-                    height: parent.height
-
-                    Row {
-                        anchors.left: parent.left
-                        anchors.leftMargin: Kirigami.Units.largeSpacing + Kirigami.Units.smallSpacing
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: Kirigami.Units.smallSpacing
-                        Kirigami.Icon {
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: Kirigami.Units.iconSizes.smallMedium
-                            height: width
-                            source: "configure"
-                        }
-                        Controls.Label {
-                            text: appSettings.safeMode ? "Safe Mode Settings" : "Settings"
-                            font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.15
-                        }
-                    }
-                    MouseArea {
-                        anchors.fill: parent
-                        acceptedButtons: Qt.LeftButton
-                        onPressed: settingsWindow.startSystemMove()
-                    }
-                }
-
-                WindowControls {
-                    id: settingsControls
-                    targetWindow: settingsWindow
-                    buttonSize: settingsWindow.chromeHeight
-                    showMinimizeMaximize: false
-                }
-            }
-            Rectangle {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                height: 1
-                color: Kirigami.Theme.textColor
-                opacity: 0.2
-            }
+        header: ExternalWindowHeader {
+            targetWindow: settingsWindow
+            title: appSettings.safeMode ? qsTr("Safe Mode Settings") : qsTr("Settings")
+            iconName: "configure"
         }
         RowLayout {
             anchors.fill: parent

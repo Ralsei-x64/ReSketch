@@ -8,8 +8,8 @@ import org.kde.kirigami as Kirigami
 
 Kirigami.ApplicationWindow {
     id: aboutWindow
+    transientParent: null
     objectName: "aboutWindow"
-    readonly property int chromeHeight: Math.max(40, Math.round(Kirigami.Units.gridUnit * 2.25))
     readonly property bool framelessControls: appSettings.windowControlsInTabBar && !appSettings.keepWindowDecorations
 
     width: 440
@@ -24,47 +24,10 @@ Kirigami.ApplicationWindow {
     pageStack.initialPage: Kirigami.Page {
         globalToolBarStyle: Kirigami.ApplicationHeaderStyle.None
 
-        header: Rectangle {
-            height: aboutWindow.chromeHeight
-            color: Kirigami.Theme.backgroundColor
-
-            Row {
-                anchors.fill: parent
-
-                Item {
-                    width: parent.width - aboutControls.width
-                    height: parent.height
-
-                    Row {
-                        anchors.left: parent.left
-                        anchors.leftMargin: Kirigami.Units.largeSpacing + Kirigami.Units.smallSpacing
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: Kirigami.Units.smallSpacing
-                        Kirigami.Icon {
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: Kirigami.Units.iconSizes.smallMedium
-                            height: width
-                            source: "help-about"
-                        }
-                        Controls.Label {
-                            text: qsTr("About")
-                            font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.15
-                        }
-                    }
-                    MouseArea {
-                        anchors.fill: parent
-                        acceptedButtons: Qt.LeftButton
-                        onPressed: aboutWindow.startSystemMove()
-                    }
-                }
-
-                WindowControls {
-                    id: aboutControls
-                    targetWindow: aboutWindow
-                    buttonSize: aboutWindow.chromeHeight
-                    showMinimizeMaximize: false
-                }
-            }
+        header: ExternalWindowHeader {
+            targetWindow: aboutWindow
+            title: qsTr("About ReSketch")
+            iconName: "help-about"
         }
 
         ColumnLayout {
