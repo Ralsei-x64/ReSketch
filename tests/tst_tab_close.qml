@@ -342,6 +342,7 @@ Item {
                 + '#canvas-separator {border-right:1px solid var(--color-bordertranslucent)}</style>'
                 + '<div id="input"></div><fieldset id="mode"></fieldset>'
                 + '<button id="page" class="legacy_pages_panel--pageRowActive--fixture">Page</button>'
+                + '<button id="recents" class="sidebar_row--sidebarRowSelected--fixture">Recents</button>'
                 + '<nav data-testid="navigation-bar"><button aria-expanded="true">'
                 + '<div id="active">File</div></button><button aria-expanded="false">'
                 + '<div id="inactive">Assets</div></button></nav>'
@@ -361,6 +362,8 @@ Item {
                 + 'return {input:s("input").backgroundColor,mode:s("mode").backgroundColor,'
                 + 'page:s("page").backgroundColor,pageText:s("page").color,'
                 + 'outline:s("page").outlineColor,active:s("active").backgroundColor,'
+                + 'recents:s("recents").backgroundColor,recentsText:s("recents").color,'
+                + 'recentsOutline:s("recents").outlineColor,recentsOutlineWidth:s("recents").outlineWidth,'
                 + 'icon:s("active").getPropertyValue("--color-icon").trim(),'
                 + 'inactive:s("inactive").backgroundColor,title:s("card-title").color,'
                 + 'edited:s("card-edited").color,outside:s("outside-title").color,'
@@ -372,6 +375,10 @@ Item {
             verify(result.page !== "rgb(255, 255, 255)")
             compare(result.active, "rgb(140, 73, 64)")
             compare(result.outline, result.active)
+            compare(result.recents, result.page, "Home sidebar uses the same selected surface as pages")
+            compare(result.recentsText, result.pageText)
+            compare(result.recentsOutline, result.outline)
+            compare(result.recentsOutlineWidth, "1px")
             compare(result.icon, "#ffffff")
             compare(result.inactive, "rgba(0, 0, 0, 0)")
             verify(result.pageText !== "rgb(0, 0, 0)", "Selected page text follows the palette")

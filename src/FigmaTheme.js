@@ -131,8 +131,8 @@ function paletteCss(palette) {
         + '--color-text:' + readable(text, bg, 8) + ' !important;'
         + '--color-text-secondary:' + readable(tokens["text-secondary"], bg, 5) + ' !important; }'
         // These primitives inherit browser button colors instead of semantic text roles.
-        + '[class*="sidebar_row--sidebarRowSelected--"] { color:var(--color-text-onselected) !important; --color-icon:var(--color-icon-onselected) !important; }'
-        + '[class*="legacy_pages_panel--pageRowActive--"] { background:var(--color-bg-selected) !important; color:var(--color-text-onselected) !important; outline:1px solid var(--color-border-selected) !important; }'
+        + '[class*="sidebar_row--sidebarRowSelected--"], [class*="legacy_pages_panel--pageRowActive--"] { background:var(--color-bg-selected) !important; color:var(--color-text-onselected) !important; outline:1px solid var(--color-border-selected) !important; }'
+        + '[class*="sidebar_row--sidebarRowSelected--"] { --color-icon:var(--color-icon-onselected) !important; }'
         + '[data-testid="navigation-bar"] button[aria-expanded="true"] > div { background:var(--color-bg-selected-strong) !important; color:var(--color-text-onselected-strong) !important; --color-icon:var(--color-icon-onselected-strong) !important; }'
         + '[data-testid="file-icon"] { --color-icon:var(--color-icon-onbrand) !important; }'
 }
