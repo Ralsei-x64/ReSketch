@@ -10,6 +10,7 @@
 #include <QDir>
 #include <QEvent>
 #include <QEventLoop>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -364,6 +365,7 @@ public:
                 if (members.isEmpty()) continue;
                 groups.append(QVariantMap{{QStringLiteral("title"), title},
                                           {QStringLiteral("color"), color.name()},
+                                          {QStringLiteral("icon"), group.value(QStringLiteral("icon"), QStringLiteral("folder")).toString()},
                                           {QStringLiteral("collapsed"), group.value(QStringLiteral("collapsed")).toBool()},
                                           {QStringLiteral("overviewCollapsed"), group.value(QStringLiteral("overviewCollapsed")).toBool()},
                                           {QStringLiteral("tabs"), members}});
@@ -550,6 +552,43 @@ public:
                                    ? window->property("tabStripHeight").toInt() : window->height();
         const QRegion region(0, 0, window->width(), blurHeight);
         KWindowEffects::enableBlurBehind(window, !safeMode() && toolbarOpacity() < 100 && !ignoreToolbarBlur(), region);
+    }
+    Q_INVOKABLE QVariantList chromiumTabResources()
+    {
+        QVariantList resources;
+#ifdef Q_OS_LINUX
+        if (!processSampleClock.isValid()) processSampleClock.start();
+        const qint64 now = processSampleClock.elapsed();
+        const long clockTicks = sysconf(_SC_CLK_TCK), pageSize = sysconf(_SC_PAGESIZE);
+        QSet<qint64> renderers;
+        for (auto *window : registeredWindows) {
+            const auto data = window->property("chromiumPages");
+            const auto pages = data.metaType() == QMetaType::fromType<QJSValue>()
+                ? data.value<QJSValue>().toVariant().toList() : data.toList();
+            for (const auto &value : pages) {
+                const qint64 pid = value.toMap().value(QStringLiteral("pid")).toLongLong();
+                if (pid > 0 && pid != QCoreApplication::applicationPid()) renderers.insert(pid);
+            }
+        }
+        for (const qint64 pid : renderers) {
+            QFile stat(QStringLiteral("/proc/%1/stat").arg(pid));
+            if (!stat.open(QIODevice::ReadOnly)) continue;
+            const auto raw = stat.readAll();
+            const auto fields = raw.mid(raw.lastIndexOf(')') + 2).simplified().split(' ');
+            if (fields.size() < 22) continue;
+            const quint64 ticks = fields[11].toULongLong() + fields[12].toULongLong();
+            const quint64 start = fields[19].toULongLong();
+            const auto previous = processSamples.value(pid);
+            const double cpu = previous.start == start && now > previous.time && clockTicks > 0
+                ? 100000.0 * (ticks - std::min(ticks, previous.ticks)) / (clockTicks * double(now - previous.time)) : 0;
+            processSamples[pid] = {ticks, start, now};
+            resources.append(QVariantMap{{QStringLiteral("pid"), pid}, {QStringLiteral("cpu"), cpu},
+                                         {QStringLiteral("memory"), std::max(0.0, fields[21].toDouble() * pageSize / (1024 * 1024))}});
+        }
+        for (auto it = processSamples.begin(); it != processSamples.end();)
+            if (!renderers.contains(it.key())) it = processSamples.erase(it); else ++it;
+#endif
+        return resources;
     }
     Q_INVOKABLE void registerMainWindow(QObject *object)
     {
@@ -817,6 +856,9 @@ private:
 
     QSettings store;
     const bool recoveryMode;
+    struct ProcessSample { quint64 ticks = 0; quint64 start = 0; qint64 time = 0; };
+    QElapsedTimer processSampleClock;
+    QMap<qint64, ProcessSample> processSamples;
     QSet<QWindow *> registeredWindows;
     bool graphicsChecked = false;
     QString graphicsWarning;

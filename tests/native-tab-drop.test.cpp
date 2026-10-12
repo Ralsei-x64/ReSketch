@@ -198,7 +198,7 @@ int main(int argc, char **argv)
         QWindow sessionWindow;
         sessionWindow.setProperty("sessionFileUrls", candidates);
         sessionWindow.setProperty("sessionTabGroups", QVariantList{
-            QVariantMap{{"title", "Design work"}, {"color", "#4477aa"}, {"collapsed", true},
+            QVariantMap{{"title", "Design work"}, {"color", "#4477aa"}, {"icon", "applications-graphics"}, {"collapsed", true},
                         {"overviewCollapsed", true}, {"tabs", QVariantList{0, 1, -1, 999}}},
             QVariantMap{{"title", "Empty"}, {"color", "#cc4455"}, {"tabs", QVariantList{1}}}});
         settings.registerMainWindow(&sessionWindow);
@@ -210,6 +210,7 @@ int main(int argc, char **argv)
         assert(groups.size() == 1);
         assert(groups.first().toMap().value("title").toString() == "Design work");
         assert(groups.first().toMap().value("color").toString() == "#4477aa");
+        assert(groups.first().toMap().value("icon").toString() == "applications-graphics");
         assert(groups.first().toMap().value("collapsed").toBool());
         assert(groups.first().toMap().value("overviewCollapsed").toBool());
         assert(groups.first().toMap().value("tabs").toList() == QVariantList{0});
@@ -288,9 +289,41 @@ int main(int argc, char **argv)
     puts("Deferred restored tabs retain their file URL for the next session");
     evaluate("destination.openTab('https://www.figma.com/design/Group_A/First', null, true, null, null, true);"
              "destination.openTab('https://www.figma.com/design/Group_B/Second', null, true, null, null, true);"
-             "var savedGroup = destination.createTabGroup(destination.views[0], 'Saved group', '#4477aa');"
+             "var savedGroup = destination.createTabGroup(destination.views[0], 'Saved group', '#4477aa', 'applications-graphics');"
              "destination.assignTabGroup(destination.views[1], savedGroup);"
              "destination.updateTabGroup(savedGroup, {collapsed: true, overviewCollapsed: true}, true);");
+    evaluate("destination.homeView.loadHtml('<html><body>Local task-manager probe</body></html>');");
+    for (int attempt = 0; attempt < 50 && evaluate("destination.homeView.renderProcessPid").toInt() <= 0; ++attempt)
+        render();
+    const qint64 rendererPid = evaluate("destination.homeView.renderProcessPid").toNumber();
+    assert(rendererPid > 0);
+    const auto resources = settings.chromiumTabResources();
+    assert(!resources.isEmpty());
+    bool haveRenderer = false;
+    for (const auto &value : resources) {
+        const auto task = value.toMap();
+        const auto pid = task.value("pid").toLongLong();
+        assert(pid > 0 && pid != QCoreApplication::applicationPid());
+        assert(task.value("memory").toDouble() >= 0 && task.value("cpu").toDouble() >= 0);
+        if (pid == rendererPid) haveRenderer = true;
+    }
+    assert(haveRenderer);
+    puts("Tab task manager measures live tab renderers and excludes the app process");
+    evaluate("destination.chooseTabGroupIcon(savedGroup);");
+    bool iconPickerOpened = false;
+    for (int attempt = 0; attempt < 20 && !iconPickerOpened; ++attempt) {
+        render();
+        for (auto *widget : QApplication::topLevelWidgets()) {
+            if (widget->isVisible() && widget->windowTitle() == QStringLiteral("Tab group icon")) {
+                iconPickerOpened = true;
+                widget->close();
+                break;
+            }
+        }
+    }
+    assert(iconPickerOpened);
+    assert(evaluate("destination.groupFor(destination.views[0]).icon").toString() == "applications-graphics");
+    puts("Native KDE group icon picker opens and cancel preserves the selected icon");
     settings.setRememberOpenedTabs(true);
     settings.saveOpenedTabs(destination);
     assert(settings.rememberedTabGroups().size() == 1);
@@ -302,6 +335,7 @@ int main(int argc, char **argv)
         engine.globalObject().setProperty("restoredSession", engine.newQObject(restored.get()));
         assert(evaluate("restoredSession.tabGroups.length").toInt() == 1);
         assert(evaluate("restoredSession.tabGroups[0].title").toString() == "Saved group");
+        assert(evaluate("restoredSession.tabGroups[0].icon").toString() == "applications-graphics");
         assert(evaluate("String(restoredSession.tabGroups[0].color)").toString() == "#4477aa");
         assert(evaluate("restoredSession.tabGroups[0].collapsed && restoredSession.tabGroups[0].overviewCollapsed").toBool());
         assert(evaluate("restoredSession.views.length === 2 && restoredSession.views[0].tabGroupId === restoredSession.views[1].tabGroupId").toBool());

@@ -3,10 +3,10 @@
 - **Native KDE interface:** Kirigami provides the desktop UI while Chromium displays Figma.
 - **Dedicated Home:** A permanent Home page opens files in their own tabs.
 - **File tabs:** Open, switch, refresh, close, and copy links from a scrollable tab strip.
-- **Tab selection:** Shift-click individual tabs or drag a selection box in the overview, then group, refresh, or close them together.
-- **Tab groups:** Name, color, collapse, and rearrange groups, with context menus to edit, ungroup, or close all their tabs.
+- **Tab selection:** Shift-click individual tabs, use Shift+Alt for ranges, or drag a selection box in the overview, then group, refresh, or close them together.
+- **Tab groups:** Name, color, choose icons for, collapse, and rearrange groups, with context menus to edit, ungroup, or close all their tabs.
 - **Animated tabs:** Opening, closing, selection, and rearrangement use smooth transitions.
-- **Tab overview:** Browse searchable live previews in a responsive grid, with collapsible colored group containers and tab counts.
+- **Tab overview:** Browse searchable live previews in a responsive grid, with 2×2 group previews and one expanded group container at a time.
 - **Overview dragging:** Rearrange cards or entire group containers, with a Home card that returns to its fixed position.
 - **Multiple windows:** Drag tabs or cards between windows or detach them without reloading their content.
 - **Fullscreen:** Press F11 for a fullscreen webview and hover the top edge to reveal the tab strip.
@@ -21,6 +21,7 @@
 - **Desktop links:** Handle Figma protocol links and send unrelated web links to the default browser.
 - **Local fonts:** Make installed computer fonts available to Figma through the local font service.
 - **Figma menus:** Optionally expose Figma actions through native menus and Plasma AppMenu, with a hamburger menu fallback.
+- **Chromium tools:** Open Developer Tools and a tab task manager with renderer CPU and memory usage from the menu without keyboard shortcuts.
 - **App themes:** Choose light, dark, or automatic system-following appearance.
 - **KDE colors:** Optionally apply the system color palette to Figma's web interface.
 - **Custom CSS:** Optionally customize Figma's interface with your own CSS.

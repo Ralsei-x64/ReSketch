@@ -10,6 +10,7 @@ import QtQuick.Layouts
 import Qt.labs.platform as Platform
 import QtWebEngine
 import org.kde.kirigami as Kirigami
+import org.kde.iconthemes as IconThemes
 import "Policy.js" as Policy
 import "FigmaMenu.js" as FigmaMenu
 import "FigmaTheme.js" as FigmaTheme
@@ -69,6 +70,14 @@ Kirigami.ApplicationWindow {
     }, FigmaMenu.storeSource)
     property var views: []
     property var selectedTabViews: []
+    property var rangeSelectionAnchor: null
+    property var rangeSelectionBase: []
+    onSelectedTabViewsChanged: {
+        if (rangeSelectionAnchor && !selectedTabViews.includes(rangeSelectionAnchor)) {
+            rangeSelectionAnchor = null
+            rangeSelectionBase = []
+        }
+    }
     property var tabGroups: []
     property int nextGroupNumber: 1
     readonly property int groupHeaderWidth: 160
@@ -78,10 +87,14 @@ Kirigami.ApplicationWindow {
                         .filter(view => Policy.isFileUrl(String(view.tabUrl)))
     readonly property list<string> sessionFileUrls: sessionFileViews.map(view => String(view.tabUrl))
     readonly property var sessionTabGroups: tabGroups.map(group => ({
-        title: group.title, color: String(group.color), collapsed: group.collapsed,
+        title: group.title, color: String(group.color), icon: group.icon || "folder", collapsed: group.collapsed,
         overviewCollapsed: !!group.overviewCollapsed,
         tabs: sessionFileViews.map((view, index) => view.tabGroupId === group.id ? index : -1).filter(index => index >= 0)
     })).filter(group => group.tabs.length)
+    readonly property var chromiumPages: [homeView].concat(views).filter(view => !!view && !view.overviewClosingCard
+        && !pendingCloseViews.includes(view) && !closingViews.includes(view)).map(view => ({
+        view: view, home: view === homeView, pid: view.renderProcessPid, title: view === homeView ? qsTr("Home") : Policy.pageLabel(view.tabUrl, view.title)
+    }))
     property var pendingPopups: []
     property var homeView: null
     property var activeView: null
@@ -234,6 +247,9 @@ Kirigami.ApplicationWindow {
             title: qsTr("&Preferences")
             Platform.MenuSeparator { visible: figmaMenus.preferencesActionCount > 0 }
             Platform.MenuItem { text: qsTr("Settings…"); onTriggered: root.openSettings() }
+            Platform.MenuSeparator {}
+            Platform.MenuItem { objectName: "nativeTaskManagerAction"; text: qsTr("Chromium Task Manager…"); onTriggered: root.openTaskManager() }
+            Platform.MenuItem { objectName: "nativeDeveloperToolsAction"; text: qsTr("Developer Tools…"); enabled: !!root.activeView; onTriggered: root.openDeveloperTools() }
         }
     }
 
@@ -857,8 +873,17 @@ Kirigami.ApplicationWindow {
                                 leftPadding: 10
                                 Rectangle {
                                     anchors.verticalCenter: parent.verticalCenter
+                                    visible: !groupHeader.group?.icon || groupHeader.group.icon === "folder"
                                     width: 8; height: 8; radius: 4
                                     color: groupHeader.group ? groupHeader.group.color : "transparent"
+                                }
+                                Kirigami.Icon {
+                                    objectName: "tabGroupCustomIcon"
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    visible: !!groupHeader.group?.icon && groupHeader.group.icon !== "folder"
+                                    width: root.tabIconSize; height: width
+                                    source: groupHeader.group?.icon || "folder"
+                                    color: groupHeader.group?.color || Kirigami.Theme.highlightColor
                                 }
                                 Controls.Label {
                                     anchors.verticalCenter: parent.verticalCenter
@@ -1061,6 +1086,9 @@ Kirigami.ApplicationWindow {
                             title: qsTr("Preferences")
                             Controls.MenuSeparator { visible: figmaMenus.preferencesActionCount > 0 }
                             Controls.MenuItem { text: qsTr("Settings…"); onTriggered: root.openSettings() }
+                            Controls.MenuSeparator {}
+                            Controls.MenuItem { objectName: "taskManagerAction"; text: qsTr("Chromium Task Manager…"); onTriggered: root.openTaskManager() }
+                            Controls.MenuItem { objectName: "developerToolsAction"; text: qsTr("Developer Tools…"); enabled: !!root.activeView; onTriggered: root.openDeveloperTools() }
                         }
                     }
                 }
@@ -1337,6 +1365,8 @@ Kirigami.ApplicationWindow {
                             Math.abs(endPoint.x - startPoint.x), Math.abs(endPoint.y - startPoint.y))
                         onPressed: mouse => {
                             overviewFlickable.cancelFlick()
+                            root.rangeSelectionAnchor = null
+                            root.rangeSelectionBase = []
                             initialSelection = (mouse.modifiers & Qt.ShiftModifier) ? root.selectedTabViews.slice() : []
                             root.selectedTabViews = initialSelection
                             startPoint = Qt.point(mouse.x, mouse.y)
@@ -1376,115 +1406,142 @@ Kirigami.ApplicationWindow {
                             readonly property var region: root.overviewLayout.groups.find(item => item.id === group?.id)
                             property alias cardArea: groupCardArea
                             property alias selectionHeader: groupOverviewHeader
-                            readonly property real headerHeight: root.overviewCardHeight * (1 - expansion) + 60 * expansion
+                            property alias expandedArea: groupExpandedArea
+                            readonly property real headerHeight: root.overviewCardHeight
+                            readonly property var members: root.views.filter(view => view.tabGroupId === group?.id
+                                                                                   && !view.overviewClosingCard)
                             property bool collapsing: false
                             property bool expanding: false
                             readonly property bool transitioning: collapsing || expanding
-                            readonly property real expansion: transitioning
-                                ? Math.min(1, ...root.views.filter(view => view.tabGroupId === group?.id && !view.overviewClosingCard)
-                                                         .map(view => view.overviewEntrance))
-                                : group?.overviewCollapsed ? 0 : 1
+                            property real expansion: group?.overviewCollapsed ? 0 : 1
+                            property string animationGroupId: ""
+                            onGroupChanged: {
+                                if (transitioning && group?.id !== animationGroupId) {
+                                    groupTransition.stop()
+                                    collapsing = false
+                                    expanding = false
+                                }
+                                if (!transitioning) expansion = group?.overviewCollapsed ? 0 : 1
+                            }
                             readonly property bool dragging: root.overviewDraggedGroupId === group?.id
                             property bool settling: false
                             property real dragOffsetX: 0
                             property real dragOffsetY: 0
                             property real dragOriginX: 0
                             property real dragOriginY: 0
-                            property point transitionOrigin
-                            property real transitionStart: 1
-                            readonly property real transitionProgress: Math.abs((collapsing ? 0 : 1) - transitionStart) < 0.001 ? 1
-                                : Math.max(0, Math.min(1, (expansion - transitionStart) / ((collapsing ? 0 : 1) - transitionStart)))
+                            property real dragBodyOriginX: 0
+                            property real dragBodyOriginY: 0
                             z: dragging || settling ? 20 : transitioning ? 15 : 0
                             transform: Translate { x: groupContainer.dragOffsetX; y: groupContainer.dragOffsetY }
-                            x: dragging ? dragOriginX : transitioning
-                               ? transitionOrigin.x + ((region?.x ?? root.overviewMargin) - transitionOrigin.x) * transitionProgress
-                               : region?.x ?? root.overviewMargin
-                            y: dragging ? dragOriginY : transitioning
-                               ? transitionOrigin.y + ((region?.y ?? 0) - transitionOrigin.y) * transitionProgress
-                               : region?.y ?? 0
-                            width: root.overviewCardWidth * (1 - expansion)
-                                   + (overviewFlickable.width - 2 * (root.overviewMargin - 10)) * expansion
-                            height: region?.height ?? 0
+                            x: dragging ? dragOriginX : region?.x ?? root.overviewMargin
+                            y: dragging ? dragOriginY : region?.y ?? 0
+                            width: root.overviewCardWidth
+                            height: root.overviewCardHeight
                             visible: !!region
                             color: Qt.tint(Qt.rgba(Kirigami.Theme.backgroundColor.r,
                                                    Kirigami.Theme.backgroundColor.g,
                                                    Kirigami.Theme.backgroundColor.b, 0.35),
                                            Qt.rgba(accentColor.r, accentColor.g, accentColor.b, 0.045))
-                            radius: Kirigami.Units.smallSpacing + 3 + 5 * expansion
+                            radius: Kirigami.Units.smallSpacing + 3
                             border.width: 1
                             border.color: group?.color || "transparent"
                             Behavior on x {
                                 enabled: root.overviewProgress >= 0.999 && !transitioning && !dragging && !settling && !appSettings.reduceMotion
                                 NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
                             }
-                            Behavior on width {
-                                enabled: root.overviewProgress >= 0.999 && !root.overviewGroupAnimationRunning && !appSettings.reduceMotion
-                                NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
-                            }
                             Behavior on y {
-                                enabled: root.overviewProgress >= 0.999 && !transitioning && !appSettings.reduceMotion
-                                         && !dragging && !settling
+                                enabled: root.overviewProgress >= 0.999 && !root.overviewGroupAnimationRunning && !dragging && !settling && !appSettings.reduceMotion
                                 NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
                             }
-                            Behavior on height {
-                                enabled: root.overviewProgress >= 0.999 && !root.overviewGroupAnimationRunning && !appSettings.reduceMotion
-                                NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                            function previewSource(view) {
+                                return groupPreviewGrid.children.find(cell => cell.previewView === view)?.frameHost ?? null
                             }
                             function animateCollapsed(collapsed) {
-                                const progress = expansion
-                                transitionOrigin = Qt.point(x, y)
-                                transitionStart = progress
-                                collapseTimer.stop()
-                                expansionTimer.stop()
+                                animationGroupId = group.id
+                                groupTransition.stop()
                                 collapsing = collapsed
                                 expanding = !collapsed
-                                if (!collapsed)
-                                    root.updateTabGroup(group.id, {overviewCollapsed: false}, true)
-                                for (const view of root.views.filter(view => view.tabGroupId === group.id
-                                                                      && !view.overviewClosingCard)) {
-                                    view.finishOverviewEntrance()
-                                    view.overviewEntrance = progress
-                                    if (collapsed) view.startGroupOverviewClose()
-                                    else view.startOverviewEntrance(progress)
-                                }
-                                if (collapsed) collapseTimer.restart()
-                                else expansionTimer.restart()
+                                if (!collapsed) root.updateTabGroup(group.id, {overviewCollapsed: false}, true)
+                                groupTransition.from = expansion
+                                groupTransition.to = collapsed ? 0 : 1
+                                groupTransition.duration = Math.max(1, Math.round(260 * Math.abs(groupTransition.to - expansion)))
+                                groupTransition.start()
                             }
-                            Timer {
-                                id: collapseTimer
-                                interval: 240
-                                onTriggered: {
-                                    root.updateTabGroup(groupContainer.group.id, {overviewCollapsed: true}, true)
+                            NumberAnimation {
+                                id: groupTransition
+                                target: groupContainer
+                                property: "expansion"
+                                easing.type: Easing.OutCubic
+                                onFinished: {
+                                    root.updateTabGroup(groupContainer.group.id,
+                                        {overviewCollapsed: groupContainer.collapsing}, true)
                                     groupContainer.collapsing = false
+                                    groupContainer.expanding = false
                                 }
                             }
-                            Timer { id: expansionTimer; interval: 260; onTriggered: groupContainer.expanding = false }
                             Item {
-                                id: groupCardArea
-                                objectName: "overviewGroupCardArea"
-                                x: 1; y: groupContainer.headerHeight
-                                width: parent.width - 2
-                                height: Math.max(0, parent.height - y - 1)
+                                id: groupExpandedArea
+                                objectName: "overviewGroupExpandedArea"
+                                parent: overviewFlickable.contentItem
+                                property real releaseOffsetX: 0
+                                property real releaseOffsetY: 0
+                                readonly property real motionY: -50 * (1 - groupContainer.expansion)
+                                x: (groupContainer.dragging ? groupContainer.dragBodyOriginX
+                                    : groupContainer.region?.body?.x ?? root.overviewMargin - 10)
+                                   + groupContainer.dragOffsetX + releaseOffsetX
+                                y: (groupContainer.dragging ? groupContainer.dragBodyOriginY
+                                    : groupContainer.region?.body?.y ?? 0)
+                                   + groupContainer.dragOffsetY + releaseOffsetY
+                                width: overviewFlickable.width - 2 * (root.overviewMargin - 10)
+                                height: groupContainer.region?.body?.height ?? 0
+                                visible: groupContainer.visible && (groupContainer.expansion > 0 || groupContainer.transitioning)
+                                z: groupContainer.z
                                 clip: true
+                                Behavior on y {
+                                    enabled: root.overviewProgress >= 0.999 && !root.overviewGroupAnimationRunning
+                                             && !groupContainer.dragging && !groupContainer.settling && !appSettings.reduceMotion
+                                    NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                                }
+                                Behavior on height {
+                                    enabled: root.overviewProgress >= 0.999 && !root.overviewGroupAnimationRunning && !appSettings.reduceMotion
+                                    NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                                }
+                                Rectangle {
+                                    width: parent.width; height: parent.height
+                                    y: groupExpandedArea.motionY
+                                    radius: Kirigami.Units.smallSpacing + 8
+                                    color: Qt.rgba(groupContainer.accentColor.r, groupContainer.accentColor.g,
+                                                   groupContainer.accentColor.b, 0.045 * groupContainer.expansion)
+                                    border.width: 1
+                                    border.color: Qt.rgba(groupContainer.accentColor.r, groupContainer.accentColor.g,
+                                                          groupContainer.accentColor.b, groupContainer.expansion)
+                                    Item {
+                                        id: groupCardArea
+                                        objectName: "overviewGroupCardArea"
+                                        x: 10; y: 10
+                                        width: parent.width - 20
+                                        height: Math.max(0, parent.height - 20)
+                                        clip: true
+                                    }
+                                }
                             }
                             Item {
                                 id: groupOverviewHeader
                                 objectName: "overviewGroupHeader"
                                 width: parent.width
-                                height: groupContainer.headerHeight
-                                Rectangle {
-                                    anchors.left: parent.left
-                                    anchors.leftMargin: 14
-                                    y: (60 - height) / 2
-                                    width: 12; height: width
-                                    radius: 3
+                                height: parent.height
+                                Kirigami.Icon {
+                                    objectName: "overviewGroupIcon"
+                                    x: 14; y: (60 - height) / 2
+                                    width: root.tabIconSize; height: width
+                                    source: groupContainer.group?.icon || "folder"
                                     color: groupContainer.accentColor
                                 }
                                 Column {
                                     anchors.left: parent.left
-                                    anchors.leftMargin: 36
+                                    anchors.leftMargin: 38
                                     y: (60 - height) / 2
-                                    width: parent.width - 80
+                                    width: parent.width - 52
                                     spacing: 3
                                     Controls.Label {
                                         objectName: "overviewGroupTitle"
@@ -1495,24 +1552,136 @@ Kirigami.ApplicationWindow {
                                     }
                                     Controls.Label {
                                         objectName: "overviewGroupCount"
-                                        text: groupContainer.region?.count === 1 ? qsTr("1 tab")
-                                              : qsTr("%1 tabs").arg(groupContainer.region?.count || 0)
+                                        text: groupContainer.members.length === 1 ? qsTr("1 tab")
+                                              : qsTr("%1 tabs").arg(groupContainer.members.length)
                                         opacity: 0.7
                                         font: Kirigami.Theme.smallFont
                                     }
                                 }
-                                Kirigami.Icon {
-                                    objectName: "overviewGroupArrow"
-                                    width: Kirigami.Units.iconSizes.large * (1 - groupContainer.expansion)
-                                           + root.tabIconSize * groupContainer.expansion
-                                    height: width
-                                    x: (parent.width - width) / 2 * (1 - groupContainer.expansion)
-                                       + (parent.width - width - 12) * groupContainer.expansion
-                                    y: (60 + (parent.height - 60) / 2 - height / 2) * (1 - groupContainer.expansion)
-                                       + (60 - height) / 2 * groupContainer.expansion
-                                    source: groupContainer.collapsing || groupContainer.group?.overviewCollapsed ? "folder" : "arrow-down"
-                                    color: groupContainer.expansion < 0.5 ? groupContainer.accentColor : Kirigami.Theme.textColor
-                                    Accessible.name: groupContainer.group?.overviewCollapsed ? qsTr("Expand tab group") : qsTr("Collapse tab group")
+                                Item {
+                                    id: groupPreviewClip
+                                    objectName: "overviewGroupPreviewClip"
+                                    x: 12; y: 60
+                                    width: parent.width - 24
+                                    height: Math.max(0, parent.height - y - 12)
+                                    clip: true
+                                    Item {
+                                        id: groupPreviewGrid
+                                        objectName: "overviewGroupPreviewGrid"
+                                        width: parent.width; height: parent.height
+                                        y: 50 * groupContainer.expansion
+                                        opacity: 1 - groupContainer.expansion
+                                        Repeater {
+                                            model: 4
+                                            Rectangle {
+                                                id: groupPreviewCell
+                                                objectName: "overviewGroupPreviewCell"
+                                                required property int index
+                                                readonly property var previewView: index < 3 ? groupContainer.members[index] ?? null : null
+                                                property alias frameHost: groupPreviewHost
+                                                onPreviewViewChanged: if (root.overviewVisible) Qt.callLater(root.syncOverviewFrames)
+                                                readonly property bool overflow: index === 3 && groupContainer.members.length > 3
+                                                readonly property bool placeholder: !previewView && !overflow
+                                                x: index % 2 * (width + 8)
+                                                y: Math.floor(index / 2) * (height + 8)
+                                                width: Math.max(1, (groupPreviewGrid.width - 8) / 2)
+                                                height: Math.max(1, (groupPreviewGrid.height - 8) / 2)
+                                                radius: Kirigami.Units.smallSpacing + 3
+                                                color: placeholder ? "transparent" : Kirigami.Theme.backgroundColor
+                                                border.width: 1
+                                                border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g,
+                                                                      Kirigami.Theme.textColor.b, 0.25)
+                                                clip: true
+                                                layer.enabled: !!previewView && root.overviewVisible
+                                                layer.effect: MultiEffect {
+                                                    autoPaddingEnabled: false
+                                                    maskEnabled: true
+                                                    maskSource: groupPreviewMask
+                                                    maskThresholdMin: 0.5
+                                                    maskSpreadAtMin: 1.0
+                                                }
+                                                Rectangle {
+                                                    id: groupPreviewMask
+                                                    parent: browserArea
+                                                    width: groupPreviewCell.width; height: groupPreviewCell.height
+                                                    radius: groupPreviewCell.radius
+                                                    color: "white"
+                                                    antialiasing: true
+                                                    visible: false
+                                                    layer.enabled: groupPreviewCell.layer.enabled
+                                                }
+                                                Item {
+                                                    id: groupPreviewHost
+                                                    objectName: "overviewGroupPreviewSource"
+                                                    readonly property bool isGroupPreviewSource: true
+                                                    anchors.fill: parent
+                                                    anchors.margins: 1
+                                                    enabled: false
+                                                    Component.onDestruction: {
+                                                        const view = groupPreviewCell.previewView
+                                                        if (view?.frameContainer?.parent === groupPreviewHost)
+                                                            root.detachOverviewFrame(view)
+                                                    }
+                                                }
+                                                ShaderEffectSource {
+                                                    id: groupPreviewTexture
+                                                    objectName: "overviewGroupPreviewTexture"
+                                                    anchors.fill: parent
+                                                    anchors.margins: 1
+                                                    visible: !!groupPreviewCell.previewView
+                                                    opacity: groupContainer.transitioning ? 1 : 0
+                                                    sourceItem: groupPreviewCell.previewView?.frameContainer ?? null
+                                                    hideSource: false
+                                                    live: false
+                                                    smooth: true
+                                                    textureSize: Qt.size(Math.max(1, Math.ceil(width * Screen.devicePixelRatio * appSettings.overviewPreviewQuality / 100)),
+                                                                         Math.max(1, Math.ceil(height * Screen.devicePixelRatio * appSettings.overviewPreviewQuality / 100)))
+                                                    Timer {
+                                                        interval: 33
+                                                        running: root.overviewVisible && groupContainer.expansion < 1
+                                                                 && !!groupPreviewCell.previewView
+                                                                 && groupContainer.y + groupContainer.height > overviewFlickable.contentY
+                                                                 && groupContainer.y < overviewFlickable.contentY + overviewFlickable.height
+                                                        repeat: true
+                                                        onTriggered: groupPreviewTexture.scheduleUpdate()
+                                                    }
+                                                }
+                                                Controls.BusyIndicator {
+                                                    objectName: "overviewGroupPreviewLoading"
+                                                    anchors.centerIn: parent
+                                                    width: Math.min(24, parent.height / 3); height: width
+                                                    visible: !!groupPreviewCell.previewView && !groupPreviewCell.previewView.hasLoadedFrame
+                                                             && !groupPreviewCell.previewView.showingSleepPreview
+                                                    running: visible && root.overviewVisible && groupContainer.expansion < 1
+                                                }
+                                                Kirigami.Icon {
+                                                    anchors.centerIn: parent
+                                                    width: root.tabIconSize; height: width
+                                                    source: "system-suspend"
+                                                    visible: !!groupPreviewCell.previewView && appSettings.sleepingTabPreviews
+                                                             && groupPreviewCell.previewView.lifecycleState !== WebEngineView.LifecycleState.Active
+                                                }
+                                                Controls.Label {
+                                                    objectName: "overviewGroupOverflow"
+                                                    anchors.centerIn: parent
+                                                    visible: groupPreviewCell.overflow
+                                                    text: groupPreviewCell.overflow ? "+" + (groupContainer.members.length - 3) : ""
+                                                    font.bold: true
+                                                    font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.5
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Kirigami.Icon {
+                                        objectName: "overviewGroupArrow"
+                                        width: Kirigami.Units.iconSizes.large; height: width
+                                        x: (parent.width - width) / 2
+                                        y: (parent.height - height) / 2 - 50 * (1 - groupContainer.expansion)
+                                        opacity: groupContainer.expansion
+                                        source: "arrow-down"
+                                        color: groupContainer.accentColor
+                                        Accessible.name: groupContainer.group?.overviewCollapsed ? qsTr("Expand tab group") : qsTr("Collapse tab group")
+                                    }
                                 }
                                 MouseArea {
                                     anchors.fill: parent
@@ -1539,6 +1708,10 @@ Kirigami.ApplicationWindow {
                                             groupContainer.settling = false
                                             groupContainer.dragOriginX = groupContainer.x
                                             groupContainer.dragOriginY = groupContainer.y
+                                            groupContainer.dragBodyOriginX = groupExpandedArea.x
+                                            groupContainer.dragBodyOriginY = groupExpandedArea.y
+                                            groupExpandedArea.releaseOffsetX = 0
+                                            groupExpandedArea.releaseOffsetY = 0
                                             overviewWheelScroll.stop()
                                             root.overviewDraggedGroupId = groupContainer.group.id
                                             root.draggedGroupId = groupContainer.group.id
@@ -1546,6 +1719,7 @@ Kirigami.ApplicationWindow {
                                         } else if (groupContainer.dragging) {
                                             const position = Qt.point(groupContainer.x + groupContainer.dragOffsetX,
                                                                       groupContainer.y + groupContainer.dragOffsetY)
+                                            const bodyPosition = Qt.point(groupExpandedArea.x, groupExpandedArea.y)
                                             const stripPositions = root.captureTabStripPositions()
                                             const destination = root.groupDropIndex
                                             const id = groupContainer.group.id
@@ -1556,9 +1730,13 @@ Kirigami.ApplicationWindow {
                                             root.moveTabGroup(id, destination, stripPositions)
                                             groupContainer.dragOffsetX = position.x - groupContainer.x
                                             groupContainer.dragOffsetY = position.y - groupContainer.y
+                                            groupExpandedArea.releaseOffsetX = bodyPosition.x - (groupContainer.region?.body?.x ?? 0) - groupContainer.dragOffsetX
+                                            groupExpandedArea.releaseOffsetY = bodyPosition.y - (groupContainer.region?.body?.y ?? 0) - groupContainer.dragOffsetY
                                             if (appSettings.reduceMotion) {
                                                 groupContainer.dragOffsetX = 0
                                                 groupContainer.dragOffsetY = 0
+                                                groupExpandedArea.releaseOffsetX = 0
+                                                groupExpandedArea.releaseOffsetY = 0
                                                 groupContainer.settling = false
                                             } else groupOverviewSettle.start()
                                         }
@@ -1578,6 +1756,8 @@ Kirigami.ApplicationWindow {
                                 onFinished: groupContainer.settling = false
                                 NumberAnimation { target: groupContainer; property: "dragOffsetX"; to: 0; duration: 220; easing.type: Easing.OutCubic }
                                 NumberAnimation { target: groupContainer; property: "dragOffsetY"; to: 0; duration: 220; easing.type: Easing.OutCubic }
+                                NumberAnimation { target: groupExpandedArea; property: "releaseOffsetX"; to: 0; duration: 220; easing.type: Easing.OutCubic }
+                                NumberAnimation { target: groupExpandedArea; property: "releaseOffsetY"; to: 0; duration: 220; easing.type: Easing.OutCubic }
                             }
                         }
                     }
@@ -1596,7 +1776,7 @@ Kirigami.ApplicationWindow {
                                 objectName: "overviewCard"
                                 clip: true
                                 readonly property real cornerRadius: Kirigami.Units.smallSpacing + 3
-                                readonly property bool inOverviewViewport: visible
+                                readonly property bool inOverviewViewport: visible && !group?.overviewCollapsed
                                     && viewportX + width > 0 && viewportX < overviewFlickable.width
                                     && viewportY + height > overviewFlickable.contentY
                                     && viewportY < overviewFlickable.contentY + overviewFlickable.height
@@ -1642,12 +1822,12 @@ Kirigami.ApplicationWindow {
                                 parent: container && root.overviewVisible && !floating
                                         ? container.cardArea : overviewFlickable.contentItem
                                 readonly property bool hosted: !!container && parent === container.cardArea
-                                readonly property real parentLeft: hosted ? (container.region?.x ?? container.x) + container.cardArea.x : 0
-                                readonly property real parentTop: hosted ? (container.region?.y ?? 0) + container.cardArea.y : 0
+                                readonly property real parentLeft: hosted ? (container.region?.body?.x ?? 0) + container.cardArea.x : 0
+                                readonly property real parentTop: hosted ? (container.region?.body?.y ?? 0) + container.cardArea.y : 0
                                 readonly property real viewportX: x + dragOffsetX
-                                    + (hosted ? container.x + container.dragOffsetX + container.cardArea.x : 0)
+                                    + (hosted ? container.expandedArea.x + container.cardArea.x : 0)
                                 readonly property real viewportY: y + dragOffsetY
-                                    + (hosted ? container.y + container.dragOffsetY + container.cardArea.y : 0)
+                                    + (hosted ? container.expandedArea.y + container.expandedArea.motionY + container.cardArea.y : 0)
                                 property bool changingParent: false
                                 onParentChanged: {
                                     changingParent = true
@@ -1666,7 +1846,7 @@ Kirigami.ApplicationWindow {
                                 readonly property int gridSlot: root.overviewPreviewSlot(tabIndex)
                                 readonly property real entrance: zooming && !closing
                                     && (root.overviewClosing || root.overviewProgress < 0.999) ? 1
-                                                                   : previewView?.overviewEntrance ?? 1
+                                                                   : container?.transitioning && !closing ? container.expansion : previewView?.overviewEntrance ?? 1
                                 readonly property real headerHeight: root.overviewTitleHeight
                                                                      * (zooming ? root.overviewProgress : 1)
                                 visible: closing || root.overviewMatches(tabIndex)
@@ -1686,7 +1866,7 @@ Kirigami.ApplicationWindow {
                                              + overviewFlickable.contentY * (1 - root.overviewProgress)
                                            : root.overviewCardY(gridSlot)) - parentTop
                                    - (closing || dragging || zooming && (root.overviewClosing || root.overviewProgress < 0.999)
-                                      ? 0 : 50 * (1 - entrance))
+                                      ? 0 : container?.transitioning ? 0 : 50 * (1 - entrance))
                                 width: closing ? previewView.overviewCloseWidth
                                        : zooming ? browserArea.width * (1 - root.overviewProgress)
                                                    + root.overviewCardWidth * root.overviewProgress
@@ -1711,6 +1891,7 @@ Kirigami.ApplicationWindow {
                                 Behavior on y {
                                     enabled: root.overviewVisible && root.overviewProgress >= 0.999
                                              && overviewCard.entrance >= 0.999 && !root.overviewAnimationRunning
+                                             && !root.overviewGroupAnimationRunning
                                              && !overviewCard.dragging && !overviewCard.settling
                                              && !overviewCard.changingParent && !overviewCard.container?.transitioning
                                              && !appSettings.reduceMotion
@@ -2241,6 +2422,15 @@ Kirigami.ApplicationWindow {
         sourceComponent: ExportHistoryWindow { visible: false }
     }
 
+    AuxiliaryWindowLoader {
+        id: taskManagerWindowLoader
+        sourceComponent: ChromiumToolsWindow { mode: "tasks"; ownerWindow: root; visible: false }
+    }
+    AuxiliaryWindowLoader {
+        id: developerToolsWindowLoader
+        sourceComponent: ChromiumToolsWindow { mode: "devtools"; visible: false }
+    }
+
     Timer {
         interval: 30000
         running: true
@@ -2385,13 +2575,16 @@ Kirigami.ApplicationWindow {
             property var ownerWindow: root
             property var previewView: null
             property var previewCard: null
-            visible: !frame.ownerWindow.overviewVisible || (!!previewCard && parent === previewCard)
+            visible: !frame.ownerWindow.overviewVisible
+                     || (!!previewCard && (parent === previewCard || parent.isGroupPreviewSource === true))
             clip: true
             x: 0
-            y: previewCard ? previewCard.headerHeight : 0
-            width: previewCard ? previewCard.width : frame.ownerWindow.browserWidth
-            height: previewCard ? Math.max(0, previewCard.height - previewCard.headerHeight)
-                                : frame.ownerWindow.browserHeight
+            y: parent.isGroupPreviewSource === true ? 0 : previewCard ? previewCard.headerHeight : 0
+            width: parent.isGroupPreviewSource === true ? parent.width
+                   : previewCard ? previewCard.width : frame.ownerWindow.browserWidth
+            height: parent.isGroupPreviewSource === true ? parent.height
+                    : previewCard ? Math.max(0, previewCard.height - previewCard.headerHeight)
+                                  : frame.ownerWindow.browserHeight
             z: previewCard ? 0 : previewView ? previewView.slideZ : 0
             transform: Translate { x: frame.previewView ? frame.previewView.slideX : 0 }
 
@@ -2411,6 +2604,7 @@ Kirigami.ApplicationWindow {
                     ? Math.min(displayTextureScale, 640 / Math.max(1, width), 480 / Math.max(1, height))
                     : displayTextureScale
                 layer.enabled: visible && (!appSettings.cullOffscreenOverviewEffects
+                                           || frame.parent.isGroupPreviewSource === true
                                            || (!!frame.previewCard && frame.previewCard.inOverviewViewport))
                 layer.textureSize: appSettings.compactPreviewTextures || appSettings.overviewPreviewQuality < 100
                                    ? Qt.size(Math.max(1, Math.round(width * textureScale)),
@@ -2517,7 +2711,6 @@ Kirigami.ApplicationWindow {
             }
             function finishOverviewEntrance() {
                 overviewEntranceAnimation.stop()
-                if (overviewExitAnimation.groupOnly) overviewExitAnimation.stop()
                 if (!overviewClosingCard)
                     overviewEntrance = 1
             }
@@ -2525,13 +2718,6 @@ Kirigami.ApplicationWindow {
                 const start = overviewEntrance
                 overviewEntranceAnimation.stop()
                 overviewExitAnimation.from = start
-                overviewExitAnimation.groupOnly = false
-                overviewExitAnimation.start()
-            }
-            function startGroupOverviewClose() {
-                overviewEntranceAnimation.stop()
-                overviewExitAnimation.from = overviewEntrance
-                overviewExitAnimation.groupOnly = true
                 overviewExitAnimation.start()
             }
             function stopOverviewClose() {
@@ -2548,14 +2734,13 @@ Kirigami.ApplicationWindow {
             }
             NumberAnimation {
                 id: overviewExitAnimation
-                property bool groupOnly: false
                 target: webView
                 property: "overviewEntrance"
                 to: 0
                 duration: 240
                 easing.type: Easing.BezierSpline
                 easing.bezierCurve: [0, 0.45, 0.50, 1, 1, 1]
-                onFinished: if (!groupOnly) webView.ownerWindow.finishOverviewClose(webView)
+                onFinished: webView.ownerWindow.finishOverviewClose(webView)
             }
             width: googleSignIn ? parent.width : webView.ownerWindow.browserWidth
             height: googleSignIn ? parent.height : webView.ownerWindow.browserHeight
@@ -2567,7 +2752,7 @@ Kirigami.ApplicationWindow {
             enabled: !webView.ownerWindow.overviewVisible
             opacity: !hasLoadedFrame ? 0
                      : !webView.ownerWindow.overviewVisible ? 1
-                     : overviewClosingCard ? 1
+                     : overviewClosingCard || frameContainer?.parent?.isGroupPreviewSource === true ? 1
                      : webView.ownerWindow.overviewMatches(webView.ownerWindow.overviewSlot(webView))
                        ? webView === webView.ownerWindow.overviewSelectedView ? 1
                          : overviewEntrance
@@ -3029,11 +3214,13 @@ Kirigami.ApplicationWindow {
         const card = index >= 0 ? overviewCardRepeater.itemAt(index)?.card : null
         if (!card)
             return false
-        if (view.frameContainer.previewCard !== card || view.frameContainer.parent !== card) {
+        const group = groupFor(view)
+        const target = group?.overviewCollapsed ? overviewGroupContainer(group.id)?.previewSource(view) || card : card
+        if (view.frameContainer.previewCard !== card || view.frameContainer.parent !== target) {
             detachFrameForCard(card)
             view.visible = false
             view.frameContainer.previewCard = card
-            view.frameContainer.parent = card
+            view.frameContainer.parent = target
         }
         view.visible = !String(view.deferredRestoreUrl) && view.lifecycleState === WebEngineView.LifecycleState.Active
         return true
@@ -3079,47 +3266,45 @@ Kirigami.ApplicationWindow {
 
     function layoutOverview(preview = true) {
         const items = [], groups = []
-        let y = overviewMargin + overviewSearchHeight, column = 0
+        let y = overviewMargin + overviewSearchHeight, column = 0, rowGroups = []
         const order = preview ? previewTabOrder() : views
-        const visibleViews = (homeView && overviewMatches(-1) ? [homeView] : [])
-            .concat(order.filter(view => overviewMatches(views.indexOf(view))))
-        const groupId = view => preview && view === overviewDraggedView && view !== homeView
+        const visibleViews = (overviewMatches(-1) ? [homeView] : []).concat(order.filter(view => overviewMatches(views.indexOf(view))))
+        const groupId = view => preview && overviewDraggedView === view && view !== homeView
                                   ? overviewDropGroupId : view.tabGroupId || ""
         function flushRow() {
-            if (column) { y += overviewCardHeight + overviewGap; column = 0 }
+            if (!column) return
+            y += overviewCardHeight + overviewGap
+            column = 0
+            for (const entry of rowGroups) {
+                const expansion = overviewGroupContainer(entry.region.id)?.expansion
+                                  ?? (entry.group.overviewCollapsed ? 0 : 1)
+                const fullHeight = Math.ceil(entry.members.length / overviewColumns) * (overviewCardHeight + overviewGap)
+                                   - overviewGap + 20
+                entry.region.body = {x: overviewMargin - 10, y: y, height: fullHeight * expansion}
+                entry.members.forEach((view, index) => items.push({view: view,
+                    x: overviewMargin + index % overviewColumns * (overviewCardWidth + overviewGap),
+                    y: y + 10 + Math.floor(index / overviewColumns) * (overviewCardHeight + overviewGap)}))
+                y += (fullHeight + overviewGap) * expansion
+            }
+            rowGroups = []
         }
-        function nextCell() {
-            const cell = {x: tabModel.count === 0 ? (browserArea.width - overviewCardWidth) / 2
+        function cell() {
+            return {x: tabModel.count === 0 ? (browserArea.width - overviewCardWidth) / 2
                          : overviewMargin + column * (overviewCardWidth + overviewGap), y: y}
-            if (++column === overviewColumns) flushRow()
-            return cell
         }
         for (let first = 0; first < visibleViews.length;) {
             const id = groupId(visibleViews[first])
             let end = first + 1
-            while (end < visibleViews.length && groupId(visibleViews[end]) === id) ++end
+            if (id) while (end < visibleViews.length && groupId(visibleViews[end]) === id) ++end
             const members = visibleViews.slice(first, end)
             const group = tabGroups.find(item => item.id === id)
-            const container = group ? overviewGroupContainer(id) : null
-            if (group && group.overviewCollapsed && !container?.transitioning) {
-                const cell = nextCell()
-                groups.push({id: id, x: cell.x, y: cell.y, height: overviewCardHeight,
-                             count: members.length, collapsedCell: true})
-                for (const view of members) items.push({view: view, x: cell.x, y: cell.y + overviewCardHeight})
-            } else if (group) {
-                flushRow()
-                const expansion = container?.expansion ?? 1
-                const headerHeight = overviewCardHeight * (1 - expansion) + 60 * expansion
-                const height = headerHeight + expansion
-                    * (Math.ceil(members.length / overviewColumns) * (overviewCardHeight + overviewGap) - overviewGap + 12)
-                groups.push({id: id, x: overviewMargin - 10 * expansion, y: y, height: height, count: members.length})
-                members.forEach((view, index) => items.push({view: view,
-                    x: overviewMargin + index % overviewColumns * (overviewCardWidth + overviewGap) * expansion,
-                    y: y + headerHeight + Math.floor(index / overviewColumns) * (overviewCardHeight + overviewGap) * expansion}))
-                y += height + overviewGap
-            } else {
-                for (const view of members) items.push(Object.assign({view: view}, nextCell()))
-            }
+            const position = cell()
+            if (group) {
+                const region = Object.assign({id: id, height: overviewCardHeight, count: members.length, collapsedCell: true}, position)
+                groups.push(region)
+                rowGroups.push({region: region, group: group, members: members})
+            } else items.push(Object.assign({view: members[0]}, position))
+            if (++column === overviewColumns) flushRow()
             first = end
         }
         flushRow()
@@ -3162,10 +3347,11 @@ Kirigami.ApplicationWindow {
         let closest = views.indexOf(overviewDraggedView)
         let distance = Infinity
         const layout = layoutOverview(false)
-        const region = layout.groups.find(group => point.y >= group.y
-                          && point.y <= group.y + group.height && point.x >= group.x
-                          && point.x <= group.x + (overviewGroupContainer(group.id)?.width
-                                                              ?? browserArea.width - 2 * (overviewMargin - 10)))
+        const inside = rect => rect && point.y >= rect.y && point.y <= rect.y + rect.height
+            && point.x >= rect.x && point.x <= rect.x + rect.width
+        const region = layout.groups.find(group => inside({x: group.x, y: group.y,
+                                      width: overviewCardWidth, height: overviewCardHeight})
+            || inside(Object.assign({width: browserArea.width - 2 * (overviewMargin - 10)}, group.body)))
         overviewDropGroupId = region?.id || ""
         for (let i = 0; i < views.length; ++i) {
             if (!overviewMatches(i) || views[i].tabGroupId !== overviewDropGroupId) continue
@@ -3262,9 +3448,9 @@ Kirigami.ApplicationWindow {
         selectionBar.startOffset = 0
         selectionBar.endOffset = 0
         overviewSelectedView = activeView
-        const selectedGroup = groupFor(activeView)
-        if (selectedGroup?.overviewCollapsed)
-            updateTabGroup(selectedGroup.id, {overviewCollapsed: false})
+        const selectedGroup = groupFor(activeView) || tabGroups.find(group => !group.overviewCollapsed)
+        if (selectedGroup)
+            updateTabGroup(selectedGroup.id, {overviewCollapsed: false}, true)
         overviewClosing = false
         overviewProgress = 0
         overviewSearch.text = ""
@@ -3498,6 +3684,17 @@ Kirigami.ApplicationWindow {
 
     function openSettings() {
         settingsWindowLoader.openWindow()
+    }
+
+    function openTaskManager() {
+        taskManagerWindowLoader.openWindow()
+        taskManagerWindowLoader.item.refreshTasks()
+    }
+
+    function openDeveloperTools() {
+        if (!activeView) return
+        developerToolsWindowLoader.openWindow()
+        developerToolsWindowLoader.item.inspectedView = activeView
     }
 
     function openExternalLink(address) {
@@ -3792,9 +3989,23 @@ Kirigami.ApplicationWindow {
         if (view !== homeView && (pendingCloseViews.includes(view) || closingViews.includes(view)
                                  || readyCloseViews.includes(view) || view.overviewClosingCard)) return
         if (modifiers & Qt.ShiftModifier) {
-            if (view !== homeView)
+            if (view === homeView) return
+            if (modifiers & Qt.AltModifier) {
+                if (!rangeSelectionAnchor || !views.includes(rangeSelectionAnchor)) {
+                    rangeSelectionAnchor = view
+                    rangeSelectionBase = selectedTabViews.slice()
+                }
+                const start = views.indexOf(rangeSelectionAnchor), end = views.indexOf(view)
+                const range = views.slice(Math.min(start, end), Math.max(start, end) + 1)
+                selectedTabViews = Array.from(new Set(rangeSelectionBase.concat(range)))
+                    .filter(item => views.includes(item) && !pendingCloseViews.includes(item)
+                        && !closingViews.includes(item) && !readyCloseViews.includes(item) && !item.overviewClosingCard)
+            } else {
+                rangeSelectionAnchor = null
+                rangeSelectionBase = []
                 selectedTabViews = selectedTabViews.includes(view)
                     ? selectedTabViews.filter(item => item !== view) : selectedTabViews.concat(view)
+            }
             return
         }
         selectedTabViews = []
@@ -4098,20 +4309,22 @@ Kirigami.ApplicationWindow {
         groupRenameDialog.createViews = tabsForAction(view)
         groupRenameDialog.groupId = ""
         groupRenameDialog.groupColor = Kirigami.Theme.highlightColor
+        groupRenameDialog.groupIcon = "folder"
         groupNameEditor.text = qsTr("Tab Group %1").arg((primaryWindow || root).nextGroupNumber)
         groupRenameDialog.open()
         groupNameEditor.forceActiveFocus()
         groupNameEditor.selectAll()
     }
 
-    function createTabGroup(view, name, color) {
+    function createTabGroup(view, name, color, icon = "folder") {
         if (!view || views.indexOf(view) < 0) return
         const owner = primaryWindow || root
         const number = owner.nextGroupNumber++
         const id = Date.now().toString(36) + "-" + number
         assignTabGroup(view, "")
         view.tabGroupId = id
-        tabGroups = tabGroups.concat({id: id, title: name && name.trim() || qsTr("Tab Group %1").arg(number), color: color || Kirigami.Theme.highlightColor, collapsed: false})
+        tabGroups = tabGroups.concat({id: id, title: name && name.trim() || qsTr("Tab Group %1").arg(number), color: color || Kirigami.Theme.highlightColor, icon: icon, collapsed: false})
+        if (overviewVisible) updateTabGroup(id, {overviewCollapsed: false})
         return id
     }
 
@@ -4120,13 +4333,20 @@ Kirigami.ApplicationWindow {
             const members = group.tabs.filter(index => Number.isInteger(index) && index >= 0 && index < views.length)
                                       .map(index => views[index]).filter(view => !view.tabGroupId)
             if (!members.length) continue
-            const id = createTabGroup(members[0], group.title, group.color)
+            const id = createTabGroup(members[0], group.title, group.color, group.icon || "folder")
             for (const view of members) view.tabGroupId = id
             updateTabGroup(id, {collapsed: !!group.collapsed, overviewCollapsed: !!group.overviewCollapsed}, true)
         }
     }
 
     function updateTabGroup(id, changes, immediate) {
+        if (changes.overviewCollapsed === false) {
+            for (const group of tabGroups) {
+                const other = overviewGroupContainer(group.id)
+                if (group.id !== id && !group.overviewCollapsed && !other?.collapsing)
+                    updateTabGroup(group.id, {overviewCollapsed: true}, immediate)
+            }
+        }
         const container = overviewGroupContainer(id)
         if (!immediate && overviewVisible && !appSettings.reduceMotion && container
                 && changes.overviewCollapsed !== undefined) {
@@ -4137,6 +4357,7 @@ Kirigami.ApplicationWindow {
             return
         }
         tabGroups = tabGroups.map(group => group.id === id ? Object.assign({}, group, changes) : group)
+        if (overviewVisible && changes.overviewCollapsed !== undefined) syncOverviewFrames()
         if (changes.overviewCollapsed === false)
             for (const view of views.filter(view => view.tabGroupId === id && !view.overviewClosingCard))
                 view.finishOverviewEntrance()
@@ -4172,12 +4393,19 @@ Kirigami.ApplicationWindow {
         groupContextMenu.popup(root.contentItem, position.x, position.y)
     }
 
+    function chooseTabGroupIcon(id) {
+        groupIconPicker.groupId = id
+        if (groupIconPicker.item) groupIconPicker.item.open()
+        else groupIconPicker.active = true
+    }
+
     function editTabGroup(id) {
         const group = tabGroups.find(group => group.id === id)
         if (!group) return
         groupRenameDialog.createView = null
         groupRenameDialog.groupId = id
         groupRenameDialog.groupColor = group.color
+        groupRenameDialog.groupIcon = group.icon || "folder"
         groupNameEditor.text = group.title
         groupRenameDialog.open()
         groupNameEditor.forceActiveFocus()
@@ -4650,6 +4878,12 @@ Kirigami.ApplicationWindow {
                 if (group) root.updateTabGroup(group.id, {color: appSettings.chooseGroupColor(group.color, root)})
             }
         }
+        Controls.MenuItem {
+            objectName: "changeTabGroupIcon"
+            text: qsTr("Change icon…")
+            icon.name: "preferences-desktop-icons"
+            onTriggered: root.chooseTabGroupIcon(groupContextMenu.groupId)
+        }
         Controls.MenuSeparator {}
         Controls.MenuItem {
             objectName: "deleteTabGroup"
@@ -4672,6 +4906,7 @@ Kirigami.ApplicationWindow {
         property var createView: null
         property var createViews: []
         property color groupColor: Kirigami.Theme.highlightColor
+        property string groupIcon: "folder"
         title: createView ? qsTr("New tab group") : qsTr("Edit tab group")
         width: Math.min(380, root.width - Kirigami.Units.largeSpacing * 2)
         padding: Kirigami.Units.largeSpacing
@@ -4681,10 +4916,10 @@ Kirigami.ApplicationWindow {
         onAccepted: {
             if (groupNameEditor.text.trim()) {
                 if (createView) {
-                    const id = createTabGroup(createView, groupNameEditor.text.trim(), groupColor)
+                    const id = createTabGroup(createView, groupNameEditor.text.trim(), groupColor, groupIcon)
                     if (id) for (const view of createViews) assignTabGroup(view, id)
                 }
-                else updateTabGroup(groupId, {title: groupNameEditor.text.trim(), color: groupColor})
+                else updateTabGroup(groupId, {title: groupNameEditor.text.trim(), color: groupColor, icon: groupIcon})
             }
         }
         onClosed: {
@@ -4701,6 +4936,13 @@ Kirigami.ApplicationWindow {
                 placeholderText: qsTr("Group name")
                 Accessible.name: qsTr("Group name")
                 onAccepted: if (text.trim()) groupRenameDialog.accept()
+            }
+            Controls.Button {
+                objectName: "tabGroupIconPicker"
+                Layout.fillWidth: true
+                text: qsTr("Choose icon…")
+                icon.name: groupRenameDialog.groupIcon
+                onClicked: root.chooseTabGroupIcon("")
             }
             Controls.Label {
                 text: qsTr("Color")
@@ -4725,6 +4967,22 @@ Kirigami.ApplicationWindow {
                     border.width: 1
                     border.color: Kirigami.Theme.textColor
                 }
+            }
+        }
+    }
+
+    Loader {
+        id: groupIconPicker
+        property string groupId: ""
+        active: false
+        onLoaded: item.open()
+        sourceComponent: IconThemes.IconDialog {
+            title: qsTr("Tab group icon")
+            modality: Qt.WindowModal
+            onAccepted: {
+                if (!iconName) return
+                if (groupIconPicker.groupId) root.updateTabGroup(groupIconPicker.groupId, {icon: iconName})
+                else groupRenameDialog.groupIcon = iconName
             }
         }
     }

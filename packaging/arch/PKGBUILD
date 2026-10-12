@@ -16,6 +16,7 @@ depends=(
     'qt6-declarative>=6.8'
     'qt6-webengine>=6.8'
     'kirigami'
+    'kiconthemes'
     'qqc2-desktop-style'
     'kwindowsystem'
     'knotifications'
