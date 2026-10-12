@@ -21,6 +21,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QQuickItem>
 #include <QQuickWindow>
 #include <QRegularExpression>
 #include <QSet>
@@ -349,6 +350,23 @@ public:
             store.setValue(setting, folder);
         return folder;
     }
+    Q_INVOKABLE void repaintWebView(QObject *object) const
+    {
+        auto *view = qobject_cast<QQuickItem *>(object);
+        if (!view || !view->isVisible())
+            return;
+        // WebEngine paints through a child item, including inside overview layers.
+        const auto repaint = [](const auto &self, QQuickItem *item) -> void {
+            if (item->flags().testFlag(QQuickItem::ItemHasContents))
+                item->update();
+            for (auto *child : item->childItems())
+                self(self, child);
+        };
+        repaint(repaint, view);
+        if (auto *window = view->window())
+            window->update();
+    }
+
     Q_INVOKABLE void refreshWindowBlur(QObject *object) const
     {
         auto *window = qobject_cast<QWindow *>(object);

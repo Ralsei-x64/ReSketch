@@ -56,6 +56,7 @@ Item {
         signal effectiveThemeChanged()
         signal figmaAppearanceChanged()
         function refreshWindowBlur(window) {}
+        function repaintWebView(view) {}
         function registerMainWindow(window) {}
         function copyToClipboard(text) { copiedText = text }
         function chooseExportFolder(key, filename, owner) {
@@ -310,7 +311,7 @@ Item {
             applySidebar()
             tryVerify(() => { inspect(); return result && result.bg.indexOf("0.85") >= 0 })
             compare(result.clip, "none")
-            compare(view.backgroundColor.a, 1)
+            compare(view.backgroundColor.a, 0)
             compare(result.search, "rgb(238, 238, 238)")
 
             view.runJavaScript('document.body.style.setProperty("--color-bg", "#222222")')
@@ -323,6 +324,115 @@ Item {
             tryVerify(() => { inspect(); return result && !result.marked })
             compare(result.bg, "rgb(255, 255, 255)")
             compare(result.clip, "none")
+        }
+
+        function test_figma_palette_themes_surfaces_and_sidebar_selection() {
+            const view = app.activeView
+            const palette = {window: "#f1d4cf", base: "#ffffff", text: "#6d5b58",
+                             accent: "#8c4940", accentText: "#ffffff"}
+            const fixture = '<style>body{--color-bg-secondary:white;--color-bgtoolbarmodeswitcher:white}'
+                + '#input {background:var(--color-bg-secondary)}'
+                + '#mode {background:var(--color-bgtoolbarmodeswitcher)}'
+                + '#page {background:white;color:black}'
+                + '[data-fpl-version=ui3] .legacy_pages_panel--pageRowActive--fixture {outline:1px solid transparent}'
+                + '#active,#inactive {--color-icon:#000}'
+                + '#card-title,#outside-title {color:var(--color-text)}'
+                + '#card-edited {color:var(--color-text-secondary)}'
+                + '#separator {border-right:1px solid var(--color-border)}'
+                + '#canvas-separator {border-right:1px solid var(--color-bordertranslucent)}</style>'
+                + '<div id="input"></div><fieldset id="mode"></fieldset>'
+                + '<button id="page" class="legacy_pages_panel--pageRowActive--fixture">Page</button>'
+                + '<nav data-testid="navigation-bar"><button aria-expanded="true">'
+                + '<div id="active">File</div></button><button aria-expanded="false">'
+                + '<div id="inactive">Assets</div></button></nav>'
+                + '<div class="tiles_view--container--fixture"><div data-fpl-component="primitive">'
+                + '<button data-card-main-action></button><span id="card-title">File</span>'
+                + '<span id="card-edited">Edited yesterday</span></div></div>'
+                + '<span id="outside-title">Unrelated text</span>'
+                + '<div id="separator"></div><div id="canvas-separator"></div>'
+            let result = null
+            view.runJavaScript('document.body.innerHTML=' + JSON.stringify(fixture)
+                + ';document.body.setAttribute("data-fpl-version","ui3")'
+                + ';const s=document.createElement("style");s.textContent='
+                + JSON.stringify(FigmaTheme.paletteCss(palette)) + ';document.head.appendChild(s)',
+                () => result = true)
+            tryVerify(() => result === true)
+            view.runJavaScript('(()=>{const s=id=>getComputedStyle(document.getElementById(id));'
+                + 'return {input:s("input").backgroundColor,mode:s("mode").backgroundColor,'
+                + 'page:s("page").backgroundColor,pageText:s("page").color,'
+                + 'outline:s("page").outlineColor,active:s("active").backgroundColor,'
+                + 'icon:s("active").getPropertyValue("--color-icon").trim(),'
+                + 'inactive:s("inactive").backgroundColor,title:s("card-title").color,'
+                + 'edited:s("card-edited").color,outside:s("outside-title").color,'
+                + 'border:s("separator").borderRightColor,canvasBorder:s("canvas-separator").borderRightColor}})()',
+                value => result = value)
+            tryVerify(() => result && result.input !== undefined)
+            compare(result.input, "rgb(245, 223, 219)")
+            verify(result.mode !== "rgb(255, 255, 255)")
+            verify(result.page !== "rgb(255, 255, 255)")
+            compare(result.active, "rgb(140, 73, 64)")
+            compare(result.outline, result.active)
+            compare(result.icon, "#ffffff")
+            compare(result.inactive, "rgba(0, 0, 0, 0)")
+            verify(result.pageText !== "rgb(0, 0, 0)", "Selected page text follows the palette")
+            verify(result.title !== result.outside, "Home cards have stronger title contrast")
+            verify(result.edited !== result.title, "Edit timestamps retain secondary emphasis")
+            compare(result.border, result.canvasBorder)
+            verify(result.border !== "rgb(0, 0, 0)", "Borders follow the theme palette")
+        }
+
+        function test_figma_loader_background_is_transparent_without_hiding_graphics() {
+            appSettings.translucentSidebars = false
+            appSettings.toolbarOpacity = 50
+            const view = app.activeView
+            const fixture = '<style>body,#app,#resketch-sidebar-underlay {background:#eee}'
+                + '.gpu-view-content {background:#444}'
+                + '[class*=progressBarPageCover] {background:#ddd}'
+                + '#progress {background:#0099ff}'
+                + '@keyframes figma-spinner {to {transform:rotate(360deg)}}'
+                + '#spinner {animation:figma-spinner 1s linear infinite}'
+                + '.filebrowser-loading-page-layout,.navbar {background:#fff}'
+                + '.hidden {display:none}</style>'
+                + '<div id="resketch-sidebar-underlay"></div><div id="app">'
+                + '<div class="gpu-view-content"></div>'
+                + '<div id="loader" class="progress_bar--progressBarPageCover--fixture">'
+                + '<div id="spinner">Figma</div><div id="progress"></div></div></div>'
+            let result = null
+            view.runJavaScript('document.body.innerHTML=' + JSON.stringify(fixture)
+                + ';let s=document.createElement("style");s.textContent='
+                + JSON.stringify(FigmaTheme.loadingCss(50)) + ';document.head.appendChild(s)',
+                () => result = true)
+            tryVerify(() => result === true)
+            function inspect() {
+                result = null
+                view.runJavaScript('(()=>{const bg=id=>getComputedStyle(document.getElementById(id)).backgroundColor;'
+                    + 'return {body:getComputedStyle(document.body).backgroundColor,app:bg("app"),'
+                    + 'underlay:bg("resketch-sidebar-underlay"),cover:bg("loader"),bar:bg("progress"),'
+                    + 'canvas:getComputedStyle(document.querySelector(".gpu-view-content")).visibility,'
+                    + 'animation:getComputedStyle(document.getElementById("spinner")).animationName}})()',
+                    value => result = value)
+                tryVerify(() => result !== null)
+            }
+            inspect()
+            for (const name of ["body", "app", "underlay", "cover"])
+                compare(result[name], "rgba(0, 0, 0, 0)")
+            compare(result.canvas, "hidden")
+            compare(result.bar, "rgb(0, 153, 255)")
+            compare(result.animation, "figma-spinner")
+            compare(view.backgroundColor.a, 0)
+            view.runJavaScript('document.getElementById("loader").className="filebrowser-loading-page-layout";'
+                + 'document.getElementById("loader").id="filebrowser-loading-page";'
+                + 'document.getElementById("filebrowser-loading-page").insertAdjacentHTML("beforeend",'
+                + '\'<div class="navbar" id="loader"></div>\')')
+            inspect()
+            compare(result.cover, "rgba(0, 0, 0, 0)")
+            compare(result.body, "rgba(0, 0, 0, 0)")
+            view.runJavaScript('document.getElementById("filebrowser-loading-page").classList.add("hidden")')
+            inspect()
+            compare(result.body, "rgb(238, 238, 238)")
+            compare(result.app, "rgb(238, 238, 238)")
+            compare(result.underlay, "rgb(238, 238, 238)")
+            compare(result.canvas, "visible")
         }
 
         function test_maximum_loaded_tabs_sleeps_oldest_without_waiting() {

@@ -14,7 +14,24 @@
 #include <QWheelEvent>
 #include <QPointingDevice>
 #include <QQuickItem>
+#include <QSGNode>
 #include <cassert>
+
+class PaintProbe : public QQuickItem {
+public:
+    explicit PaintProbe(QQuickItem *parent) : QQuickItem(parent)
+    {
+        setFlag(ItemHasContents);
+        setSize(QSizeF(40, 40));
+    }
+    int paints = 0;
+protected:
+    QSGNode *updatePaintNode(QSGNode *node, UpdatePaintNodeData *) override
+    {
+        ++paints;
+        return node ? node : new QSGNode;
+    }
+};
 
 int main(int argc, char **argv)
 {
@@ -81,6 +98,23 @@ int main(int argc, char **argv)
         QTimer::singleShot(100, &loop, &QEventLoop::quit);
         loop.exec();
     };
+    {
+        QQuickItem container(destination->contentItem());
+        PaintProbe probe(&container);
+        render();
+        const int before = probe.paints;
+        assert(before > 0);
+        settings.repaintWebView(&container);
+        render();
+        assert(probe.paints > before); // The child repaint does not require pointer input.
+        container.setVisible(false);
+        render();
+        const int hidden = probe.paints;
+        settings.repaintWebView(&container);
+        render();
+        assert(probe.paints == hidden);
+    }
+    puts("Visible web content repaints without pointer input; hidden views remain idle");
     evaluate("destination.homeView.stop(); destination.openTab('about:blank'); destination.openTab('about:blank');"
              "var source = destination.moveTabToNewWindow(0); source.homeView.stop(); var movedView = source.activeView;");
     render();

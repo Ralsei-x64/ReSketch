@@ -28,13 +28,30 @@ function readable(foreground, background, minimum) {
     return target
 }
 
+// Only full-page loaders; leave loading bars, logos and skeleton details intact.
+function loadingCss(opacity) {
+    if (opacity >= 100) return ""
+    const loader = '#loading-page-container, #filebrowser-loading-page:not(.hidden):not(.fadeOut), '
+                 + '[class*="progress_bar--progressBarPageCover--"], '
+                 + '[class*="progress_bar--progressBarPageFade--"], '
+                 + '[class*="progress_bar--progressBarCover"]'
+    return loader + ', :has(:is(' + loader + ')) { background:transparent !important; }'
+        + 'body:has(:is(' + loader + ')) #resketch-sidebar-underlay { background:transparent !important; }'
+        + 'body:has(:is(' + loader + ')) .gpu-view-content { visibility:hidden !important; }'
+        + '#filebrowser-loading-page:not(.hidden):not(.fadeOut) .filebrowser-loading-page-layout, '
+        + '#filebrowser-loading-page:not(.hidden):not(.fadeOut) .fb-sidebar, '
+        + '#filebrowser-loading-page:not(.hidden):not(.fadeOut) .navbar '
+        + '{ background:transparent !important; }'
+}
+
 // Figma distinguishes subtle selections from solid active tools/buttons.
 // Keep these semantic roles paired, leaving document/canvas and status colors alone.
 function paletteCss(palette) {
     const color = (role, fallback) => validColor(palette[role]) ? palette[role] : fallback
     const bg = color("window", "#ffffff")
     const text = readable(color("text", "#000000"), bg, 4.5)
-    const base = color("base", bg)
+    // Keep KDE's input color related to the window surface instead of stark white.
+    const base = mix(bg, color("base", bg), 0.25)
     const accent = color("accent", color("link", text))
     const onAccent = readable(color("accentText", text), accent, 4.5)
     const accentHover = mix(accent, luminance(onAccent) < 0.179 ? "#ffffff" : "#000000", 0.12)
@@ -58,7 +75,9 @@ function paletteCss(palette) {
         set(mix(surface, foreground, 0.08), ["bg" + context + "-hover"])
         set(mix(surface, foreground, 0.16), ["bg" + context + "-pressed"])
         set(mix(surface, foreground, 0.12), ["bg" + context + "-disabled"])
-        set(color("border", mix(surface, foreground, 0.3)), ["border" + context, "border" + context + "-disabled"])
+        const border = readable(color("border", mix(surface, foreground, 0.3)), surface, 1.6)
+        set(border, ["border" + context, "border" + context + "-disabled"])
+        if (!context) set(border, ["bordertranslucent"])
         set(mix(surface, foreground, 0.65), ["border" + context + "-strong", "border" + context + "-disabled-strong"])
         set(accent, ["border" + context + "-selected", "border" + context + "-selected-strong"])
         if (context) {
@@ -91,6 +110,7 @@ function paletteCss(palette) {
     set(mix(base, text, 0.16), ["bg-secondary-pressed", "bg-disabled-secondary"])
     set(mix(bg, text, 0.04), ["bg-elevated"])
     set(mix(bg, text, 0.1), ["bg-elevated-hover"])
+    set(mix(bg, text, 0.08), ["bgtoolbarmodeswitcher"])
     set(accent, ["bg-strong-hover", "bg-strong-pressed"])
     set(mix(bg, accent, 0.4), ["border-brand", "border-onselected"])
     set(accent, ["border-brand-strong"])
@@ -106,8 +126,14 @@ function paletteCss(palette) {
     }
     const declarations = Object.keys(tokens).map(name => "--color-" + name + ":" + tokens[name] + " !important;")
     return ":root, body, [data-preferred-theme] {" + declarations.join("") + "}"
+        // Recents cards use Figma's card primitive, including its main-action marker.
+        + '[class*="tiles_view--container--"] [data-fpl-component="primitive"]:has(> [data-card-main-action]) {'
+        + '--color-text:' + readable(text, bg, 8) + ' !important;'
+        + '--color-text-secondary:' + readable(tokens["text-secondary"], bg, 5) + ' !important; }'
         // These primitives inherit browser button colors instead of semantic text roles.
         + '[class*="sidebar_row--sidebarRowSelected--"] { color:var(--color-text-onselected) !important; --color-icon:var(--color-icon-onselected) !important; }'
+        + '[class*="legacy_pages_panel--pageRowActive--"] { background:var(--color-bg-selected) !important; color:var(--color-text-onselected) !important; outline:1px solid var(--color-border-selected) !important; }'
+        + '[data-testid="navigation-bar"] button[aria-expanded="true"] > div { background:var(--color-bg-selected-strong) !important; color:var(--color-text-onselected-strong) !important; --color-icon:var(--color-icon-onselected-strong) !important; }'
         + '[data-testid="file-icon"] { --color-icon:var(--color-icon-onbrand) !important; }'
 }
 
@@ -294,6 +320,7 @@ var pageThemeSource = `function applyAppearance(options) {
     }
 
     stylesheet("resketch-system-colors", options.paletteCss);
+    stylesheet("resketch-loading-background", options.loadingCss);
     stylesheet("resketch-custom-css", options.customCss);
     // Keep custom CSS after palette overrides when the palette is enabled later.
     const custom = document.getElementById("resketch-custom-css");
@@ -313,6 +340,7 @@ function script(options, storeSource) {
                : options.dark ? "dark" : "light",
         paletteCss: options.systemColors ? paletteCss(options.palette || {}) : "",
         customCss: options.customCssEnabled ? options.customCss : "",
+        loadingCss: loadingCss(Number.isFinite(options.opacity) ? options.opacity : 100),
         translucentSidebars: !!options.translucentSidebars,
         sidebarBackdrop: options.sidebarBackdrop === "canvas" ? "canvas" : "desktop",
         opacity: Math.max(0, Math.min(100, Number.isFinite(options.opacity) ? options.opacity : 100))

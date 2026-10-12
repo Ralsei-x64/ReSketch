@@ -1719,8 +1719,7 @@ Kirigami.ApplicationWindow {
             if (root.overviewVisible) root.syncOverviewFrames()
         }
         function onEffectiveThemeChanged() {
-            for (const view of [root.homeView].concat(root.views))
-                root.syncFigmaTheme(view)
+            figmaAppearanceTimer.restart()
         }
         function onFigmaAppearanceChanged() {
             figmaAppearanceTimer.restart()
@@ -1947,7 +1946,7 @@ Kirigami.ApplicationWindow {
                        : 0
             profile: webView.ownerWindow.browserProfile
             settings.scrollAnimatorEnabled: !appSettings.reduceMotion
-            backgroundColor: webView.ownerWindow.desktopSidebars && !googleSignIn ? "transparent" : "white"
+            backgroundColor: appSettings.toolbarOpacity < 100 && !googleSignIn ? "transparent" : "white"
             userScripts.collection: [{
                 name: "resketch-appearance",
                 sourceCode: webView.ownerWindow.figmaAppearanceScript,
@@ -2262,7 +2261,9 @@ Kirigami.ApplicationWindow {
         if (!view || view.loading || view.lifecycleState !== WebEngineView.LifecycleState.Active
                 || !Policy.isFigmaUrl(view.url))
             return
-        view.runJavaScript(root.figmaAppearanceScript)
+        view.runJavaScript(root.figmaAppearanceScript, () => {
+            if (view) appSettings.repaintWebView(view)
+        })
     }
 
     function handleDownload(download) {
