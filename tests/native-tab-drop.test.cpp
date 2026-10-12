@@ -20,6 +20,10 @@
 #include <QPointingDevice>
 #include <QQuickItem>
 #include <QSGNode>
+#include <QWebEnginePage>
+#include <QWebEngineProfile>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <cassert>
 
 class PaintProbe : public QQuickItem {
@@ -78,6 +82,55 @@ int main(int argc, char **argv)
     }
     puts("Safe-mode recovery and settings reset preserve export data and discard pending CSS checks passed");
     AppSettings settings;
+    {
+        // Exercise the service-worker path used by Figma, not just new Notification().
+        QTcpServer server;
+        assert(server.listen(QHostAddress::LocalHost));
+        QObject::connect(&server, &QTcpServer::newConnection, [&] {
+            while (auto *socket = server.nextPendingConnection()) {
+                QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+                QObject::connect(socket, &QTcpSocket::readyRead, socket, [socket] {
+                    const auto request = socket->property("request").toByteArray() + socket->readAll();
+                    socket->setProperty("request", request);
+                    if (!request.contains("\r\n\r\n")) return;
+                    const bool worker = request.startsWith("GET /worker.js ");
+                    const QByteArray body = worker
+                        ? "self.addEventListener('install',e=>e.waitUntil(self.skipWaiting()));"
+                          "self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));"
+                        : "<html><body>Worker notification test</body></html>";
+                    socket->write("HTTP/1.1 200 OK\r\nContent-Type: " + QByteArray(worker ? "text/javascript" : "text/html")
+                                  + "\r\nContent-Length: " + QByteArray::number(body.size())
+                                  + "\r\nConnection: close\r\n\r\n" + body);
+                    socket->disconnectFromHost();
+                });
+            }
+        });
+        QWebEngineProfile profile(QStringLiteral("resketch-worker-test"));
+        profile.setPersistentStoragePath(temporary.path() + QStringLiteral("/worker-profile"));
+        profile.setCachePath(temporary.path() + QStringLiteral("/worker-cache"));
+        profile.setPushServiceEnabled(true);
+        assert(profile.isPushServiceEnabled());
+        bool delivered = false;
+        QEventLoop loop;
+        profile.setNotificationPresenter([&](std::unique_ptr<QWebEngineNotification> web) {
+            delivered = web->title() == QStringLiteral("Home worker") && web->message() == QStringLiteral("Figma push path");
+            web->close();
+            loop.quit();
+        });
+        QWebEnginePage page(&profile);
+        QObject::connect(&page, &QWebEnginePage::permissionRequested, [](QWebEnginePermission permission) { permission.grant(); });
+        QObject::connect(&page, &QWebEnginePage::loadFinished, [&] {
+            page.runJavaScript("Notification.requestPermission().then(()=>navigator.serviceWorker.register('/worker.js'))"
+                               ".then(()=>navigator.serviceWorker.ready).then(r=>r.showNotification('Home worker',{body:'Figma push path'}))");
+        });
+        page.load(QUrl(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort())));
+        QTimer::singleShot(15000, &loop, &QEventLoop::quit);
+        loop.exec();
+        assert(delivered);
+        profile.setPushServiceEnabled(false);
+        assert(!profile.isPushServiceEnabled());
+    }
+    puts("Persistent-profile service-worker notification delivery and push-service toggle checks passed");
     {
         FontHelper helper(nullptr, 0);
         assert(helper.port());
@@ -144,16 +197,45 @@ int main(int argc, char **argv)
         settings.setDeferRestoredTabs(true);
         QWindow sessionWindow;
         sessionWindow.setProperty("sessionFileUrls", candidates);
+        sessionWindow.setProperty("sessionTabGroups", QVariantList{
+            QVariantMap{{"title", "Design work"}, {"color", "#4477aa"}, {"collapsed", true},
+                        {"overviewCollapsed", true}, {"tabs", QVariantList{0, 1, -1, 999}}},
+            QVariantMap{{"title", "Empty"}, {"color", "#cc4455"}, {"tabs", QVariantList{1}}}});
         settings.registerMainWindow(&sessionWindow);
         settings.setRememberOpenedTabs(true);
         settings.saveOpenedTabs(&sessionWindow);
         AppSettings nextLaunch;
         assert(nextLaunch.rememberedFileTabs() == QStringList{file});
+        auto groups = nextLaunch.rememberedTabGroups();
+        assert(groups.size() == 1);
+        assert(groups.first().toMap().value("title").toString() == "Design work");
+        assert(groups.first().toMap().value("color").toString() == "#4477aa");
+        assert(groups.first().toMap().value("collapsed").toBool());
+        assert(groups.first().toMap().value("overviewCollapsed").toBool());
+        assert(groups.first().toMap().value("tabs").toList() == QVariantList{0});
+        QWindow secondWindow;
+        const QString secondFile = QStringLiteral("https://www.figma.com/board/File_B/Other-File");
+        secondWindow.setProperty("sessionFileUrls", QStringList{secondFile});
+        secondWindow.setProperty("sessionTabGroups", QVariantList{
+            QVariantMap{{"title", "Other window"}, {"color", "#cc4455"}, {"tabs", QVariantList{0}}}});
+        settings.registerMainWindow(&secondWindow);
+        secondWindow.show();
+        settings.saveOpenedTabs(&sessionWindow);
+        groups = nextLaunch.rememberedTabGroups();
+        assert(groups.size() == 2);
+        const auto savedFiles = nextLaunch.rememberedFileTabs();
+        assert(savedFiles.size() == 2);
+        for (const auto &entry : groups) {
+            const auto group = entry.toMap();
+            const int index = group.value("tabs").toList().first().toInt();
+            assert(savedFiles[index] == (group.value("title").toString() == "Design work" ? file : secondFile));
+        }
         settings.setRememberOpenedTabs(false);
         settings.setRememberOpenedTabs(true);
         assert(settings.rememberedFileTabs().isEmpty());
+        assert(settings.rememberedTabGroups().isEmpty());
         settings.setRememberOpenedTabs(false);
-        puts("File-only session persistence, defaults and disabling checks passed");
+        puts("File/group session persistence, multi-window membership, empty groups and disabling checks passed");
     }
     settings.setMenuIntegration(false);
     settings.setReduceMotion(true);
@@ -202,7 +284,37 @@ int main(int argc, char **argv)
     assert(evaluate("String(destination.views[destination.views.length - 1].deferredRestoreUrl)").toString() == settings.rememberedFileTabs().first());
     settings.setRememberOpenedTabs(false);
     evaluate("destination.closeTab(destination.views.length - 1);");
+    render();
     puts("Deferred restored tabs retain their file URL for the next session");
+    evaluate("destination.openTab('https://www.figma.com/design/Group_A/First', null, true, null, null, true);"
+             "destination.openTab('https://www.figma.com/design/Group_B/Second', null, true, null, null, true);"
+             "var savedGroup = destination.createTabGroup(destination.views[0], 'Saved group', '#4477aa');"
+             "destination.assignTabGroup(destination.views[1], savedGroup);"
+             "destination.updateTabGroup(savedGroup, {collapsed: true, overviewCollapsed: true}, true);");
+    settings.setRememberOpenedTabs(true);
+    settings.saveOpenedTabs(destination);
+    assert(settings.rememberedTabGroups().size() == 1);
+    assert(settings.rememberedTabGroups().first().toMap().value("tabs").toList() == (QVariantList{0, 1}));
+    {
+        QQmlComponent restoredComponent(&engine, QUrl::fromLocalFile(QDir::current().absoluteFilePath("src/Main.qml")));
+        std::unique_ptr<QObject> restored(restoredComponent.createWithInitialProperties({{"sharedProfile", QVariant::fromValue(sharedProfile)}}));
+        assert(restored);
+        engine.globalObject().setProperty("restoredSession", engine.newQObject(restored.get()));
+        assert(evaluate("restoredSession.tabGroups.length").toInt() == 1);
+        assert(evaluate("restoredSession.tabGroups[0].title").toString() == "Saved group");
+        assert(evaluate("String(restoredSession.tabGroups[0].color)").toString() == "#4477aa");
+        assert(evaluate("restoredSession.tabGroups[0].collapsed && restoredSession.tabGroups[0].overviewCollapsed").toBool());
+        assert(evaluate("restoredSession.views.length === 2 && restoredSession.views[0].tabGroupId === restoredSession.views[1].tabGroupId").toBool());
+        assert(evaluate("restoredSession.views.every(view => String(view.deferredRestoreUrl).includes('/design/'))").toBool());
+        evaluate("restoredSession.homeView.stop(); restoredSession.close();");
+    }
+    evaluate("for (const view of destination.views.slice()) destination.closeTab(destination.views.indexOf(view));");
+    render();
+    settings.saveOpenedTabs(destination);
+    assert(settings.rememberedTabGroups().isEmpty());
+    assert(evaluate("destination.tabGroups.length").toInt() == 0);
+    settings.setRememberOpenedTabs(false);
+    puts("Live QML group session serialization and last-member removal checks passed");
     {
         QQuickItem container(destination->contentItem());
         PaintProbe probe(&container);
@@ -212,6 +324,9 @@ int main(int argc, char **argv)
         settings.repaintWebView(&container);
         render();
         assert(probe.paints > before); // The child repaint does not require pointer input.
+        const int firstFrame = probe.paints;
+        render();
+        assert(probe.paints > firstFrame); // Also refresh after asynchronous theme/mask updates.
         container.setVisible(false);
         render();
         const int hidden = probe.paints;

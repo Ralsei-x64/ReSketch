@@ -172,6 +172,11 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
     stylesheet('resketch-sidebars',
         '[data-resketch-sidebar], [data-resketch-sidebar] [data-preferred-theme] { --color-bg:transparent !important; }'
         + '[data-resketch-sidebar] { background-color:var(--resketch-sidebar-tint) !important; }'
+        // Figma forces its TreeGrid action fade to alpha 1, turning transparent
+        // sidebar colors black. Keep the original color's alpha at the fade end.
+        + '[data-resketch-sidebar] :is(.ublpttv, .ublptty), '
+        + '[data-resketch-sidebar] .ublptt9[data-fpl-has-trail]:hover .ublpttw:before '
+        + '{ background:linear-gradient(90deg, rgb(from var(--ublptt0) r g b / 0) 0, var(--ublptt0) 10px) !important; }'
         // Search suggestions float beyond the sidebar and need an opaque surface.
         + '[data-resketch-sidebar] [data-testid="facetedSearchModal"], [data-resketch-sidebar] [data-testid="facetedSearchModal"] [data-preferred-theme] { --color-bg:var(--resketch-sidebar-surface) !important; }'
         + '[data-resketch-sidebar-ancestor] { background-color:transparent !important; }'

@@ -14,8 +14,10 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QIcon>
+#include <QJSValue>
 #include <QLocalServer>
 #include <QLocalSocket>
+#include <QMap>
 #include <QPalette>
 #include <QPointer>
 #include <QOpenGLContext>
@@ -176,6 +178,7 @@ class AppSettings : public QObject
     Q_PROPERTY(bool deferRestoredTabs READ deferRestoredTabs WRITE setDeferRestoredTabs NOTIFY changed)
     Q_PROPERTY(bool desktopNotifications READ desktopNotifications WRITE setDesktopNotifications NOTIFY changed)
     Q_PROPERTY(QStringList rememberedFileTabs READ rememberedFileTabs NOTIFY changed)
+    Q_PROPERTY(QVariantList rememberedTabGroups READ rememberedTabGroups NOTIFY changed)
     Q_PROPERTY(bool releaseClosedWindows READ releaseClosedWindows WRITE setReleaseClosedWindows NOTIFY changed)
     Q_PROPERTY(bool cullOffscreenOverviewEffects READ cullOffscreenOverviewEffects WRITE setCullOffscreenOverviewEffects NOTIFY changed)
     Q_PROPERTY(bool compactPreviewTextures READ compactPreviewTextures WRITE setCompactPreviewTextures NOTIFY changed)
@@ -275,11 +278,18 @@ public:
     {
         return rememberOpenedTabs() ? fileTabs(store.value(QStringLiteral("openedFileTabs")).toStringList()) : QStringList{};
     }
+    QVariantList rememberedTabGroups() const
+    {
+        return rememberOpenedTabs() ? store.value(QStringLiteral("openedTabGroups")).toList() : QVariantList{};
+    }
     void setRememberOpenedTabs(bool value)
     {
         if (rememberOpenedTabs() == value) return;
         store.setValue(QStringLiteral("rememberOpenedTabs"), value);
-        if (!value) store.remove(QStringLiteral("openedFileTabs"));
+        if (!value) {
+            store.remove(QStringLiteral("openedFileTabs"));
+            store.remove(QStringLiteral("openedTabGroups"));
+        }
         emit changed();
     }
     static QStringList fileTabs(const QStringList &urls)
@@ -298,15 +308,47 @@ public:
     {
         if (!rememberOpenedTabs() || safeMode()) return;
         QStringList urls;
+        QVariantList groups;
         bool haveWindow = false;
         for (auto *window : registeredWindows) {
             const QVariant tabs = window->property("sessionFileUrls");
             if (!tabs.isValid() || (!window->isVisible() && window != closing)) continue;
             haveWindow = true;
-            urls.append(tabs.value<QStringList>());
+            const auto addresses = tabs.value<QStringList>();
+            QMap<int, int> savedIndices;
+            for (int index = 0; index < addresses.size(); ++index) {
+                if (fileTabs({addresses[index]}).isEmpty()) continue;
+                savedIndices.insert(index, urls.size());
+                urls.append(addresses[index]);
+            }
+            const auto groupData = window->property("sessionTabGroups");
+            const auto windowGroups = groupData.metaType() == QMetaType::fromType<QJSValue>()
+                ? groupData.value<QJSValue>().toVariant().toList() : groupData.toList();
+            QSet<int> grouped;
+            for (const auto &entry : windowGroups) {
+                const auto group = entry.toMap();
+                const QColor color(group.value(QStringLiteral("color")).toString());
+                const auto title = group.value(QStringLiteral("title")).toString().trimmed();
+                if (title.isEmpty() || !color.isValid()) continue;
+                QVariantList members;
+                for (const auto &member : group.value(QStringLiteral("tabs")).toList()) {
+                    bool valid = false;
+                    const int index = member.toInt(&valid);
+                    if (!valid || !savedIndices.contains(index) || grouped.contains(index)) continue;
+                    grouped.insert(index);
+                    members.append(savedIndices.value(index));
+                }
+                if (members.isEmpty()) continue;
+                groups.append(QVariantMap{{QStringLiteral("title"), title},
+                                          {QStringLiteral("color"), color.name()},
+                                          {QStringLiteral("collapsed"), group.value(QStringLiteral("collapsed")).toBool()},
+                                          {QStringLiteral("overviewCollapsed"), group.value(QStringLiteral("overviewCollapsed")).toBool()},
+                                          {QStringLiteral("tabs"), members}});
+            }
         }
         if (!haveWindow) return; // Last-window close already saved its tabs.
-        store.setValue(QStringLiteral("openedFileTabs"), fileTabs(urls));
+        store.setValue(QStringLiteral("openedFileTabs"), urls);
+        store.setValue(QStringLiteral("openedTabGroups"), groups);
         store.sync();
     }
     bool figmaSystemColors() const { return store.value(QStringLiteral("figmaSystemColors"), false).toBool(); }
@@ -455,19 +497,24 @@ public:
     }
     Q_INVOKABLE void repaintWebView(QObject *object) const
     {
-        auto *view = qobject_cast<QQuickItem *>(object);
+        const QPointer<QQuickItem> view = qobject_cast<QQuickItem *>(object);
         if (!view || !view->isVisible())
             return;
-        // WebEngine paints through a child item, including inside overview layers.
-        const auto repaint = [](const auto &self, QQuickItem *item) -> void {
-            if (item->flags().testFlag(QQuickItem::ItemHasContents))
-                item->update();
-            for (auto *child : item->childItems())
-                self(self, child);
+        const auto repaint = [view] {
+            if (!view || !view->isVisible()) return;
+            // WebEngine paints through a child item, including inside overview layers.
+            const auto update = [](const auto &self, QQuickItem *item) -> void {
+                if (item->flags().testFlag(QQuickItem::ItemHasContents)) item->update();
+                for (auto *child : item->childItems()) self(self, child);
+            };
+            update(update, view);
+            if (auto *window = view->window()) window->update();
         };
-        repaint(repaint, view);
-        if (auto *window = view->window())
-            window->update();
+        repaint();
+        // Figma's theme dispatch and sidebar masks paint after the JS callback.
+        // Refresh those later frames too, without waking hidden or destroyed views.
+        QTimer::singleShot(50, this, repaint);
+        QTimer::singleShot(150, this, repaint);
     }
 
     Q_INVOKABLE void refreshWindowBlur(QObject *object) const

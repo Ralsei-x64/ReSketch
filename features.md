@@ -3,15 +3,15 @@
 - **Native KDE interface:** Kirigami provides the desktop UI while Chromium displays Figma.
 - **Dedicated Home:** A permanent Home page opens files in their own tabs.
 - **File tabs:** Open, switch, refresh, close, and copy links from a scrollable tab strip.
-- **Tab groups:** Name and color groups, collapse them, and drag tabs into, within, or out of them.
+- **Tab groups:** Name, color, collapse, and rearrange groups, with context menus to edit, ungroup, or close all their tabs.
 - **Animated tabs:** Opening, closing, selection, and rearrangement use smooth transitions.
-- **Tab overview:** Browse searchable live previews in a responsive grid, with group names and colors.
-- **Overview dragging:** Rearrange cards, including a Home card that returns to its fixed position.
+- **Tab overview:** Browse searchable live previews in a responsive grid, with collapsible colored group containers and tab counts.
+- **Overview dragging:** Rearrange cards or entire group containers, with a Home card that returns to its fixed position.
 - **Multiple windows:** Drag tabs or cards between windows or detach them without reloading their content.
 - **Fullscreen:** Press F11 for a fullscreen webview and hover the top edge to reveal the tab strip.
 - **Keyboard shortcuts:** Create and close tabs, cycle through them, toggle the overview, detach tabs, and freeze tabs for testing.
 - **Smooth scrolling:** Mouse wheels and trackpads smoothly scroll the tab strip, overview, and web content.
-- **Session restore:** Optionally remember file tabs and defer loading restored files until selected.
+- **Session restore:** Optionally remember file tabs and their group names, colors, and collapsed states, with deferred loading until selected.
 - **Tab sleeping:** Configure idle time and minimum and maximum loaded-tab counts to manage background tabs.
 - **Sleeping previews:** Optionally show saved, blurred previews with a sleep icon for sleeping tabs.
 - **Home notifications:** Receive native desktop notifications from the primary Home page without duplicate file-tab notifications.

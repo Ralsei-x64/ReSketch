@@ -339,7 +339,7 @@ Kirigami.ApplicationWindow {
                                         text: "Remember opened tabs"
                                         checked: appSettings.rememberOpenedTabs
                                         onToggled: appSettings.rememberOpenedTabs = checked
-                                        Controls.ToolTip.text: "Restore file tabs on startup. Empty tabs, Home, and the new-file screen are not saved."
+                                        Controls.ToolTip.text: "Restore file tabs and their groups on startup. Empty tabs, Home, and the new-file screen are not saved."
                                         Controls.ToolTip.visible: hovered
                                     }
 

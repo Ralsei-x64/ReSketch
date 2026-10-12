@@ -24,5 +24,23 @@ function script(allowed) {
             return Promise.resolve('denied');
         };
         window.Notification = Notification;
+        // File tabs share Home's origin and permission, but must not register
+        // push subscriptions or display foreground worker notifications themselves.
+        const worker = window.ServiceWorkerRegistration?.prototype;
+        if (worker) {
+            const show = worker.showNotification;
+            worker.showNotification = function(...args) {
+                return enabled ? show.apply(this, args)
+                               : Promise.reject(new DOMException('Notifications are handled by ReSketch Home.', 'NotAllowedError'));
+            };
+        }
+        const push = window.PushManager?.prototype;
+        if (push) {
+            const subscribe = push.subscribe;
+            push.subscribe = function(...args) {
+                return enabled ? subscribe.apply(this, args)
+                               : Promise.reject(new DOMException('Notifications are handled by ReSketch Home.', 'NotAllowedError'));
+            };
+        }
     })()`;
 }
