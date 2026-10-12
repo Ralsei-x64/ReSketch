@@ -1,0 +1,6 @@
+/src/
+/pkg/
+/resketch/
+/*.pkg.tar.*
+/*.src.tar.*
+/*.log

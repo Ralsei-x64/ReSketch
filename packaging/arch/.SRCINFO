@@ -1,0 +1,29 @@
+pkgbase = resketch-git
+	pkgdesc = Open-source Figma client for Linux!
+	pkgver = r25.ca26dac
+	pkgrel = 1
+	url = https://github.com/Ralsei-x64/ReSketch
+	arch = x86_64
+	license = GPL-3.0-only
+	makedepends = cmake>=3.21
+	makedepends = git
+	makedepends = ninja
+	depends = glibc
+	depends = gcc-libs
+	depends = qt6-base>=6.8
+	depends = qt6-declarative>=6.8
+	depends = qt6-webengine>=6.8
+	depends = kirigami
+	depends = qqc2-desktop-style
+	depends = kwindowsystem
+	depends = knotifications
+	depends = fontconfig
+	depends = freetype2
+	optdepends = qt6-wayland: Native Wayland support
+	optdepends = breeze-icons: Fallback desktop icons
+	provides = resketch=r25.ca26dac
+	conflicts = resketch
+	source = resketch::git+https://github.com/Ralsei-x64/ReSketch.git#branch=main
+	sha256sums = SKIP
+
+pkgname = resketch-git

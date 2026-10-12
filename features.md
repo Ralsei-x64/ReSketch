@@ -3,12 +3,14 @@
 - **Native KDE interface:** Kirigami provides the desktop UI while Chromium displays Figma.
 - **Dedicated Home:** A permanent Home page opens files in their own tabs.
 - **File tabs:** Open, switch, refresh, close, and copy links from a scrollable tab strip.
+- **Tab selection:** Shift-click a range in the strip or overview to group, refresh, or close the selected tabs together.
 - **Tab groups:** Name, color, collapse, and rearrange groups, with context menus to edit, ungroup, or close all their tabs.
 - **Animated tabs:** Opening, closing, selection, and rearrangement use smooth transitions.
 - **Tab overview:** Browse searchable live previews in a responsive grid, with collapsible colored group containers and tab counts.
 - **Overview dragging:** Rearrange cards or entire group containers, with a Home card that returns to its fixed position.
 - **Multiple windows:** Drag tabs or cards between windows or detach them without reloading their content.
 - **Fullscreen:** Press F11 for a fullscreen webview and hover the top edge to reveal the tab strip.
+- **Titlebar autohide:** Press Shift+F11 to hide the tab strip and reveal it at the top edge without entering fullscreen.
 - **Keyboard shortcuts:** Create and close tabs, cycle through them, toggle the overview, detach tabs, and freeze tabs for testing.
 - **Smooth scrolling:** Mouse wheels and trackpads smoothly scroll the tab strip, overview, and web content.
 - **Session restore:** Optionally remember file tabs and their group names, colors, and collapsed states, with deferred loading until selected.

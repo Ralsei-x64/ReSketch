@@ -1,0 +1,49 @@
+# Maintainer: Ralsei-x64
+# SPDX-FileCopyrightText: 2026 Ralsei-x64
+# SPDX-License-Identifier: GPL-3.0-only
+
+pkgname=resketch-git
+pkgver=r25.ca26dac
+pkgrel=1
+pkgdesc='Open-source Figma client for Linux!'
+arch=('x86_64')
+url='https://github.com/Ralsei-x64/ReSketch'
+license=('GPL-3.0-only')
+depends=(
+    'glibc'
+    'gcc-libs'
+    'qt6-base>=6.8'
+    'qt6-declarative>=6.8'
+    'qt6-webengine>=6.8'
+    'kirigami'
+    'qqc2-desktop-style'
+    'kwindowsystem'
+    'knotifications'
+    'fontconfig'
+    'freetype2'
+)
+makedepends=('cmake>=3.21' 'git' 'ninja')
+optdepends=(
+    'qt6-wayland: Native Wayland support'
+    'breeze-icons: Fallback desktop icons'
+)
+provides=("resketch=$pkgver")
+conflicts=('resketch')
+source=('resketch::git+https://github.com/Ralsei-x64/ReSketch.git#branch=main')
+sha256sums=('SKIP')
+
+pkgver() {
+    cd "$srcdir/resketch"
+    printf 'r%s.%s\n' "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+    cmake -S "$srcdir/resketch" -B "$srcdir/build" -G Ninja \
+        -DCMAKE_BUILD_TYPE=None \
+        -DCMAKE_INSTALL_PREFIX=/usr
+    cmake --build "$srcdir/build"
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install "$srcdir/build"
+}

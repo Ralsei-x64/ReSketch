@@ -68,6 +68,8 @@ Kirigami.ApplicationWindow {
         opacity: appSettings.toolbarOpacity
     }, FigmaMenu.storeSource)
     property var views: []
+    property var selectedTabViews: []
+    property var tabSelectionAnchor: null
     property var tabGroups: []
     property int nextGroupNumber: 1
     readonly property int groupHeaderWidth: 160
@@ -140,6 +142,8 @@ Kirigami.ApplicationWindow {
     property int overviewGroupGeneration: 0
     property bool skipNextWebSlide: false
     property bool webFullscreen: false
+    property bool autoHideToolbar: false
+    readonly property bool toolbarAutoHidden: webFullscreen || autoHideToolbar
     property bool fullscreenToolbarHovered: false
     property int visibilityBeforeFullscreen: Window.Windowed
 
@@ -241,20 +245,20 @@ Kirigami.ApplicationWindow {
 
         header: Item {
             id: toolbarHost
+            objectName: "toolbarHost"
             width: root.width
-            height: root.webFullscreen ? 0 : root.tabStripHeight
+            height: root.toolbarAutoHidden ? 0 : root.tabStripHeight
             z: 100
             Rectangle {
                 id: tabStrip
                 objectName: "tabStrip"
                 width: root.width
                 height: root.tabStripHeight
-                y: root.webFullscreen && !root.fullscreenToolbarHovered ? -height : 0
+                y: root.toolbarAutoHidden && !root.fullscreenToolbarHovered ? -height : 0
                 Behavior on y {
                     enabled: !appSettings.reduceMotion
                     NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
                 }
-                HoverHandler { onHoveredChanged: root.fullscreenToolbarHovered = hovered }
                 color: Qt.rgba(Kirigami.Theme.backgroundColor.r,
                                Kirigami.Theme.backgroundColor.g,
                                Kirigami.Theme.backgroundColor.b, root.toolbarAlpha)
@@ -430,6 +434,8 @@ Kirigami.ApplicationWindow {
                                 readonly property var group: root.groupFor(tabView)
                                 readonly property real groupPrefix: root.tabGroupHeaderWidth(index)
                                 readonly property bool selected: root.activeView === tabView
+                                readonly property bool multiSelected: root.selectedTabViews.length > 1
+                                                                      && root.selectedTabViews.includes(tabView)
                                 property bool closing: false
                                 property bool closePending: false
                                 property var closingView: null
@@ -539,7 +545,7 @@ Kirigami.ApplicationWindow {
                                 Accessible.name: title
                                 checkable: false
                                 checked: selected
-                                opacity: selected ? 1 : 0.7
+                                opacity: selected || multiSelected ? 1 : 0.7
                                 background: Rectangle {
                                     x: tabButton.groupPrefix
                                     width: Math.max(0, tabButton.width - tabButton.groupPrefix)
@@ -548,6 +554,9 @@ Kirigami.ApplicationWindow {
                                                                         Kirigami.Theme.backgroundColor.g,
                                                                         Kirigami.Theme.backgroundColor.b,
                                                                         root.toolbarAlpha)
+                                                              : tabButton.multiSelected ? Qt.rgba(Kirigami.Theme.highlightColor.r,
+                                                                                                 Kirigami.Theme.highlightColor.g,
+                                                                                                 Kirigami.Theme.highlightColor.b, 0.2)
                                                               : tabButton.hovered ? Qt.rgba(Kirigami.Theme.highlightColor.r,
                                                                                              Kirigami.Theme.highlightColor.g,
                                                                                              Kirigami.Theme.highlightColor.b, 0.12)
@@ -579,17 +588,17 @@ Kirigami.ApplicationWindow {
                                     }
                                 }
                                 onClicked: {
-                                    if (!closing && !closePending && root.activeView !== tabView)
-                                        root.activateTab(root.views.indexOf(tabView))
+                                    if (!closing && !closePending)
+                                        root.selectFileTabs(tabView, tabTap.point.modifiers)
                                 }
 
                                 TapHandler {
+                                    id: tabTap
                                     acceptedButtons: Qt.LeftButton
                                     onTapped: (point) => {
                                         if (!tabButton.closing && !tabButton.closePending
-                                                && point.position.x < closeTabButton.mapToItem(tabButton, 0, 0).x
-                                                && root.activeView !== tabButton.tabView)
-                                            root.activateTab(root.views.indexOf(tabButton.tabView))
+                                                && point.position.x < closeTabButton.mapToItem(tabButton, 0, 0).x)
+                                            root.selectFileTabs(tabButton.tabView, tabTap.point.modifiers)
                                     }
                                 }
 
@@ -626,16 +635,16 @@ Kirigami.ApplicationWindow {
                                         }
                                     }
                                     Controls.MenuItem {
-                                        text: qsTr("Close")
+                                        text: root.tabsForAction(tabButton.tabView).length > 1 ? qsTr("Close selected tabs") : qsTr("Close")
                                         onTriggered: {
                                             const target = tabButton.tabView
-                                            Qt.callLater(() => root.closeTab(root.views.indexOf(target)))
+                                            Qt.callLater(() => root.closeSelectedTabs(target))
                                         }
                                     }
                                     Controls.MenuItem {
                                         text: qsTr("Refresh")
                                         enabled: !root.allFrozen
-                                        onTriggered: root.refreshTab(root.views.indexOf(tabButton.tabView))
+                                        onTriggered: root.refreshSelectedTabs(tabButton.tabView)
                                     }
                                     Controls.MenuItem {
                                         text: qsTr("Copy URL")
@@ -1205,16 +1214,6 @@ Kirigami.ApplicationWindow {
             id: browserArea
             anchors.fill: parent
             clip: true
-            MouseArea {
-                anchors.top: parent.top
-                width: parent.width
-                height: 6
-                z: 200
-                visible: root.webFullscreen && !root.fullscreenToolbarHovered
-                hoverEnabled: true
-                acceptedButtons: Qt.NoButton
-                onEntered: root.fullscreenToolbarHovered = true
-            }
 
             Rectangle {
                 objectName: "browserBackground"
@@ -1323,6 +1322,7 @@ Kirigami.ApplicationWindow {
                             objectName: "overviewGroupContainer"
                             required property int index
                             readonly property var group: root.tabGroups[index]
+                            readonly property color accentColor: group?.color || Kirigami.Theme.highlightColor
                             readonly property var region: root.overviewLayout.groups.find(item => item.id === group?.id)
                             property alias cardArea: groupCardArea
                             property bool collapsing: false
@@ -1337,13 +1337,22 @@ Kirigami.ApplicationWindow {
                             transform: Translate { x: groupContainer.dragOffsetX; y: groupContainer.dragOffsetY }
                             x: root.overviewMargin - 10
                             y: dragging ? dragOriginY : region?.y ?? 0
-                            width: overviewFlickable.width - 2 * x
+                            width: Math.min(overviewFlickable.width - 2 * x,
+                                            Math.min(region?.count || 1, root.overviewColumns)
+                                            * (root.overviewCardWidth + root.overviewGap) - root.overviewGap + 20)
                             height: region?.height ?? 0
                             visible: !!region
-                            color: "transparent"
-                            radius: Kirigami.Units.smallSpacing + 3
+                            color: Qt.tint(Qt.rgba(Kirigami.Theme.backgroundColor.r,
+                                                   Kirigami.Theme.backgroundColor.g,
+                                                   Kirigami.Theme.backgroundColor.b, 0.35),
+                                           Qt.rgba(accentColor.r, accentColor.g, accentColor.b, 0.045))
+                            radius: Kirigami.Units.smallSpacing + 8
                             border.width: 1
                             border.color: group?.color || "transparent"
+                            Behavior on width {
+                                enabled: root.overviewProgress >= 0.999 && !appSettings.reduceMotion
+                                NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                            }
                             Behavior on y {
                                 enabled: root.overviewProgress >= 0.999 && !appSettings.reduceMotion
                                          && !dragging && !settling
@@ -1396,11 +1405,31 @@ Kirigami.ApplicationWindow {
                                 objectName: "overviewGroupHeader"
                                 width: parent.width
                                 height: 60
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 14
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 12; height: width
+                                    radius: 3
+                                    color: groupContainer.accentColor
+                                }
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    anchors.leftMargin: 12
+                                    anchors.rightMargin: 12
+                                    height: 1
+                                    visible: !groupContainer.group?.overviewCollapsed
+                                    color: Qt.rgba(groupContainer.accentColor.r, groupContainer.accentColor.g,
+                                                   groupContainer.accentColor.b, 0.3)
+                                }
                                 Column {
                                     anchors.left: parent.left
-                                    anchors.leftMargin: 12
+                                    anchors.leftMargin: 36
                                     anchors.verticalCenter: parent.verticalCenter
-                                    width: parent.width - 56
+                                    width: parent.width - 80
+                                    spacing: 3
                                     Controls.Label {
                                         objectName: "overviewGroupTitle"
                                         width: parent.width
@@ -1649,8 +1678,10 @@ Kirigami.ApplicationWindow {
                                     z: 3
                                     radius: overviewCard.cornerRadius
                                     color: "transparent"
-                                    border.width: 1
-                                    border.color: overviewCard.group ? overviewCard.group.color
+                                    border.width: root.selectedTabViews.length > 1 && root.selectedTabViews.includes(overviewCard.previewView) ? 2 : 1
+                                    border.color: root.selectedTabViews.length > 1 && root.selectedTabViews.includes(overviewCard.previewView)
+                                                  ? Kirigami.Theme.highlightColor
+                                                  : overviewCard.group ? overviewCard.group.color
                                                   : overviewCardMouse.containsMouse ? Qt.rgba(0, 0, 0, 0.55)
                                                   : Qt.rgba(Kirigami.Theme.textColor.r,
                                                           Kirigami.Theme.textColor.g,
@@ -1746,18 +1777,18 @@ Kirigami.ApplicationWindow {
                                                     }
                                                 }
                                                 Controls.MenuItem {
-                                                    text: qsTr("Close")
+                                                    text: root.tabsForAction(overviewCard.previewView).length > 1 ? qsTr("Close selected tabs") : qsTr("Close")
                                                     enabled: overviewCard.tabIndex >= 0
                                                     onTriggered: {
                                                         const view = overviewCard.previewView
-                                                        Qt.callLater(() => root.closeTab(root.views.indexOf(view)))
+                                                        Qt.callLater(() => root.closeSelectedTabs(view))
                                                     }
                                                 }
                                                 Controls.MenuItem {
                                                     text: qsTr("Refresh")
                                                     enabled: !root.allFrozen
                                                     onTriggered: {
-                                                        root.refreshTab(root.views.indexOf(overviewCard.previewView))
+                                                        root.refreshSelectedTabs(overviewCard.previewView)
                                                     }
                                                 }
                                                 Controls.MenuItem {
@@ -1823,9 +1854,9 @@ Kirigami.ApplicationWindow {
                                     z: 1
                                     hoverEnabled: true
                                     enabled: root.overviewProgress > 0.95
-                                    onClicked: {
+                                    onClicked: mouse => {
                                         if (!overviewCard.dragging && !overviewCard.settling)
-                                            root.selectOverviewView(overviewCard.previewView)
+                                            root.selectFileTabs(overviewCard.previewView, mouse.modifiers, true)
                                     }
                                 }
                                 DragHandler {
@@ -1969,9 +2000,20 @@ Kirigami.ApplicationWindow {
         targetWindow: root
     }
 
+    HoverHandler {
+        parent: root.contentItem
+        enabled: root.toolbarAutoHidden
+        onPointChanged: root.fullscreenToolbarHovered = hovered && point.position.y >= 0
+                                                       && point.position.y < root.tabStripHeight
+        onHoveredChanged: root.fullscreenToolbarHovered = hovered && point.position.y >= 0
+                                                         && point.position.y < root.tabStripHeight
+    }
+
     ListModel { id: tabModel }
     ListModel { id: overviewModel }
     onViewsChanged: {
+        selectedTabViews = selectedTabViews.filter(view => views.includes(view))
+        if (tabSelectionAnchor && !views.includes(tabSelectionAnchor)) tabSelectionAnchor = null
         tabGroups = tabGroups.filter(group => views.some(view => view.tabGroupId === group.id))
         syncOverviewModel()
     }
@@ -3165,6 +3207,8 @@ Kirigami.ApplicationWindow {
     function selectOverviewView(target) {
         if (!target || (target !== homeView && views.indexOf(target) < 0))
             return
+        selectedTabViews = target === homeView ? [] : [target]
+        tabSelectionAnchor = target === homeView ? null : target
         if (!overviewVisible) {
             activateView(target, target === homeView ? -1 : views.indexOf(target))
             return
@@ -3656,6 +3700,55 @@ Kirigami.ApplicationWindow {
         }
     }
 
+    function toggleToolbarAutoHide() {
+        autoHideToolbar = !autoHideToolbar
+        fullscreenToolbarHovered = false
+    }
+
+    function selectFileTabs(view, modifiers, inOverview) {
+        if (!view || (view !== homeView && !views.includes(view))) return
+        if (view !== homeView && (pendingCloseViews.includes(view) || closingViews.includes(view)
+                                 || readyCloseViews.includes(view) || view.overviewClosingCard)) return
+        if (view !== homeView && (modifiers & Qt.ShiftModifier)) {
+            const anchor = views.includes(tabSelectionAnchor) ? tabSelectionAnchor
+                         : views.includes(activeView) ? activeView : view
+            const first = views.indexOf(anchor), last = views.indexOf(view)
+            selectedTabViews = views.slice(Math.min(first, last), Math.max(first, last) + 1)
+                                   .filter(item => !pendingCloseViews.includes(item) && !closingViews.includes(item)
+                                                  && !readyCloseViews.includes(item) && !item.overviewClosingCard
+                                                  && (!(inOverview || overviewVisible)
+                                                      || overviewMatches(views.indexOf(item)) && !groupFor(item)?.overviewCollapsed))
+            tabSelectionAnchor = anchor
+            if (!inOverview && !overviewVisible && (activeView !== view || allFrozen)) activateTab(last, undefined, true)
+        } else {
+            selectedTabViews = view === homeView ? [] : [view]
+            tabSelectionAnchor = view === homeView ? null : view
+            if (inOverview) selectOverviewView(view)
+            else if (activeView !== view || allFrozen || overviewVisible && !overviewClosing) {
+                if (view === homeView) activateHome()
+                else activateTab(views.indexOf(view))
+            }
+        }
+    }
+
+    function tabsForAction(view) {
+        return (selectedTabViews.includes(view) ? selectedTabViews : [view])
+            .filter(item => item && views.includes(item) && !pendingCloseViews.includes(item)
+                            && !closingViews.includes(item) && !readyCloseViews.includes(item) && !item.overviewClosingCard)
+    }
+
+    function closeSelectedTabs(view) {
+        for (const target of tabsForAction(view)) closeTab(views.indexOf(target))
+    }
+
+    function refreshSelectedTabs(view) {
+        for (const target of tabsForAction(view)) refreshTab(views.indexOf(target))
+    }
+
+    function assignSelectedTabGroup(view, id) {
+        for (const target of tabsForAction(view)) assignTabGroup(target, id)
+    }
+
     function triggerPageAction(action) {
         if (activeView)
             activeView.triggerWebAction(action)
@@ -3666,14 +3759,14 @@ Kirigami.ApplicationWindow {
             activateView(homeView, -1, animateWebSlide)
     }
 
-    function activateTab(index, animateWebSlide) {
+    function activateTab(index, animateWebSlide, keepSelection) {
         if (index < 0 || index >= views.length)
             return
         const view = views[index]
         if (pendingCloseViews.indexOf(view) >= 0 || closingViews.indexOf(view) >= 0
                 || readyCloseViews.indexOf(view) >= 0 || view.overviewClosingCard)
             return
-        activateView(view, index, animateWebSlide)
+        activateView(view, index, animateWebSlide, keepSelection)
     }
 
     function cycleTab(direction) {
@@ -3736,7 +3829,11 @@ Kirigami.ApplicationWindow {
         }
     }
 
-    function activateView(next, index, animateWebSlide) {
+    function activateView(next, index, animateWebSlide, keepSelection) {
+        if (!keepSelection) {
+            selectedTabViews = next === homeView ? [] : [next]
+            tabSelectionAnchor = next === homeView ? null : next
+        }
         if (overviewVisible) {
             selectOverviewView(next)
             return
@@ -3892,6 +3989,7 @@ Kirigami.ApplicationWindow {
     function requestTabGroup(view) {
         if (!view || !views.includes(view)) return
         groupRenameDialog.createView = view
+        groupRenameDialog.createViews = tabsForAction(view)
         groupRenameDialog.groupId = ""
         groupRenameDialog.groupColor = Kirigami.Theme.highlightColor
         groupNameEditor.text = qsTr("Tab Group %1").arg((primaryWindow || root).nextGroupNumber)
@@ -4466,6 +4564,7 @@ Kirigami.ApplicationWindow {
         objectName: "tabGroupNameDialog"
         property string groupId: ""
         property var createView: null
+        property var createViews: []
         property color groupColor: Kirigami.Theme.highlightColor
         title: createView ? qsTr("New tab group") : qsTr("Edit tab group")
         width: Math.min(380, root.width - Kirigami.Units.largeSpacing * 2)
@@ -4475,11 +4574,17 @@ Kirigami.ApplicationWindow {
         standardButtons: Controls.Dialog.Ok | Controls.Dialog.Cancel
         onAccepted: {
             if (groupNameEditor.text.trim()) {
-                if (createView) createTabGroup(createView, groupNameEditor.text.trim(), groupColor)
+                if (createView) {
+                    const id = createTabGroup(createView, groupNameEditor.text.trim(), groupColor)
+                    if (id) for (const view of createViews) assignTabGroup(view, id)
+                }
                 else updateTabGroup(groupId, {title: groupNameEditor.text.trim(), color: groupColor})
             }
         }
-        onClosed: createView = null
+        onClosed: {
+            createView = null
+            createViews = []
+        }
         contentItem: ColumnLayout {
             spacing: Kirigami.Units.smallSpacing
             Controls.Label { text: qsTr("Name"); font.bold: true }
@@ -4521,7 +4626,12 @@ Kirigami.ApplicationWindow {
     Shortcut { sequence: "Ctrl+T"; onActivated: root.openTab(root.newTabUrl) }
     Shortcut { sequence: "Ctrl+W"; onActivated: root.closeTab(root.activeIndex) }
     Shortcut { sequence: "F11"; onActivated: root.toggleWebFullscreen() }
-    Shortcut { sequence: "Escape"; enabled: root.webFullscreen; onActivated: root.toggleWebFullscreen() }
+    Shortcut { sequence: "Shift+F11"; onActivated: root.toggleToolbarAutoHide() }
+    Shortcut {
+        sequence: "Escape"
+        enabled: root.toolbarAutoHidden
+        onActivated: root.webFullscreen ? root.toggleWebFullscreen() : root.toggleToolbarAutoHide()
+    }
     Shortcut {
         sequence: "Ctrl+Shift+Alt+Left"
         context: Qt.ApplicationShortcut

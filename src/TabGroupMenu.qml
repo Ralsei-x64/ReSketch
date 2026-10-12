@@ -17,7 +17,7 @@ Controls.Menu {
         delegate: Controls.MenuItem {
             required property var modelData
             text: modelData.title
-            onTriggered: menu.appWindow.assignTabGroup(menu.tabView, modelData.id)
+            onTriggered: menu.appWindow.assignSelectedTabGroup(menu.tabView, modelData.id)
         }
         onObjectAdded: (index, object) => menu.insertItem(index + 1, object)
         onObjectRemoved: (index, object) => menu.removeItem(object)
@@ -25,7 +25,7 @@ Controls.Menu {
     Controls.MenuSeparator { }
     Controls.MenuItem {
         text: qsTr("Remove from group")
-        enabled: !!menu.tabView && !!menu.tabView.tabGroupId
-        onTriggered: menu.appWindow.assignTabGroup(menu.tabView, "")
+        enabled: menu.appWindow.tabsForAction(menu.tabView).some(view => !!view.tabGroupId)
+        onTriggered: menu.appWindow.assignSelectedTabGroup(menu.tabView, "")
     }
 }
