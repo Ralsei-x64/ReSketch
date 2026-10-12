@@ -31,6 +31,8 @@ Item {
         property int sleepMinutes: 5
         property bool sleepingTabPreviews: false
         property bool keepHomeAwake: true
+        property bool rememberOpenedTabs: false
+        property var rememberedFileTabs: []
         property bool releaseClosedWindows: true
         property bool cullOffscreenOverviewEffects: true
         property bool compactPreviewTextures: true
@@ -141,6 +143,34 @@ Item {
             }
         }
 
+        function test_remembered_files_restore_behind_home_and_update_session_urls() {
+            const files = ["https://www.figma.com/design/Restore_A/First", "https://www.figma.com/board/Restore_B/Second"]
+            appSettings.rememberOpenedTabs = true
+            appSettings.rememberedFileTabs = files
+            const component = Qt.createComponent("../src/Main.qml")
+            compare(component.status, Component.Ready)
+            const window = component.createObject(app, {sharedProfile: testProfile})
+            verify(window)
+            window.homeView.stop()
+            for (const view of window.views) view.stop()
+            compare(window.views.length, 2)
+            compare(window.activeView, window.homeView)
+            compare(window.sessionFileUrls, files)
+            window.openTab("about:blank", null, true)
+            window.views[2].stop()
+            compare(window.sessionFileUrls, files)
+            window.views[0].url = "about:blank"
+            compare(window.sessionFileUrls, [files[1]])
+            // A detached window must not restore the same session again.
+            const detached = window.createDetachedWindow("", testProfile)
+            verify(detached)
+            detached.homeView.stop()
+            compare(detached.views.length, 0)
+            detached.close()
+            window.close()
+            window.destroy()
+        }
+
         function test_new_tabs_append_except_links_next_to_source_tab() {
             appSettings.reduceMotion = true
             appSettings.changed()
@@ -232,6 +262,8 @@ Item {
         }
 
         function cleanup() {
+            appSettings.rememberOpenedTabs = false
+            appSettings.rememberedFileTabs = []
             nativeDropEvents.stop()
             nativeDropEvents.callback = null
             appSettings.nativeTabDragSupported = false

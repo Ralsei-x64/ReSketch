@@ -65,6 +65,9 @@ Kirigami.ApplicationWindow {
         opacity: appSettings.toolbarOpacity
     }, FigmaMenu.storeSource)
     property var views: []
+    readonly property list<string> sessionFileUrls: views.filter(view => !view.overviewClosingCard
+                        && !pendingCloseViews.includes(view) && !closingViews.includes(view))
+                        .map(view => String(view.url)).filter(Policy.isFileUrl)
     property var pendingPopups: []
     property var homeView: null
     property var activeView: null
@@ -3530,6 +3533,9 @@ Kirigami.ApplicationWindow {
         }
         if (String(startupUrl))
             openTab(startupUrl)
+        if (!primaryWindow && appSettings.rememberOpenedTabs)
+            for (const address of appSettings.rememberedFileTabs)
+                openTab(address, null, true)
         show()
     }
 }

@@ -315,6 +315,15 @@ Kirigami.ApplicationWindow {
                         }
 
                         Controls.CheckBox {
+                            objectName: "rememberOpenedTabs"
+                            text: "Remember opened tabs"
+                            checked: appSettings.rememberOpenedTabs
+                            onToggled: appSettings.rememberOpenedTabs = checked
+                            Controls.ToolTip.text: "Restore file tabs on startup. Empty tabs, Home, and the new-file screen are not saved."
+                            Controls.ToolTip.visible: hovered
+                        }
+
+                        Controls.CheckBox {
                             text: "Keep Home running"
                             checked: appSettings.keepHomeAwake
                             onToggled: appSettings.keepHomeAwake = checked

@@ -33,9 +33,11 @@
 #include <QVariantMap>
 #include <QWindow>
 #include <QWidget>
+#include "FontHelper.h"
 #include <KWindowEffects>
 #include <algorithm>
 #include <cstdio>
+#include <memory>
 #include <optional>
 #ifdef Q_OS_LINUX
 #include <fcntl.h>
@@ -166,6 +168,8 @@ class AppSettings : public QObject
     Q_PROPERTY(int sleepMinutes READ sleepMinutes WRITE setSleepMinutes NOTIFY changed)
     Q_PROPERTY(bool sleepingTabPreviews READ sleepingTabPreviews WRITE setSleepingTabPreviews NOTIFY changed)
     Q_PROPERTY(bool keepHomeAwake READ keepHomeAwake WRITE setKeepHomeAwake NOTIFY changed)
+    Q_PROPERTY(bool rememberOpenedTabs READ rememberOpenedTabs WRITE setRememberOpenedTabs NOTIFY changed)
+    Q_PROPERTY(QStringList rememberedFileTabs READ rememberedFileTabs NOTIFY changed)
     Q_PROPERTY(bool releaseClosedWindows READ releaseClosedWindows WRITE setReleaseClosedWindows NOTIFY changed)
     Q_PROPERTY(bool cullOffscreenOverviewEffects READ cullOffscreenOverviewEffects WRITE setCullOffscreenOverviewEffects NOTIFY changed)
     Q_PROPERTY(bool compactPreviewTextures READ compactPreviewTextures WRITE setCompactPreviewTextures NOTIFY changed)
@@ -191,6 +195,7 @@ public:
         connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this,
                 [this] { emit effectiveThemeChanged(); });
         qGuiApp->installEventFilter(this);
+        connect(qGuiApp, &QCoreApplication::aboutToQuit, this, [this] { saveOpenedTabs(); });
     }
 
     QString theme() const { return store.value(QStringLiteral("theme"), QStringLiteral("auto")).toString(); }
@@ -206,6 +211,45 @@ public:
                    && QGuiApplication::palette().color(QPalette::Window).lightness() < 128);
     }
     bool menuIntegration() const { return store.value(QStringLiteral("menuIntegration"), true).toBool(); }
+    bool rememberOpenedTabs() const { return store.value(QStringLiteral("rememberOpenedTabs"), false).toBool(); }
+    QStringList rememberedFileTabs() const
+    {
+        return rememberOpenedTabs() ? fileTabs(store.value(QStringLiteral("openedFileTabs")).toStringList()) : QStringList{};
+    }
+    void setRememberOpenedTabs(bool value)
+    {
+        if (rememberOpenedTabs() == value) return;
+        store.setValue(QStringLiteral("rememberOpenedTabs"), value);
+        if (!value) store.remove(QStringLiteral("openedFileTabs"));
+        emit changed();
+    }
+    static QStringList fileTabs(const QStringList &urls)
+    {
+        QStringList files;
+        static const QRegularExpression path(QStringLiteral("^/(file|design|board|proto|slides|deck|site|buzz|make)/[^/?#]+(?:/|$)"));
+        for (const auto &address : urls) {
+            const QUrl url(address);
+            if (url.scheme() == "https" && url.userInfo().isEmpty() && url.port(443) == 443
+                && (url.host() == "figma.com" || url.host().endsWith(".figma.com")) && path.match(url.path()).hasMatch())
+                files.append(address);
+        }
+        return files;
+    }
+    void saveOpenedTabs(QWindow *closing = nullptr)
+    {
+        if (!rememberOpenedTabs() || safeMode()) return;
+        QStringList urls;
+        bool haveWindow = false;
+        for (auto *window : registeredWindows) {
+            const QVariant tabs = window->property("sessionFileUrls");
+            if (!tabs.isValid() || (!window->isVisible() && window != closing)) continue;
+            haveWindow = true;
+            urls.append(tabs.value<QStringList>());
+        }
+        if (!haveWindow) return; // Last-window close already saved its tabs.
+        store.setValue(QStringLiteral("openedFileTabs"), fileTabs(urls));
+        store.sync();
+    }
     bool figmaSystemColors() const { return store.value(QStringLiteral("figmaSystemColors"), false).toBool(); }
     bool figmaCustomCssEnabled() const { return store.value(QStringLiteral("figmaCustomCssEnabled"), false).toBool(); }
     QString figmaCustomCss() const { return store.value(QStringLiteral("figmaCustomCss")).toString(); }
@@ -624,6 +668,10 @@ signals:
 private:
     bool eventFilter(QObject *watched, QEvent *event) override
     {
+        if (event->type() == QEvent::Close) {
+            auto *window = qobject_cast<QWindow *>(watched);
+            if (registeredWindows.contains(window)) saveOpenedTabs(window);
+        }
         if (watched == qGuiApp && event->type() == QEvent::ApplicationPaletteChange)
             emit effectiveThemeChanged();
         return QObject::eventFilter(watched, event);
@@ -724,6 +772,8 @@ int main(int argc, char *argv[])
         fprintf(stderr, "ReSketch: cannot listen for Figma links: %s\n", qPrintable(server.errorString()));
 
     AppSettings appSettings(&app, safeMode);
+    std::unique_ptr<FontHelper> fontHelper;
+    if (!safeMode) fontHelper = std::make_unique<FontHelper>();
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("appSettings"), &appSettings);
     // Recovery deliberately loads only Settings: no WebEngine profile, page,
