@@ -251,6 +251,9 @@ function sidebarAppearance(options, stylesheet) {
     let layout = null;
     const authoredSizes = new WeakMap();
     const authoredSize = panel => panel.style.width + ':' + panel.style.height;
+    const canvasSizes = new WeakMap();
+    const canvasSize = node => ['inset','width','height','left','right','top','bottom','transform']
+        .map(name => node.style[name]).join(':');
     const underlay = document.createElement('div');
     underlay.id = 'resketch-sidebar-underlay';
     document.body.prepend(underlay);
@@ -267,6 +270,7 @@ function sidebarAppearance(options, stylesheet) {
         + '[data-resketch-floating-sidebar] :is([class*="left_panel_container--panel--"],[class*="properties_panel--panelPosition--"]) '
         + '{ box-sizing:border-box !important; width:100% !important; height:100% !important; border:0 !important; }'
         + '[data-resketch-floating-sidebar] [class*="properties_panel--panelContainer--"] { border-left:0 !important; }'
+        + '[data-resketch-floating-sidebar] [class*="comments_sidebar--container--"] { width:100% !important; min-width:0 !important; }'
         + '[data-resketch-floating-sidebar][class*="sidebar--navDefault--"] > *, '
         + '[data-resketch-floating-sidebar][class*="sidebar--navDefault--"] .fb-sidebar { box-sizing:border-box !important; width:100% !important; }'
         + '[data-resketch-floating-sidebar][data-onboarding-key="unified-design-onboarding-left-panel"] { position:relative !important; }'
@@ -322,6 +326,12 @@ function sidebarAppearance(options, stylesheet) {
         observer.observe(document.body, {childList:true, subtree:true});
         for (const panel of panels) observer.observe(panel, {attributes:true, attributeFilter:['style']});
         canvases = Array.from(document.querySelectorAll('.gpu-view-content'));
+        // Native layout can move the canvas after updating the panel flags.
+        // Watch its actual layout, ignoring our mask variables to avoid a loop.
+        for (const canvas of canvases) for (let node = canvas; node && node !== document.body; node = node.parentElement) {
+            canvasSizes.set(node, canvasSize(node));
+            observer.observe(node, {attributes:true, attributeFilter:['style']});
+        }
         const active = options.floatingSidebars || options.translucentSidebars && options.opacity < 100;
         underlay.style.display = active ? "" : "none";
         if (!active) return;
@@ -380,7 +390,8 @@ function sidebarAppearance(options, stylesheet) {
     const resize = new ResizeObserver(schedule);
     const observer = new MutationObserver(records => {
         if (records.some(record => record.type === 'attributes'
-            ? panels.includes(record.target) && authoredSizes.get(record.target) !== authoredSize(record.target)
+            ? (panels.includes(record.target) && authoredSizes.get(record.target) !== authoredSize(record.target))
+                || (canvasSizes.has(record.target) && canvasSizes.get(record.target) !== canvasSize(record.target))
             : [...record.addedNodes, ...record.removedNodes].some(node =>
             node.nodeType === 1 && (node.matches(selector + ', .gpu-view-content') || node.querySelector(selector + ', .gpu-view-content'))))) schedule();
     });

@@ -1870,13 +1870,14 @@ Item {
             const view = app.activeView
             const fixture = '<style>body{margin:0;--color-bg:#eee;--color-border:#8899aa}'
                 + '.gpu-view-content{position:absolute;inset:0;background:#444}'
+                + '#nativeCanvasLayout{position:absolute;inset:0}.comments_sidebar--container--fixture{width:200px}'
                 + '#home{position:absolute;left:0;top:0;width:200px;height:400px;background:white}'
                 + '#home>div,.fb-sidebar{width:200px;height:400px}'
                 + '[data-testid=properties-panel]{position:absolute;right:0;top:0;width:200px;height:400px;background:white}'
                 + '.properties_panel--panelPosition--fixture{position:absolute;inset:0;width:200px;height:400px;background:var(--color-bg)}'
                 + '.properties_panel--panelContainer--fixture{border-left:1px solid #8899aa}</style>'
-                + '<div class="gpu-view-content"></div><nav id="home" class="sidebar--navDefault--fixture"><div><div class="fb-sidebar"></div></div></nav>'
-                + '<aside data-testid="properties-panel"><div class="properties_panel--panelPosition--fixture"><div class="properties_panel--panelContainer--fixture"></div></div></aside>'
+                + '<div id="nativeCanvasLayout"><div class="gpu-view-content"></div></div><nav id="home" class="sidebar--navDefault--fixture"><div><div class="fb-sidebar"></div></div></nav>'
+                + '<aside data-testid="properties-panel"><div class="properties_panel--panelPosition--fixture"><div class="properties_panel--panelContainer--fixture"></div><div class="comments_sidebar--container--fixture"></div></div></aside>'
             let result = null
             view.runJavaScript('document.body.innerHTML=' + JSON.stringify(fixture), () => result = true)
             tryVerify(() => result === true)
@@ -1895,6 +1896,9 @@ Item {
                     + 'const right=document.querySelector("[data-testid=properties-panel]"),child=right.firstElementChild;'
                     + 'return {x:r.x,y:r.y,width:r.width,height:r.height,radius:s.borderRadius,overflow:s.overflow,bg:s.backgroundColor,'
                     + 'rightWidth:right.getBoundingClientRect().width,childWidth:child.getBoundingClientRect().width,'
+                    + 'commentsWidth:document.querySelector("[class*=comments_sidebar--container--]").getBoundingClientRect().width,'
+                    + 'canvasLeft:document.querySelector(".gpu-view-content").getBoundingClientRect().left,'
+                    + 'canvasWidth:document.querySelector(".gpu-view-content").getBoundingClientRect().width,'
                     + 'homeChildWidth:document.querySelector(".fb-sidebar").getBoundingClientRect().width,'
                     + 'borders:[s.borderTopWidth,s.borderRightWidth,s.borderBottomWidth,s.borderLeftWidth],'
                     + 'innerBorder:getComputedStyle(document.querySelector("[class*=properties_panel--panelContainer--]")).borderLeftWidth,'
@@ -1909,6 +1913,7 @@ Item {
             compare(result.width, 184); compare(result.height, 384)
             compare(result.radius, "22px"); compare(result.overflow, "hidden")
             compare(result.childWidth, result.rightWidth - 2, "Inner file panels fit inside the floating card's border")
+            compare(result.commentsWidth, result.childWidth, "Comments fit the floating panel instead of retaining the original width")
             compare(result.homeChildWidth, result.width - 2, "Home's nested sidebar also fits its floating card's border")
             compare(result.borders, ["1px", "1px", "1px", "1px"], "The outline surrounds the whole sidebar")
             compare(result.innerBorder, "0px", "The old side border does not double the new outline")
@@ -1916,6 +1921,17 @@ Item {
             verify(result.clip.startsWith("path(evenodd,"), "Transparency follows the rounded sidebar shape")
             verify(/H\s*170\b/.test(result.clip), "The mask uses the inset sidebar's bounds and 22 px corners")
             compare(result.underlayBg, "rgb(68, 68, 68)", "The surrounding space uses the opaque Figma canvas background")
+            // Figma may change a native canvas ancestor after the mask was measured.
+            const fullWidth = result.canvasWidth
+            view.runJavaScript('document.getElementById("nativeCanvasLayout").style.left="60px"')
+            tryVerify(() => {
+                inspect()
+                return result.canvasLeft === 60 && result.canvasWidth === fullWidth - 60
+                    && new RegExp("H\\s*" + result.canvasWidth + "\\b").test(result.clip)
+            })
+            verify(/M\s*-30\s*8/.test(result.clip), "The rounded hole is rebased to the new canvas origin")
+            view.runJavaScript('document.getElementById("nativeCanvasLayout").style.left="0px"')
+            tryVerify(() => { inspect(); return result.canvasLeft === 0 && /H\s*170\b/.test(result.clip) })
             options.sidebarMargin = 16
             apply()
             tryVerify(() => { inspect(); return result.x === 16 && result.y === 16 })
