@@ -164,19 +164,24 @@ int main(int argc, char **argv)
     puts("Whole-process-family memory accounting, shared memory and fallback checks passed");
     puts("Safe-mode recovery and settings reset preserve export data and discard pending CSS checks passed");
     AppSettings settings;
-    assert(!settings.floatingSidebars() && settings.sidebarCornerRadius() == 12);
+    assert(!settings.floatingSidebars() && settings.sidebarCornerRadius() == 12 && settings.sidebarMargin() == 8);
     settings.setFloatingSidebars(true);
     settings.setSidebarCornerRadius(22);
+    settings.setSidebarMargin(16);
     {
         AppSettings persisted;
-        assert(persisted.floatingSidebars() && persisted.sidebarCornerRadius() == 22);
+        assert(persisted.floatingSidebars() && persisted.sidebarCornerRadius() == 22 && persisted.sidebarMargin() == 16);
     }
+    settings.setSidebarMargin(99);
+    assert(settings.sidebarMargin() == 40);
+    settings.setSidebarMargin(-1);
+    assert(settings.sidebarMargin() == 0);
     settings.setSidebarCornerRadius(99);
     assert(settings.sidebarCornerRadius() == 40);
     settings.setSidebarCornerRadius(-1);
     assert(settings.sidebarCornerRadius() == 0);
     settings.resetSettings();
-    assert(!settings.floatingSidebars() && settings.sidebarCornerRadius() == 12);
+    assert(!settings.floatingSidebars() && settings.sidebarCornerRadius() == 12 && settings.sidebarMargin() == 8);
     {
         QQuickWindow window;
         settings.registerMainWindow(&window);

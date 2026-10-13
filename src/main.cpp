@@ -220,6 +220,7 @@ class AppSettings : public QObject
     Q_PROPERTY(bool translucentSidebars READ translucentSidebars WRITE setTranslucentSidebars NOTIFY changed)
     Q_PROPERTY(bool floatingSidebars READ floatingSidebars WRITE setFloatingSidebars NOTIFY changed)
     Q_PROPERTY(int sidebarCornerRadius READ sidebarCornerRadius WRITE setSidebarCornerRadius NOTIFY changed)
+    Q_PROPERTY(int sidebarMargin READ sidebarMargin WRITE setSidebarMargin NOTIFY changed)
     Q_PROPERTY(QString sidebarBackdrop READ sidebarBackdrop WRITE setSidebarBackdrop NOTIFY changed)
     Q_PROPERTY(bool menuIntegration READ menuIntegration WRITE setMenuIntegration NOTIFY changed)
     Q_PROPERTY(bool reduceMotion READ reduceMotion WRITE setReduceMotion NOTIFY changed)
@@ -458,6 +459,7 @@ public:
     bool translucentSidebars() const { return store.value(QStringLiteral("translucentSidebars"), false).toBool(); }
     bool floatingSidebars() const { return store.value(QStringLiteral("floatingSidebars"), false).toBool(); }
     int sidebarCornerRadius() const { return qBound(0, store.value(QStringLiteral("sidebarCornerRadius"), 12).toInt(), 40); }
+    int sidebarMargin() const { return qBound(0, store.value(QStringLiteral("sidebarMargin"), 8).toInt(), 40); }
     QString sidebarBackdrop() const { return store.value(QStringLiteral("sidebarBackdrop"), QStringLiteral("desktop")).toString(); }
     QVariantMap figmaPalette() const
     {
@@ -875,6 +877,14 @@ public:
         value = qBound(0, value, 40);
         if (sidebarCornerRadius() == value) return;
         store.setValue(QStringLiteral("sidebarCornerRadius"), value);
+        emit changed();
+        emit figmaAppearanceChanged();
+    }
+    void setSidebarMargin(int value)
+    {
+        value = qBound(0, value, 40);
+        if (sidebarMargin() == value) return;
+        store.setValue(QStringLiteral("sidebarMargin"), value);
         emit changed();
         emit figmaAppearanceChanged();
     }

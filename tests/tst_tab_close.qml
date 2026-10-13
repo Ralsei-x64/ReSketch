@@ -27,6 +27,7 @@ Item {
         property bool translucentSidebars: false
         property bool floatingSidebars: false
         property int sidebarCornerRadius: 12
+        property int sidebarMargin: 8
         property string sidebarBackdrop: "desktop"
         property bool reduceMotion: false
         property int toolbarOpacity: 100
@@ -1840,6 +1841,7 @@ Item {
             appSettings.translucentSidebars = false
             appSettings.floatingSidebars = false
             appSettings.sidebarCornerRadius = 12
+            appSettings.sidebarMargin = 8
             appSettings.toolbarOpacity = 100
             appSettings.toolbarItems = appSettings.defaultToolbarItems()
             appSettings.sidebarBackdrop = "desktop"
@@ -1878,7 +1880,7 @@ Item {
             let result = null
             view.runJavaScript('document.body.innerHTML=' + JSON.stringify(fixture), () => result = true)
             tryVerify(() => result === true)
-            const options = {theme: "light", floatingSidebars: true, sidebarCornerRadius: 22,
+            const options = {theme: "light", floatingSidebars: true, sidebarCornerRadius: 22, sidebarMargin: 8,
                              translucentSidebars: false, opacity: 60, sidebarBackdrop: "desktop"}
             let fixturePath = "/design/Test/File"
             function apply() {
@@ -1914,6 +1916,16 @@ Item {
             verify(result.clip.startsWith("path(evenodd,"), "Transparency follows the rounded sidebar shape")
             verify(/H\s*170\b/.test(result.clip), "The mask uses the inset sidebar's bounds and 22 px corners")
             compare(result.underlayBg, "rgb(68, 68, 68)", "The surrounding space uses the opaque Figma canvas background")
+            options.sidebarMargin = 16
+            apply()
+            tryVerify(() => { inspect(); return result.x === 16 && result.y === 16 })
+            compare(result.width, 168); compare(result.height, 368)
+            verify(/H\s*162\b/.test(result.clip), "The transparency mask follows the adjusted margin")
+            options.sidebarMargin = 0
+            apply()
+            tryVerify(() => { inspect(); return result.x === 0 && result.y === 0 })
+            compare(result.width, 200); compare(result.height, 400)
+            options.sidebarMargin = 8
             options.sidebarCornerRadius = 0
             apply()
             tryVerify(() => { inspect(); return result.radius === "0px" })
@@ -1991,13 +2003,18 @@ Item {
             const window = findChild(app, "settingsWindow")
             const toggle = findChild(window, "floatingSidebarsToggle")
             const radius = findChild(window, "sidebarCornerRadiusControl")
-            verify(toggle && radius)
+            const margin = findChild(window, "sidebarMarginControl")
+            verify(toggle && radius && margin)
+            compare(margin.enabled, false)
             compare(radius.enabled, false)
             toggle.toggle(); toggle.toggled()
             compare(appSettings.floatingSidebars, true)
             tryCompare(radius, "enabled", true)
             radius.value = 24; radius.valueModified()
             compare(appSettings.sidebarCornerRadius, 24)
+            tryCompare(margin, "enabled", true)
+            margin.value = 16; margin.valueModified()
+            compare(appSettings.sidebarMargin, 16)
             window.close()
         }
 

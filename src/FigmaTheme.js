@@ -261,7 +261,7 @@ function sidebarAppearance(options, stylesheet) {
         + 'width:var(--resketch-sidebar-width) !important; min-width:0 !important; max-width:none !important;'
         + 'height:var(--resketch-sidebar-height) !important; min-height:0 !important;'
         + 'border:1px solid var(--color-border) !important;'
-        + 'margin:8px var(--resketch-sidebar-gap-right) 8px var(--resketch-sidebar-gap-left) !important; border-radius:var(--resketch-sidebar-radius) !important; overflow:hidden !important; }'
+        + 'margin:var(--resketch-sidebar-gap-vertical) var(--resketch-sidebar-gap-right) var(--resketch-sidebar-gap-vertical) var(--resketch-sidebar-gap-left) !important; border-radius:var(--resketch-sidebar-radius) !important; overflow:hidden !important; }'
         + '[data-resketch-sidebar-join="start"] { border-right:1px solid var(--color-border) !important; border-radius:var(--resketch-sidebar-radius) 0 0 var(--resketch-sidebar-radius) !important; }'
         + '[data-resketch-sidebar-join="end"] { border-left:0 !important; border-radius:0 var(--resketch-sidebar-radius) var(--resketch-sidebar-radius) 0 !important; }'
         + '[data-resketch-floating-sidebar] :is([class*="left_panel_container--panel--"],[class*="properties_panel--panelPosition--"]) '
@@ -292,7 +292,7 @@ function sidebarAppearance(options, stylesheet) {
             panel.removeAttribute('data-resketch-sidebar');
             panel.removeAttribute('data-resketch-floating-sidebar');
             panel.removeAttribute('data-resketch-sidebar-join');
-            for (const name of ['tint','surface','content','width','height','gap-left','gap-right','radius'])
+            for (const name of ['tint','surface','content','width','height','gap-left','gap-right','gap-vertical','radius'])
                 panel.style.removeProperty('--resketch-sidebar-' + name);
         }
         for (const ancestor of ancestors) ancestor.removeAttribute('data-resketch-sidebar-ancestor');
@@ -345,11 +345,13 @@ function sidebarAppearance(options, stylesheet) {
             panel.style.setProperty('--resketch-sidebar-content', translucent ? 'transparent' : bg);
             const bounds = panel.getBoundingClientRect();
             if (options.floatingSidebars && bounds.width && bounds.height) {
-                const gap = bounds.width < 100 ? 4 : 8;
-                const gapLeft = joined && panel === leftPanel ? 0 : joined && panel === rail ? 8 : gap;
+                const margin = options.sidebarMargin;
+                const gap = bounds.width < 100 ? margin / 2 : margin;
+                const gapLeft = joined && panel === leftPanel ? 0 : joined && panel === rail ? margin : gap;
                 const gapRight = joined && panel === rail ? 0 : gap;
                 panel.style.setProperty('--resketch-sidebar-width', Math.max(1, bounds.width - gapLeft - gapRight) + 'px');
-                panel.style.setProperty('--resketch-sidebar-height', Math.max(1, bounds.height - 16) + 'px');
+                panel.style.setProperty('--resketch-sidebar-height', Math.max(1, bounds.height - 2 * margin) + 'px');
+                panel.style.setProperty('--resketch-sidebar-gap-vertical', margin + 'px');
                 panel.style.setProperty('--resketch-sidebar-gap-left', gapLeft + 'px');
                 panel.style.setProperty('--resketch-sidebar-gap-right', gapRight + 'px');
                 panel.style.setProperty('--resketch-sidebar-radius', options.sidebarCornerRadius + 'px');
@@ -499,6 +501,7 @@ function script(options, storeSource) {
         translucentSidebars: !!options.translucentSidebars,
         floatingSidebars: !!options.floatingSidebars,
         sidebarCornerRadius: Math.max(0, Math.min(40, Number.isFinite(options.sidebarCornerRadius) ? options.sidebarCornerRadius : 12)),
+        sidebarMargin: Math.max(0, Math.min(40, Number.isFinite(options.sidebarMargin) ? options.sidebarMargin : 8)),
         sidebarBackdrop: options.sidebarBackdrop === "canvas" ? "canvas" : "desktop",
         opacity: Math.max(0, Math.min(100, Number.isFinite(options.opacity) ? options.opacity : 100))
     }

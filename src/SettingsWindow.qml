@@ -470,6 +470,17 @@ Kirigami.ApplicationWindow {
                                         onValueModified: appSettings.sidebarCornerRadius = value
                                     }
 
+                                    Controls.SpinBox {
+                                        objectName: "sidebarMarginControl"
+                                        Kirigami.FormData.label: "Sidebar margin (px):"
+                                        enabled: appSettings.floatingSidebars
+                                        from: 0
+                                        to: 40
+                                        editable: true
+                                        value: appSettings.sidebarMargin
+                                        onValueModified: appSettings.sidebarMargin = value
+                                    }
+
                                     Controls.Label {
                                         Layout.fillWidth: true
                                         Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
