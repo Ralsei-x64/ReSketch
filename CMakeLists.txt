@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-project(ReSketch VERSION 0.2.0 LANGUAGES CXX)
+project(ReSketch VERSION 0.2.1 LANGUAGES CXX)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Network Quick QuickControls2 WebEngineQuick Widgets)
 find_package(KF6WindowSystem REQUIRED)
@@ -11,10 +11,43 @@ find_package(KF6Notifications REQUIRED)
 find_package(Fontconfig REQUIRED)
 find_package(Freetype REQUIRED)
 
+# Embed the source commit and refresh it when the checked-out revision changes.
+find_package(Git QUIET)
+set(RESKETCH_COMMIT "unknown")
+if(GIT_FOUND)
+    execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --short=7 HEAD
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        OUTPUT_VARIABLE git_commit OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET RESULT_VARIABLE git_result)
+    if(git_result EQUAL 0)
+        set(RESKETCH_COMMIT "${git_commit}")
+        execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --path-format=absolute --git-path HEAD
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            OUTPUT_VARIABLE git_head OUTPUT_STRIP_TRAILING_WHITESPACE)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${git_head}")
+        file(STRINGS "${git_head}" git_ref)
+        if(git_ref MATCHES "^ref: (.+)$")
+            execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --path-format=absolute --git-path "${CMAKE_MATCH_1}"
+                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+                OUTPUT_VARIABLE git_ref_path OUTPUT_STRIP_TRAILING_WHITESPACE)
+            if(EXISTS "${git_ref_path}")
+                set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${git_ref_path}")
+            endif()
+            get_filename_component(git_ref_directory "${git_ref_path}" DIRECTORY)
+            if(EXISTS "${git_ref_directory}")
+                set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${git_ref_directory}")
+            endif()
+        endif()
+    endif()
+endif()
+
 qt_standard_project_setup(REQUIRES 6.8)
 
 qt_add_executable(resketch src/main.cpp src/FontHelper.cpp src/FontHelper.h)
-target_compile_definitions(resketch PRIVATE RESKETCH_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(resketch PRIVATE
+    RESKETCH_VERSION="${PROJECT_VERSION}"
+    RESKETCH_COMMIT="${RESKETCH_COMMIT}"
+)
 qt_add_qml_module(resketch
     URI org.aether64.resketch
     VERSION 1.0

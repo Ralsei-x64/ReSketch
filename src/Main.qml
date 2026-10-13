@@ -2546,13 +2546,13 @@ Kirigami.ApplicationWindow {
 
     Timer {
         id: signInRefreshTimer
-        interval: 1000
+        objectName: "signInRefreshTimer"
+        property var sourceView: null
+        interval: 4000
         onTriggered: {
-            if (root.homeView)
-                root.homeView.reload()
-            for (const view of root.views)
-                if (view !== root.homeView && view === root.activeView)
-                    view.reload()
+            if (sourceView && (sourceView === root.homeView || root.views.includes(sourceView)))
+                sourceView.reload()
+            sourceView = null
         }
     }
 
@@ -2912,8 +2912,10 @@ Kirigami.ApplicationWindow {
             onWindowCloseRequested: {
                 if (pendingPopup)
                     webView.ownerWindow.discardPendingPopup(webView)
-                else if (authWindow)
+                else if (authWindow) {
+                    webView.ownerWindow.refreshAfterGoogleSignIn(authWindow.sourceView)
                     Qt.callLater(() => authWindow.close())
+                }
             }
             onUrlChanged: {
                 syncNotifications()
@@ -2942,7 +2944,7 @@ Kirigami.ApplicationWindow {
                     webView.ownerWindow.openWebSignIn(webView)
                 else if (Policy.isGoogleSignInUrl(address)
                          || (Policy.isFigmaUrl(address) && address.includes("start_google_sso")))
-                    webView.ownerWindow.openGoogleSignInWindow(request, "")
+                    webView.ownerWindow.openGoogleSignInWindow(request, "", null, webView)
                 else if (!address || address === "about:blank")
                     webView.ownerWindow.openPendingPopup(request, webView)
                 else if (!webView.dedicatedHome
@@ -2976,7 +2978,7 @@ Kirigami.ApplicationWindow {
                         Qt.callLater(() => webView.ownerWindow.openGoogleSignInWindow(null, "", webView))
                     else {
                         request.reject()
-                        webView.ownerWindow.openGoogleSignInWindow(null, address)
+                        webView.ownerWindow.openGoogleSignInWindow(null, address, null, webView)
                     }
                 } else if (Policy.isGoogleSignInUrl(address)) {
                     return
@@ -3026,6 +3028,7 @@ Kirigami.ApplicationWindow {
             color: Kirigami.Theme.backgroundColor
             transientParent: null
             property var authView: null
+            property var sourceView: null
 
             Item {
                 id: googleContent
@@ -3052,13 +3055,17 @@ Kirigami.ApplicationWindow {
 
             onClosing: {
                 if (authView && authView.frameContainer) authView.frameContainer.destroy()
-                signInRefreshTimer.restart()
                 Qt.callLater(() => googleWindow.destroy())
             }
         }
     }
 
-    function openGoogleSignInWindow(request, address, existingView) {
+    function refreshAfterGoogleSignIn(sourceView) {
+        signInRefreshTimer.sourceView = sourceView
+        signInRefreshTimer.restart()
+    }
+
+    function openGoogleSignInWindow(request, address, existingView, sourceView) {
         if (existingView && !existingView.pendingPopup) return
         const window = googleWindowComponent.createObject(root)
         if (!window)
@@ -3070,6 +3077,7 @@ Kirigami.ApplicationWindow {
             return
         }
         window.authView = view
+        window.sourceView = sourceView || existingView?.popupSource || root.activeView
         if (existingView) {
             pendingPopups = pendingPopups.filter(popup => popup !== view)
             view.pendingPopup = false
@@ -5319,10 +5327,10 @@ Kirigami.ApplicationWindow {
     Shortcut { sequence: Shortcuts.sequence(appSettings, "autohide-toolbar"); onActivated: root.toggleToolbarAutoHide() }
     Shortcut {
         sequence: Shortcuts.sequence(appSettings, "cancel-selection")
-        enabled: root.selectedTabViews.length > 0 || (!root.webFullscreen && root.toolbarAutoHidden)
+        enabled: root.selectedTabViews.length > 0 || (root.overviewVisible && !root.overviewClosing)
         onActivated: {
             if (root.selectedTabViews.length) root.selectedTabViews = []
-            else root.toggleToolbarAutoHide()
+            else root.toggleOverview()
         }
     }
     Shortcut {

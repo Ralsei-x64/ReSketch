@@ -203,9 +203,14 @@ static double appProcessMemoryMiB(qint64 rootPid, const QString &procRoot = QStr
 #endif
 }
 
+#ifndef RESKETCH_COMMIT
+#define RESKETCH_COMMIT "unknown"
+#endif
+
 class AppSettings : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(QString buildCommit READ buildCommit CONSTANT)
     Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY changed)
     Q_PROPERTY(bool darkTheme READ darkTheme NOTIFY effectiveThemeChanged)
     Q_PROPERTY(bool figmaSystemColors READ figmaSystemColors WRITE setFigmaSystemColors NOTIFY changed)
@@ -250,6 +255,8 @@ class AppSettings : public QObject
     Q_PROPERTY(bool safeMode READ safeMode CONSTANT)
 
 public:
+    QString buildCommit() const { return QStringLiteral(RESKETCH_COMMIT); }
+
     QString gpuAccelerationWarning() const { return graphicsWarning; }
     bool safeMode() const { return recoveryMode; }
     explicit AppSettings(QObject *parent = nullptr, bool safeMode = false)
@@ -1068,7 +1075,7 @@ int main(int argc, char *argv[])
         arguments.append(QString::fromLocal8Bit(argv[index]));
 #ifdef RESKETCH_VERSION
     if (arguments.contains(QStringLiteral("--version"))) {
-        printf("ReSketch %s\n", RESKETCH_VERSION);
+        printf("ReSketch %s (commit %s)\n", RESKETCH_VERSION, RESKETCH_COMMIT);
         return 0;
     }
 #endif

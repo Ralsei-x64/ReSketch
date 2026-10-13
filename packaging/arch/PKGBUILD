@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 pkgname=resketch-git
-pkgver=0.2.0.r33.c0843f5
+pkgver=0.2.1.r45.a7a1822
 pkgrel=1
 pkgdesc='Open-source Figma client for Linux!'
 arch=('x86_64')

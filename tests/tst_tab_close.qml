@@ -14,6 +14,7 @@ Item {
     width: 1280
     height: 800
     property QtObject appSettings: QtObject {
+        readonly property string buildCommit: "abc1234"
         property bool safeMode: false
         property bool desktopNotifications: false
         property string theme: "auto"
@@ -944,6 +945,18 @@ Item {
             const show = findChild(manager, "showTaskManagerTabButton")
             show.clicked()
             compare(app.activeView, taskView)
+            waitForRendering(manager.contentItem)
+            mouseClick(list, 20, list.itemAtIndex(1).y + list.itemAtIndex(1).height / 2)
+            compare(list.currentIndex, 1, "Clicking a row still selects it")
+            const blankY = list.itemAtIndex(4).y + list.itemAtIndex(4).height + 20
+            verify(blankY < list.height, "Fixture leaves blank space below the tasks")
+            mouseClick(list, 20, blankY)
+            compare(list.currentIndex, -1, "Clicking empty list space clears selection")
+            compare(show.enabled, false)
+            compare(end.enabled, false)
+            manager.refreshTasks()
+            compare(list.currentIndex, -1, "Resource polling keeps the selection cleared")
+            list.currentIndex = 1
             end.clicked()
             tryCompare(list, "count", 4)
             compare(list.currentIndex, -1, "A removed tab must not select another task")
@@ -1318,8 +1331,10 @@ Item {
             app.toggleToolbarAutoHide()
             keyClick(Qt.Key_Escape)
             compare(app.selectedTabViews, [])
-            verify(app.autoHideToolbar, "Escape clears selection before dismissing autohide")
+            verify(app.autoHideToolbar, "Escape clears selection without disabling autohide")
             keyClick(Qt.Key_Escape)
+            verify(app.autoHideToolbar, "Escape with no selection also keeps autohide enabled")
+            keyClick(Qt.Key_F11, Qt.ShiftModifier)
             verify(!app.autoHideToolbar)
             app.selectFileTabs(app.views[0], Qt.ShiftModifier)
             mouseClick(tabButton(1), 80, 20)
@@ -1493,6 +1508,39 @@ Item {
             }
             keyClick(fullscreenKey)
             verify(!app.webFullscreen, "The configured fullscreen shortcut exits")
+        }
+
+        function test_escape_closes_overview_without_changing_window_mode_data() {
+            return [{tag: "windowed"}, {tag: "autohide", autohide: true}, {tag: "fullscreen", fullscreen: true}]
+        }
+
+        function test_escape_closes_overview_without_changing_window_mode(data) {
+            appSettings.reduceMotion = true
+            app.requestActivate()
+            tryVerify(() => app.active)
+            if (data.fullscreen) app.toggleWebFullscreen()
+            else if (data.autohide) app.toggleToolbarAutoHide()
+            const visibility = app.visibility, autohide = app.autoHideToolbar, focused = app.activeView
+            app.toggleOverview()
+            app.selectFileTabs(app.views[0], Qt.ShiftModifier, true)
+            keyClick(Qt.Key_Escape)
+            compare(app.selectedTabViews, [])
+            verify(app.overviewVisible, "The first Escape only clears selections")
+            keyClick(Qt.Key_Escape)
+            compare(app.overviewVisible, false, "Escape without a selection exits the overview")
+            compare(app.activeView, focused)
+            compare(app.visibility, visibility)
+            compare(app.autoHideToolbar, autohide)
+            keyClick(Qt.Key_Escape)
+            compare(app.visibility, visibility)
+            compare(app.autoHideToolbar, autohide)
+        }
+
+        function test_about_shows_version_and_build_commit() {
+            app.openAbout()
+            const about = findChild(app, "aboutWindow")
+            compare(findChild(about, "aboutVersion").text, "Version " + Qt.application.version)
+            compare(findChild(about, "aboutCommit").text, "Commit abc1234")
         }
 
         function test_maximize_from_fullscreen_keeps_autohide() {
@@ -1703,6 +1751,44 @@ Item {
             tryVerify(() => value === 456)
             signin.authWindow.close()
             tryVerify(() => findChild(app, "googleSignInWindow") === null)
+            compare(findChild(app, "signInRefreshTimer").running, false,
+                    "Closing sign-in manually must not reload the original tab")
+        }
+
+        function test_google_signin_refreshes_its_source_after_four_seconds() {
+            const source = app.activeView
+            source.loadHtml("<html><body>Sign-in source</body></html>")
+            tryVerify(() => !source.loading)
+            source.runJavaScript("window.signinTest = window.open('about:blank', '_blank')")
+            tryVerify(() => app.pendingPopups.length === 1)
+            const signin = app.pendingPopups[0]
+            app.openGoogleSignInWindow(null, "", signin)
+            const timer = findChild(app, "signInRefreshTimer")
+            compare(signin.authWindow.sourceView, source)
+            compare(timer.interval, 4000)
+            let marker = null
+            source.runJavaScript("window.beforeSignInRefresh = 123", () => marker = true)
+            tryVerify(() => marker === true)
+            app.activateTab(0, false)
+            const selected = app.activeView
+            selected.runJavaScript("window.otherTabContent = 456", () => marker = 456)
+            tryVerify(() => marker === 456)
+            // Google/Figma completes OAuth by closing its popup through window.close().
+            signin.windowCloseRequested()
+            tryVerify(() => findChild(app, "googleSignInWindow") === null)
+            compare(timer.running, true)
+            compare(timer.sourceView, source)
+            wait(3500)
+            source.runJavaScript("window.beforeSignInRefresh", result => marker = result)
+            tryVerify(() => marker === 123, 400)
+            tryCompare(timer, "running", false, 2000)
+            tryVerify(() => !source.loading)
+            marker = 123
+            source.runJavaScript("typeof window.beforeSignInRefresh", result => marker = result)
+            tryVerify(() => marker === "undefined")
+            selected.runJavaScript("window.otherTabContent", result => marker = result)
+            tryVerify(() => marker === 456, 1000, "Only the sign-in source is refreshed")
+            compare(app.activeView, selected)
         }
 
         function test_external_links_leave_the_webview_and_do_not_create_tabs() {
@@ -1918,6 +2004,71 @@ Item {
             verify(result.edited !== result.title, "Edit timestamps retain secondary emphasis")
             compare(result.border, result.canvasBorder)
             verify(result.border !== "rgb(0, 0, 0)", "Borders follow the theme palette")
+        }
+
+        function test_figma_palette_file_controls_and_notifications_data() {
+            return [{tag: "dark", window: "#20170f", text: "#baa89a", accent: "#eeb98c", accentText: "#5b3815"},
+                    {tag: "light", window: "#f1d4cf", text: "#6d5b58", accent: "#8c4940", accentText: "#ffffff"}]
+        }
+
+        function test_figma_palette_file_controls_and_notifications(data) {
+            const view = app.activeView
+            const fixture = '<style>@layer reset,css-modules;body{color-scheme:' + data.tag + ';color:var(--color-text)}'
+                + '@layer css-modules{ :where(.share){color:var(--color-text-onbrand);background:var(--color-bg-brand)}'
+                + ':where(.secondary){color:var(--color-text-secondary)}'
+                + ':where(.disabled){color:var(--color-text-disabled)} }'
+                + '.wrapper{background:var(--color-loading-progress-wrapper)}'
+                + '.bar{background:var(--color-loading-progress-bar)}'
+                + '.shimmer{background:linear-gradient(to right,var(--color-loading-progress-bar) 20%,var(--color-loading-progress-accent) 50%,var(--color-loading-progress-bar) 80%)}'
+                + '[class*=progressPartial]{background:var(--color-bg-design)}'
+                + '[class*=progressCompleteWarning]{background:#ffcc00}'
+                + '[class*=progressCompleteDanger]{background:#ff0000}'
+                + '[class*=unreadDotStructuredView]{background:var(--color-bg-design)}'
+                + '[class*=markAllReadButton]{color:blue}</style>'
+                + '<button id="page">Page</button><button id="frame">Frame</button>'
+                + '<button id="effect">Inner shadow</button><button id="zoom">18%</button>'
+                + '<button id="sidebar"><span id="folder">Team folder</span></button>'
+                + '<button id="notification"><span id="notification-title">Notification</span></button>'
+                + '<button id="share" class="share">Share</button>'
+                + '<button id="secondary" class="secondary">Secondary</button>'
+                + '<button id="disabled" class="disabled" disabled>Disabled</button>'
+                + '<button id="default-disabled" disabled>Disabled fallback</button>'
+                + '<div id="wrapper" class="wrapper"><div id="bar" class="bar"><div id="shimmer" class="shimmer"></div></div></div>'
+                + '<div id="quota" class="page_tracker_upsell--progressPartial--fixture"></div>'
+                + '<div id="warning" class="page_tracker_upsell--progressPartial--fixture page_tracker_upsell--progressCompleteWarning--fixture"></div>'
+                + '<div id="danger" class="page_tracker_upsell--progressPartial--fixture page_tracker_upsell--progressCompleteDanger--fixture"></div>'
+                + '<div id="unread" class="block_kit_row--unreadDotStructuredView--fixture"></div>'
+                + '<button id="mark-read" class="user_notifications_dropdown--markAllReadButton--fixture">Mark all as read</button>'
+                + '<div id="swatch" style="background:white;color:blue"></div>'
+            let result = null
+            view.runJavaScript('document.body.innerHTML=' + JSON.stringify(fixture)
+                + ';const s=document.createElement("style");s.textContent='
+                + JSON.stringify(FigmaTheme.paletteCss(data)) + ';document.head.appendChild(s)', () => result = true)
+            tryVerify(() => result === true)
+            view.runJavaScript('(()=>{const s=id=>getComputedStyle(document.getElementById(id));'
+                + 'const text=getComputedStyle(document.body).color;return {text,'
+                + 'controls:["page","frame","effect","zoom","folder","notification-title"].map(id=>s(id).color),'
+                + 'share:s("share").color,secondary:s("secondary").color,disabled:s("disabled").color,'
+                + 'defaultDisabled:s("default-disabled").color,bar:s("bar").backgroundColor,wrapper:s("wrapper").backgroundColor,'
+                + 'shimmer:s("shimmer").backgroundImage,quota:s("quota").backgroundColor,'
+                + 'warning:s("warning").backgroundColor,danger:s("danger").backgroundColor,'
+                + 'unread:s("unread").backgroundColor,markRead:s("mark-read").color,'
+                + 'swatch:s("swatch").backgroundColor,swatchText:s("swatch").color}})()', value => result = value)
+            tryVerify(() => result && result.controls !== undefined)
+            for (const color of result.controls) compare(color, result.text, "File and Home labels follow the palette")
+            verify(result.share !== result.text, "The fallback preserves even zero-specificity on-brand colors")
+            verify(result.secondary !== result.text)
+            verify(result.disabled !== result.text)
+            compare(result.defaultDisabled, result.disabled)
+            compare(result.bar, result.quota)
+            compare(result.unread, result.quota)
+            verify(result.wrapper !== result.bar, "Loading progress retains a separate track")
+            verify(result.shimmer.includes(result.bar), "Shimmer uses the themed progress color")
+            verify(result.markRead !== "rgb(0, 0, 255)")
+            compare(result.warning, "rgb(255, 204, 0)")
+            compare(result.danger, "rgb(255, 0, 0)")
+            compare(result.swatch, "rgb(255, 255, 255)")
+            compare(result.swatchText, "rgb(0, 0, 255)")
         }
 
         function test_figma_loader_background_is_transparent_without_hiding_graphics() {

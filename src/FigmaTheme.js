@@ -104,6 +104,9 @@ function paletteCss(palette) {
     set(selectedHover, ["bg-selected-hover", "bg-selected-pressed", "bg-onselected", "bg-onselected-hover", "bg-onselected-pressed", "bg-brand-tertiary-hover", "bg-brand-tertiary-pressed"])
     set(mix(bg, accent, 0.1), ["bg-selected-secondary", "bg-selected-tertiary"])
     set(accent, ["bg-selected-strong", "bg-brand"])
+    set(accent, ["loading-progress-bar"])
+    set(mix(bg, text, 0.16), ["loading-progress-wrapper"])
+    set(accentHover, ["loading-progress-accent"])
     set(accentHover, ["bg-brand-hover"])
     set(accentPressed, ["bg-brand-pressed", "bg-brand-secondary"])
     set(mix(base, text, 0.08), ["bg-secondary-hover"])
@@ -126,6 +129,14 @@ function paletteCss(palette) {
     }
     const declarations = Object.keys(tokens).map(name => "--color-" + name + ":" + tokens[name] + " !important;")
     return ":root, body, [data-preferred-theme] {" + declarations.join("") + "}"
+        // Use Figma's existing reset layer to beat Chromium's ButtonText
+        // without overriding its higher-layer semantic control colors.
+        + '@layer reset {'
+        + ':where(button,input,select,textarea) { color:var(--color-text); }'
+        + ':where(button,input,select,textarea):where(:disabled,[aria-disabled="true"]) { color:var(--color-text-disabled); } }'
+        + '[class*="page_tracker_upsell--progressPartial--"]:not([class*="progressCompleteWarning--"],[class*="progressCompleteDanger--"]), '
+        + '[class*="block_kit_row--unreadDotStructuredView--"] { background-color:var(--color-bg-brand) !important; }'
+        + '[class*="user_notifications_dropdown--markAllReadButton--"] { color:' + readable(accent, bg, 4.5) + ' !important; }'
         // Recents cards use Figma's card primitive, including its main-action marker.
         + '[class*="tiles_view--container--"] [data-fpl-component="primitive"]:has(> [data-card-main-action]) {'
         + '--color-text:' + readable(text, bg, 8) + ' !important;'

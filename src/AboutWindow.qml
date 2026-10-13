@@ -50,7 +50,15 @@ Kirigami.ApplicationWindow {
             }
             Controls.Label {
                 Layout.alignment: Qt.AlignHCenter
+                objectName: "aboutVersion"
                 text: qsTr("Version %1").arg(Qt.application.version)
+                opacity: 0.75
+            }
+            Controls.Label {
+                objectName: "aboutCommit"
+                Layout.alignment: Qt.AlignHCenter
+                text: qsTr("Commit %1").arg(appSettings.buildCommit)
+                font: Kirigami.Theme.smallFont
                 opacity: 0.75
             }
             Controls.Label {

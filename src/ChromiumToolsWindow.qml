@@ -90,6 +90,13 @@ Kirigami.ApplicationWindow {
                 Layout.fillHeight: true
                 clip: true
                 model: tools.tasks
+                TapHandler {
+                    onTapped: eventPoint => {
+                        if (tabList.indexAt(eventPoint.position.x + tabList.contentX,
+                                            eventPoint.position.y + tabList.contentY) < 0)
+                            tabList.currentIndex = -1
+                    }
+                }
                 Controls.ScrollBar.vertical: Controls.ScrollBar {}
                 delegate: Controls.ItemDelegate {
                     required property var modelData

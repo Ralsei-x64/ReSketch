@@ -1,12 +1,17 @@
 ReSketch changelog
 Newest commits first; one brief summary per commit.
-Versions use major.minor.patch; Arch Git packages also include the commit count and hash.
+Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
+About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
-0.2.0 - Unreleased
-Swapped mouse selection to Shift-click toggles and Shift+Alt-click ranges, and kept fullscreen active when pressing Escape.
-Added fading hover tints and a pressed selection tint with 300 ms Bézier icon scaling on toolbar action buttons.
-Accepted overview navigation and card clicks during opening, and added hover tints with theme-aware borders.
-Added selection-aware Delete, Alt+Delete, and Ctrl+G actions, plus saved shortcut editors with individual and complete resets.
+0.2.1 - 2026-10-12
+Added commit IDs to About and --version, and recorded the version bump policy for each update.
+Made Escape clear selections first or close the overview, without leaving fullscreen or disabling titlebar autohide.
+Themed Figma's loading bars, file controls, sidebar labels and notification popup using KDE colors.
+Cleared task manager selection on empty-space clicks and refreshed the originating tab four seconds after Google sign-in completes.
+
+0.2.0 - Development history
+a7a1822 | Swapped mouse selection to Shift-click toggles and Shift+Alt-click ranges, and kept fullscreen active when pressing Escape.
+e893a75 | Added saved shortcut editors and selection actions, accepted early overview input, and animated hover tints and toolbar icons.
 Kept overview arrow selection and Enter working after Tab moves keyboard focus, while preserving popup menu navigation.
 Made Shift+Arrow overview selection shrink when reversing direction, using the visible card order.
 Made overview Left and Right navigation continue across row boundaries while preserving selection behavior.
