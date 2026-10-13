@@ -12,7 +12,7 @@
 - **Multiple windows:** Drag tabs or cards between windows or detach them without reloading their content.
 - **Fullscreen:** Press F11 for a fullscreen webview and hover the top edge to reveal the tab strip.
 - **Titlebar autohide:** Press Shift+F11 to hide the tab strip and reveal it at the top edge without entering fullscreen.
-- **Keyboard shortcuts:** Create and close tabs, cycle through them, toggle the overview, detach tabs, and freeze tabs for testing.
+- **Keyboard shortcuts:** Customize every app shortcut in Settings, reset individual bindings or all defaults, and use Delete, Alt+Delete, and Ctrl+G to manage selected tabs and groups.
 - **Smooth scrolling:** Mouse wheels and trackpads smoothly scroll the tab strip, overview, and web content.
 - **Session restore:** Optionally remember file tabs and their group names, colors, and collapsed states, with deferred loading until selected.
 - **Tab sleeping:** Configure idle time and minimum and maximum loaded-tab counts to manage background tabs.

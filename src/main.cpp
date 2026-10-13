@@ -17,6 +17,7 @@
 #include <QFutureWatcher>
 #include <QtConcurrentRun>
 #include <QIcon>
+#include <QKeySequence>
 #include <QJSValue>
 #include <QLocalServer>
 #include <QLocalSocket>
@@ -217,6 +218,7 @@ class AppSettings : public QObject
     Q_PROPERTY(bool reduceMotion READ reduceMotion WRITE setReduceMotion NOTIFY changed)
     Q_PROPERTY(int toolbarOpacity READ toolbarOpacity WRITE setToolbarOpacity NOTIFY changed)
     Q_PROPERTY(QVariantList toolbarItems READ toolbarItems WRITE setToolbarItems NOTIFY changed)
+    Q_PROPERTY(QVariantMap shortcutOverrides READ shortcutOverrides WRITE setShortcutOverrides NOTIFY changed)
     Q_PROPERTY(bool windowControlsInTabBar READ windowControlsInTabBar WRITE setWindowControlsInTabBar NOTIFY changed)
     Q_PROPERTY(bool keepWindowDecorations READ keepWindowDecorations WRITE setKeepWindowDecorations NOTIFY changed)
     Q_PROPERTY(bool ignoreToolbarBlur READ ignoreToolbarBlur WRITE setIgnoreToolbarBlur NOTIFY changed)
@@ -496,6 +498,16 @@ public:
         for (const auto &item : store.value(QStringLiteral("toolbarItems")).toList()) append(item, true);
         for (const auto &item : defaults) append(item, false);
         return result;
+    }
+    QVariantMap shortcutOverrides() const { return store.value(QStringLiteral("shortcutOverrides")).toMap(); }
+    Q_INVOKABLE QString shortcutSequenceText(const QKeySequence &sequence) const
+    {
+        return sequence.toString(QKeySequence::PortableText);
+    }
+    Q_INVOKABLE QString keyEventSequence(int key, int modifiers) const
+    {
+        return QKeySequence(QKeyCombination(Qt::KeyboardModifiers(modifiers) & ~Qt::KeypadModifier,
+                                           Qt::Key(key))).toString(QKeySequence::PortableText);
     }
     bool windowControlsInTabBar() const { return store.value(QStringLiteral("windowControlsInTabBar"), false).toBool(); }
     bool keepWindowDecorations() const { return store.value(QStringLiteral("keepWindowDecorations"), false).toBool(); }
@@ -854,6 +866,19 @@ public:
         emit changed();
         if (translucentSidebars())
             emit figmaAppearanceChanged();
+    }
+    void setShortcutOverrides(const QVariantMap &value)
+    {
+        QVariantMap normalized;
+        for (auto it = value.cbegin(); it != value.cend(); ++it) {
+            const auto text = it.value().toString().trimmed();
+            const auto sequence = QKeySequence::fromString(text, QKeySequence::PortableText);
+            if (text.isEmpty() || (!sequence.isEmpty() && sequence[0].key() != Qt::Key_unknown))
+                normalized[it.key()] = sequence.toString(QKeySequence::PortableText);
+        }
+        if (shortcutOverrides() == normalized) return;
+        store.setValue(QStringLiteral("shortcutOverrides"), normalized);
+        emit changed();
     }
     void setToolbarItems(const QVariantList &value)
     {

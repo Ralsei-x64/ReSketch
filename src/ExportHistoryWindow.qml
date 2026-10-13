@@ -183,6 +183,10 @@ Kirigami.ApplicationWindow {
                     background: Rectangle {
                         radius: Kirigami.Units.smallSpacing * 1.5
                         color: Qt.tint(Kirigami.Theme.backgroundColor, Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, entry.hovered ? 0.05 : 0.025))
+                        Behavior on color {
+                            enabled: !appSettings.reduceMotion
+                            ColorAnimation { duration: 150; easing.type: Easing.OutCubic }
+                        }
                         border.width: 1
                         border.color: entry.activeFocus ? Kirigami.Theme.highlightColor : Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.12)
                     }

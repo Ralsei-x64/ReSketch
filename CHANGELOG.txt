@@ -3,6 +3,9 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch; Arch Git packages also include the commit count and hash.
 
 0.2.0 - Unreleased
+Added fading hover tints and a pressed selection tint with 300 ms Bézier icon scaling on toolbar action buttons.
+Accepted overview navigation and card clicks during opening, and added hover tints with theme-aware borders.
+Added selection-aware Delete, Alt+Delete, and Ctrl+G actions, plus saved shortcut editors with individual and complete resets.
 Kept overview arrow selection and Enter working after Tab moves keyboard focus, while preserving popup menu navigation.
 Made Shift+Arrow overview selection shrink when reversing direction, using the visible card order.
 Made overview Left and Right navigation continue across row boundaries while preserving selection behavior.

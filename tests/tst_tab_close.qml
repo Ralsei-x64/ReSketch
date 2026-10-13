@@ -38,6 +38,20 @@ Item {
                     {id: "developer-tools", title: "Developer Tools", icon: "applications-development", enabled: false}]
         }
         property var toolbarItems: defaultToolbarItems()
+        property var shortcutOverrides: ({})
+        function shortcutSequenceText(value) { return String(value) }
+        function keyEventSequence(key, modifiers) {
+            const keys = {}
+            keys[Qt.Key_Left] = "Left"; keys[Qt.Key_Right] = "Right"
+            keys[Qt.Key_Up] = "Up"; keys[Qt.Key_Down] = "Down"
+            keys[Qt.Key_Return] = "Return"; keys[Qt.Key_Enter] = "Enter"
+            keys[Qt.Key_Delete] = "Delete"
+            return ((modifiers & Qt.ControlModifier) ? "Ctrl+" : "")
+                + ((modifiers & Qt.AltModifier) ? "Alt+" : "")
+                + ((modifiers & Qt.ShiftModifier) ? "Shift+" : "")
+                + ((modifiers & Qt.MetaModifier) ? "Meta+" : "")
+                + (keys[key] || String.fromCharCode(key))
+        }
         property bool windowControlsInTabBar: false
         property bool keepWindowDecorations: true
         property bool ignoreToolbarBlur: false
@@ -96,7 +110,7 @@ Item {
             recordedOrigin = originName
         }
         function clearExports() { exportHistory = [] }
-        function resetSettings() { figmaCustomCss = ""; toolbarItems = defaultToolbarItems() }
+        function resetSettings() { figmaCustomCss = ""; toolbarItems = defaultToolbarItems(); shortcutOverrides = {} }
         function openExport(path, folder) { return true }
         function deleteExport(path) {
             if (!exportDeletionSucceeds) return false
@@ -1188,7 +1202,7 @@ Item {
             compare(findChild(overviewCard(fourth), "overviewCardBorder").border.width, 1)
             mouseClick(card, card.width / 2, card.height / 2, Qt.LeftButton, (Qt.ShiftModifier | Qt.AltModifier))
             compare(app.selectedTabViews, [third])
-            compare(findChild(card, "overviewCardBorder").color.a, 0)
+            verify(findChild(card, "overviewCardBorder").color.a > 0, "A hovered card keeps its hover tint after deselection")
             const target = overviewCard(second)
             mouseClick(target, target.width / 2, target.height / 2)
             compare(app.overviewVisible, false)
@@ -1690,6 +1704,7 @@ Item {
             if (app.webFullscreen) app.toggleWebFullscreen()
             if (app.autoHideToolbar) app.toggleToolbarAutoHide()
             app.selectedTabViews = []
+            appSettings.shortcutOverrides = {}
             app.width = 1280
             app.height = 800
             appSettings.rememberOpenedTabs = false
@@ -2206,7 +2221,7 @@ Item {
             compare(app.overviewSidebarBackdrop, 0)
         }
 
-        function test_overview_hover_only_darkens_border() {
+        function test_overview_hover_tints_card_and_uses_palette_border() {
             appSettings.translucentSidebars = true
             appSettings.toolbarOpacity = 50
             const view = app.views[0]
@@ -2223,17 +2238,24 @@ Item {
             const backgroundColor = String(background.color)
             mouseMove(card, card.width / 2, card.height / 2)
             tryCompare(hover, "containsMouse", true)
+            verify(border.hoverAmount < 1, "Hover tint starts below its final opacity")
+            tryVerify(() => border.hoverAmount > 0 && border.hoverAmount < 1)
             compare(background.opacity, 1)
             compare(String(background.color), backgroundColor)
             compare(app.overviewSidebarBackdrop, 1)
             compare(view.opacity, 1)
-            compare(border.color, "#00000000")
+            tryCompare(border, "color", app.selectionTint)
             compare(border.border.width, 1)
             verify(String(border.border.color) !== idleBorder)
-            fuzzyCompare(border.border.color.r, 0, 0.01)
+            fuzzyCompare(border.border.color.a, 0.55, 0.01)
             mouseMove(app.contentItem, app.width - 10, app.height - 10)
             tryCompare(hover, "containsMouse", false)
-            compare(String(border.border.color), idleBorder)
+            tryCompare(border, "color", "#00000000")
+            app.selectedTabViews = [view]
+            compare(border.color, app.selectionTint)
+            mouseMove(app.contentItem, app.width - 10, app.height - 10)
+            tryCompare(hover, "containsMouse", false)
+            tryVerify(() => String(border.border.color) === idleBorder)
         }
 
         function test_export_uses_originating_file_and_cancel() {
@@ -2488,6 +2510,22 @@ Item {
                 return null
             }
             return find((window || app).contentItem)
+        }
+
+        function test_toolbar_press_feedback_keeps_action_working() {
+            const button = visualChild(app.contentItem, "toolbarButton-overview")
+            const icon = findChild(button, "tabBarButtonIcon")
+            verify(button && icon)
+            mousePress(button, button.width / 2, button.height / 2)
+            tryCompare(button, "pressedFeedback", true)
+            tryCompare(icon, "scale", 0.85)
+            compare(button.background.color, app.selectionTint)
+            compare(app.overviewVisible, false, "The action fires on release")
+            mouseRelease(button, button.width / 2, button.height / 2)
+            tryCompare(button, "pressedFeedback", false)
+            tryCompare(icon, "scale", 1)
+            compare(app.overviewVisible, true)
+            verify(button.background.color !== app.selectionTint)
         }
 
         function test_toolbar_buttons_toggle_reorder_and_open_export_history() {
@@ -3156,6 +3194,194 @@ Item {
             keyClick(Qt.Key_Return)
             compare(app.overviewVisible, false, "Enter still opens the card after focus traversal")
             compare(app.activeView, app.views[1])
+        }
+
+        function test_selection_delete_shortcuts_data() {
+            return [{tag: "tabs", group: false}, {tag: "group", group: true},
+                    {tag: "group-and-tab", group: true, mixed: true},
+                    {tag: "close-group", group: true, closeGroup: true},
+                    {tag: "group-in-strip", group: true, strip: true}]
+        }
+
+        function test_selection_delete_shortcuts(data) {
+            appSettings.reduceMotion = true
+            const first = app.views[0], second = app.views[1], third = app.views[2]
+            let id = ""
+            if (data.group) {
+                id = app.createTabGroup(first, "Delete test")
+                app.assignTabGroup(second, id)
+                app.updateTabGroup(id, {overviewCollapsed: true}, true)
+            }
+            app.activateHome()
+            app.requestActivate()
+            tryVerify(() => app.active)
+            if (data.strip) {
+                const header = app.tabGroupHeaderItem(id)
+                mouseClick(header, 50, header.height / 2, Qt.LeftButton, Qt.ShiftModifier)
+                compare(app.selectedGroupIds, [id])
+                compare(app.groupFor(first).collapsed, false, "Selecting a group does not collapse it")
+            } else {
+                app.toggleOverview()
+                findChild(app, "overviewSearch").forceActiveFocus()
+                waitForRendering(app.contentItem)
+                keyClick(Qt.Key_Right)
+                if (!data.group || data.mixed) keyClick(Qt.Key_Right, Qt.ShiftModifier)
+                compare(app.selectedGroupIds, data.group ? [id] : [])
+            }
+            keyClick(Qt.Key_Delete, data.closeGroup ? Qt.AltModifier : Qt.NoModifier)
+            const expected = data.closeGroup || !data.group ? 2 : data.mixed ? 3 : 4
+            tryCompare({get count() { return app.views.length }}, "count", expected)
+            compare(app.tabGroups.length, 0)
+            compare(app.views.includes(first), data.group && !data.closeGroup)
+            compare(app.views.includes(second), data.group && !data.closeGroup)
+            if (data.mixed) verify(!app.views.includes(third))
+            compare(app.selectedTabViews, [])
+            compare(app.selectedGroupIds, [])
+            verify(app.homeView, "Home is never closed by selection actions")
+        }
+
+        function test_ctrl_g_selection_actions_data() {
+            return [{tag: "create", action: "create"}, {tag: "join", action: "join"},
+                    {tag: "ungroup", action: "ungroup"}]
+        }
+
+        function test_ctrl_g_selection_actions(data) {
+            appSettings.reduceMotion = true
+            const first = app.views[0], second = app.views[1], third = app.views[2]
+            let id = ""
+            if (data.action !== "create") {
+                id = app.createTabGroup(first, "Target")
+                app.assignTabGroup(second, id)
+                app.updateTabGroup(id, {overviewCollapsed: true}, true)
+            }
+            app.activateHome()
+            app.toggleOverview()
+            app.requestActivate()
+            tryVerify(() => app.active)
+            findChild(app, "overviewSearch").forceActiveFocus()
+            waitForRendering(app.contentItem)
+            keyClick(Qt.Key_Right)
+            if (data.action !== "ungroup") keyClick(Qt.Key_Right, Qt.ShiftModifier)
+            keyClick(Qt.Key_G, Qt.ControlModifier)
+            if (data.action === "create") {
+                const dialog = findChild(app, "tabGroupNameDialog")
+                tryCompare(dialog, "visible", true)
+                compare(app.tabGroups.length, 0, "New groups still require a name before creation")
+                const name = findChild(app, "tabGroupNameEditor")
+                name.forceActiveFocus()
+                name.selectAll()
+                keyClick(Qt.Key_Delete)
+                compare(app.views.length, 4, "Delete edits the name field while the naming popup is open")
+                name.text = "Keyboard group"
+                dialog.accept()
+                compare(app.tabGroups.length, 1)
+                compare(first.tabGroupId, second.tabGroupId)
+                verify(first.tabGroupId !== "")
+                compare(third.tabGroupId, "")
+            } else if (data.action === "join") {
+                compare(app.tabGroups.length, 1)
+                compare(first.tabGroupId, id)
+                compare(second.tabGroupId, id)
+                compare(third.tabGroupId, id)
+            } else {
+                compare(app.tabGroups.length, 0)
+                compare(first.tabGroupId, "")
+                compare(second.tabGroupId, "")
+            }
+            compare(app.views.length, 4)
+        }
+
+        function test_shortcut_settings_edit_reset_and_live_binding() {
+            appSettings.reduceMotion = true
+            app.openSettings()
+            const settings = findChild(app, "settingsWindow")
+            settings.selectedSection = settings.sections.findIndex(section => section.title === "Shortcuts")
+            verify(settings.selectedSection >= 0)
+            waitForRendering(settings.contentItem)
+            const editor = visualChild(settings.contentItem, "shortcutEditor-new-tab")
+            verify(editor)
+            settings.requestActivate()
+            tryVerify(() => settings.active)
+            editor.startCapturing()
+            keyClick(Qt.Key_Y, Qt.ControlModifier)
+            tryCompare({get sequence() { return appSettings.shortcutOverrides["new-tab"] }}, "sequence", "Ctrl+Y")
+            compare(String(editor.keySequence), "Ctrl+Y")
+            settings.setShortcut("new-tab", "Ctrl+W")
+            verify(!!settings.shortcutError, "Duplicate app shortcuts are rejected")
+            compare(appSettings.shortcutOverrides["new-tab"], "Ctrl+Y")
+            app.requestActivate()
+            tryVerify(() => app.active)
+            app.activateHome()
+            keyClick(Qt.Key_T, Qt.ControlModifier)
+            compare(app.views.length, 4, "The previous shortcut no longer creates a tab")
+            keyClick(Qt.Key_Y, Qt.ControlModifier)
+            compare(app.views.length, 5, "The edited shortcut applies immediately")
+            const clear = editor.children.find(child => child.icon && child.icon.name.startsWith("edit-clear"))
+            verify(clear)
+            clear.clicked()
+            compare(appSettings.shortcutOverrides["new-tab"], "")
+            keyClick(Qt.Key_Y, Qt.ControlModifier)
+            compare(app.views.length, 5, "Clearing a shortcut disables it")
+            const reset = visualChild(settings.contentItem, "resetShortcut-new-tab")
+            verify(reset.enabled)
+            reset.clicked()
+            verify(!Object.prototype.hasOwnProperty.call(appSettings.shortcutOverrides, "new-tab"))
+            compare(String(editor.keySequence), "Ctrl+T")
+            keyClick(Qt.Key_T, Qt.ControlModifier)
+            compare(app.views.length, 6, "The individual reset restores the default binding")
+            settings.setShortcut("overview-right", "L")
+            settings.setShortcut("overview-left", "H")
+            app.activateHome()
+            app.toggleOverview()
+            findChild(app, "overviewSearch").forceActiveFocus()
+            waitForRendering(app.contentItem)
+            keyClick(Qt.Key_Right)
+            compare(app.overviewNavigationTarget, app.homeView, "Remapped arrows are not handled by a hard-coded fallback")
+            keyClick(Qt.Key_L)
+            compare(app.overviewNavigationTarget === app.views[0], true)
+            keyClick(Qt.Key_H)
+            compare(app.overviewNavigationTarget, app.homeView)
+            visualChild(settings.contentItem, "resetAllShortcuts").clicked()
+            compare(Object.keys(appSettings.shortcutOverrides).length, 0)
+            keyClick(Qt.Key_Right)
+            compare(app.overviewNavigationTarget === app.views[0], true)
+        }
+
+        function test_overview_accepts_early_keyboard_selection() {
+            const target = app.views[0]
+            app.activateHome()
+            app.requestActivate()
+            tryVerify(() => app.active)
+            app.toggleOverview()
+            compare(app.overviewAnimationRunning, true)
+            keyClick(Qt.Key_Right)
+            compare(app.overviewNavigationTarget, target)
+            keyClick(Qt.Key_Return)
+            compare(app.pendingOverviewSelection, target)
+            compare(app.overviewSelectedView, app.homeView,
+                    "Opening continues to scale the original card without a jump")
+            tryCompare(app, "overviewVisible", false, 1500)
+            compare(app.activeView, target)
+            compare(app.pendingOverviewSelection, null)
+        }
+
+        function test_overview_accepts_early_card_click() {
+            app.activateHome()
+            app.toggleOverview()
+            tryVerify(() => app.overviewProgress > 0.8 && app.overviewProgress < 0.95)
+            const target = app.views[app.views.length - 1]
+            const card = overviewCard(target)
+            const mouse = findChild(card, "overviewCardMouse")
+            compare(mouse.enabled, true)
+            mouseClick(card, card.width / 2, card.height / 2)
+            compare(app.pendingOverviewSelection, target)
+            tryCompare(app, "overviewVisible", false, 1500)
+            compare(app.activeView, target)
+            app.toggleOverview()
+            app.selectOverviewView(app.homeView)
+            compare(app.pendingOverviewSelection, app.homeView)
+            app.dismissOverview()
+            compare(app.pendingOverviewSelection, null, "Dismissal cancels queued input")
         }
 
         function test_overview_keyboard_navigation_search_and_no_results() {

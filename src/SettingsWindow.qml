@@ -5,12 +5,31 @@ import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import org.kde.kquickcontrols as KQuickControls
+import "Shortcuts.js" as Shortcuts
 
 Kirigami.ApplicationWindow {
     id: settingsWindow
     transientParent: null
     objectName: "settingsWindow"
     property int selectedSection: 0
+    property string shortcutError: ""
+    function setShortcut(id, sequence) {
+        const conflict = sequence && Shortcuts.items.find(item => item.id !== id
+            && appSettings.shortcutSequenceText(Shortcuts.sequence(appSettings, item.id)) === sequence)
+        if (conflict) {
+            shortcutError = qsTr("This shortcut is already assigned to %1.").arg(conflict.title)
+            return
+        }
+        const overrides = Object.assign({}, appSettings.shortcutOverrides)
+        if (sequence === Shortcuts.items.find(item => item.id === id).defaultSequence) delete overrides[id]
+        else overrides[id] = sequence
+        appSettings.shortcutOverrides = overrides
+        shortcutError = ""
+    }
+    function resetShortcut(id) {
+        setShortcut(id, appSettings.shortcutSequenceText(Shortcuts.items.find(item => item.id === id).defaultSequence))
+    }
     property int toolbarDraggedIndex: -1
     property int toolbarDropIndex: -1
     function moveToolbarItem(from, to) {
@@ -28,7 +47,8 @@ Kirigami.ApplicationWindow {
         {title: "Tabs", icon: "tab-duplicate", keywords: "sleep remember restore loaded Home"},
         {title: "Performance", icon: "preferences-system-performance", keywords: "memory preview quality menus Chromium GPU Vulkan canvas flags switches"},
         {title: "Notifications", icon: "preferences-desktop-notification", keywords: "desktop alerts enable disable Home"},
-        {title: "Toolbar", icon: "configure", keywords: "buttons icons rearrange order new tab overview refresh menu export history settings task manager developer tools"}
+        {title: "Toolbar", icon: "configure", keywords: "buttons icons rearrange order new tab overview refresh menu export history settings task manager developer tools"},
+        {title: "Shortcuts", icon: "preferences-desktop-keyboard", keywords: "keyboard keys bindings shortcuts reset defaults selection group delete"}
     ]
     readonly property var filteredSections: sections.map((section, index) => ({title: section.title, icon: section.icon, keywords: section.keywords, section: index}))
         .filter(section => (section.title + " " + section.keywords).toLowerCase().includes(settingsSearch.text.toLowerCase()))
@@ -133,6 +153,86 @@ Kirigami.ApplicationWindow {
                     ColumnLayout {
                         width: sectionScroll.availableWidth
                         spacing: Kirigami.Units.largeSpacing
+                        Controls.Frame {
+                            Layout.fillWidth: true
+                            visible: settingsWindow.selectedSection === 5
+                            padding: 0
+                            background: Item {}
+                            contentItem: ColumnLayout {
+                                spacing: Kirigami.Units.smallSpacing
+                                Controls.Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Click a shortcut to record new keys. Use its clear button to disable it.")
+                                    wrapMode: Text.WordWrap
+                                }
+                                Kirigami.InlineMessage {
+                                    Layout.fillWidth: true
+                                    visible: !!settingsWindow.shortcutError
+                                    type: Kirigami.MessageType.Error
+                                    text: settingsWindow.shortcutError
+                                }
+                                Repeater {
+                                    model: Shortcuts.items.length
+                                    ColumnLayout {
+                                        id: shortcutRow
+                                        required property int index
+                                        readonly property var definition: Shortcuts.items[index]
+                                        Layout.fillWidth: true
+                                        spacing: Kirigami.Units.smallSpacing
+                                        Controls.Label {
+                                            Layout.topMargin: Kirigami.Units.mediumSpacing
+                                            visible: shortcutRow.index === 0
+                                                || Shortcuts.items[shortcutRow.index - 1].category !== shortcutRow.definition.category
+                                            text: shortcutRow.definition.category
+                                            font.bold: true
+                                        }
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Controls.Label {
+                                                Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
+                                                text: shortcutRow.definition.title
+                                                wrapMode: Text.WordWrap
+                                            }
+                                            KQuickControls.KeySequenceItem {
+                                                objectName: "shortcutEditor-" + shortcutRow.definition.id
+                                                Layout.preferredWidth: 220
+                                                keySequence: Shortcuts.sequence(appSettings, shortcutRow.definition.id)
+                                                modifierlessAllowed: true
+                                                multiKeyShortcutsAllowed: false
+                                                checkForConflictsAgainst: 0
+                                                Accessible.name: shortcutRow.definition.title
+                                                onKeySequenceModified: {
+                                                    settingsWindow.setShortcut(shortcutRow.definition.id,
+                                                        appSettings.shortcutSequenceText(keySequence))
+                                                    keySequence = Qt.binding(() => Shortcuts.sequence(appSettings, shortcutRow.definition.id))
+                                                }
+                                            }
+                                            Controls.ToolButton {
+                                                objectName: "resetShortcut-" + shortcutRow.definition.id
+                                                icon.name: "edit-undo"
+                                                enabled: Object.prototype.hasOwnProperty.call(appSettings.shortcutOverrides, shortcutRow.definition.id)
+                                                Accessible.name: qsTr("Reset %1 shortcut").arg(shortcutRow.definition.title)
+                                                Controls.ToolTip.text: qsTr("Reset to %1").arg(shortcutRow.definition.defaultSequence)
+                                                Controls.ToolTip.visible: hovered
+                                                onClicked: settingsWindow.resetShortcut(shortcutRow.definition.id)
+                                            }
+                                        }
+                                    }
+                                }
+                                Controls.Button {
+                                    objectName: "resetAllShortcuts"
+                                    Layout.topMargin: Kirigami.Units.largeSpacing
+                                    text: qsTr("Reset all shortcuts to defaults")
+                                    icon.name: "edit-undo"
+                                    onClicked: {
+                                        appSettings.shortcutOverrides = {}
+                                        settingsWindow.shortcutError = ""
+                                    }
+                                }
+                            }
+                        }
+
                         Controls.Frame {
                             Layout.fillWidth: true
                             visible: settingsWindow.selectedSection === 4

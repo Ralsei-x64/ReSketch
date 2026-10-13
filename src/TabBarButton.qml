@@ -9,12 +9,24 @@ Controls.ToolButton {
     id: button
     property var dragWindow: null
     property bool dimmed: false
+    property bool animatePress: false
+    property bool reduceMotion: appSettings.reduceMotion
+    property color pressedTint: Qt.rgba(Kirigami.Theme.highlightColor.r,
+                                       Kirigami.Theme.highlightColor.g,
+                                       Kirigami.Theme.highlightColor.b, 0.14)
+    readonly property bool pressedFeedback: animatePress && enabled && !dimmed && (down || buttonTap.pressed)
     display: Controls.AbstractButton.IconOnly
 
     background: Rectangle {
-        color: button.hovered ? Qt.rgba(Kirigami.Theme.highlightColor.r,
+        property real hoverAmount: button.hovered ? 1 : 0
+        Behavior on hoverAmount {
+            enabled: !button.reduceMotion
+            NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+        }
+        color: button.pressedFeedback ? button.pressedTint
+             : hoverAmount > 0 ? Qt.rgba(Kirigami.Theme.highlightColor.r,
                                         Kirigami.Theme.highlightColor.g,
-                                        Kirigami.Theme.highlightColor.b, 0.12)
+                                        Kirigami.Theme.highlightColor.b, 0.12 * hoverAmount)
                               : "transparent"
     }
     contentItem: Item {
@@ -28,12 +40,23 @@ Controls.ToolButton {
             }
         }
         TapHandler {
+            id: buttonTap
             enabled: !!button.dragWindow
             acceptedButtons: Qt.LeftButton
             onTapped: button.clicked()
         }
 
         Kirigami.Icon {
+            objectName: "tabBarButtonIcon"
+            scale: button.pressedFeedback ? 0.85 : 1
+            Behavior on scale {
+                enabled: !button.reduceMotion
+                NumberAnimation {
+                    duration: 300
+                    easing.type: Easing.BezierSpline
+                    easing.bezierCurve: [0, 0, 0, 1, 1, 1]
+                }
+            }
             width: button.icon.width
             height: button.icon.height
             anchors.centerIn: parent

@@ -15,6 +15,7 @@ import "Policy.js" as Policy
 import "FigmaMenu.js" as FigmaMenu
 import "FigmaTheme.js" as FigmaTheme
 import "NotificationPolicy.js" as NotificationPolicy
+import "Shortcuts.js" as Shortcuts
 
 Kirigami.ApplicationWindow {
     id: root
@@ -72,9 +73,15 @@ Kirigami.ApplicationWindow {
     }, FigmaMenu.storeSource)
     property var views: []
     property var selectedTabViews: []
+    property var selectedGroupIds: []
+    readonly property bool keyboardPopupActive: Controls.Overlay.overlay.children.some(item => item.visible && item.activeFocus)
+    readonly property bool selectionShortcutAvailable: selectedTabViews.length > 0 && !keyboardPopupActive
+        && (!overviewVisible || overviewProgress >= 0.999 && !overviewAnimationRunning && !overviewClosing)
     property var rangeSelectionAnchor: null
     property var rangeSelectionBase: []
     onSelectedTabViewsChanged: {
+        selectedGroupIds = selectedTabViews.length ? selectedGroupIds.filter(id =>
+            views.filter(view => view.tabGroupId === id).every(view => selectedTabViews.includes(view))) : []
         if (!selectedTabViews.length) overviewRangeAnchor = null
         if (rangeSelectionAnchor && !selectedTabViews.includes(rangeSelectionAnchor)) {
             rangeSelectionAnchor = null
@@ -150,6 +157,7 @@ Kirigami.ApplicationWindow {
     readonly property bool overviewAnimationRunning: overviewAnimation.running
     readonly property bool overviewGroupAnimationRunning: tabGroups.some(group => overviewGroupContainer(group.id)?.transitioning)
     property var overviewSelectedView: null
+    property var pendingOverviewSelection: null
     property var overviewNavigationTarget: null
     property var overviewRangeAnchor: null
     property var overviewDraggedView: null
@@ -307,13 +315,18 @@ Kirigami.ApplicationWindow {
                     Controls.ToolTip.visible: hovered
                     readonly property bool selected: root.activeView === root.homeView
                     background: Rectangle {
+                        property real hoverAmount: homeButton.hovered ? 1 : 0
+                        Behavior on hoverAmount {
+                            enabled: !appSettings.reduceMotion
+                            NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+                        }
                         color: homeButton.selected ? Qt.rgba(Kirigami.Theme.backgroundColor.r,
                                                               Kirigami.Theme.backgroundColor.g,
                                                               Kirigami.Theme.backgroundColor.b,
                                                               root.toolbarAlpha)
-                                                   : homeButton.hovered ? Qt.rgba(Kirigami.Theme.highlightColor.r,
+                                                   : hoverAmount > 0 ? Qt.rgba(Kirigami.Theme.highlightColor.r,
                                                                                   Kirigami.Theme.highlightColor.g,
-                                                                                  Kirigami.Theme.highlightColor.b, 0.12)
+                                                                                  Kirigami.Theme.highlightColor.b, 0.12 * hoverAmount)
                                                                         : "transparent"
                     }
                     contentItem: Item {
@@ -583,13 +596,18 @@ Kirigami.ApplicationWindow {
                                     x: tabButton.groupPrefix
                                     width: Math.max(0, tabButton.width - tabButton.groupPrefix)
                                     visible: tabButton.tabView.groupExpansion > 0.001
+                                    property real hoverAmount: tabButton.hovered ? 1 : 0
+                                    Behavior on hoverAmount {
+                                        enabled: !appSettings.reduceMotion
+                                        NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+                                    }
                                     color: tabButton.selected ? Qt.rgba(Kirigami.Theme.backgroundColor.r,
                                                                         Kirigami.Theme.backgroundColor.g,
                                                                         Kirigami.Theme.backgroundColor.b,
                                                                         root.toolbarAlpha)
-                                                              : tabButton.hovered ? Qt.rgba(Kirigami.Theme.highlightColor.r,
+                                                              : hoverAmount > 0 ? Qt.rgba(Kirigami.Theme.highlightColor.r,
                                                                                              Kirigami.Theme.highlightColor.g,
-                                                                                             Kirigami.Theme.highlightColor.b, 0.12)
+                                                                                             Kirigami.Theme.highlightColor.b, 0.12 * hoverAmount)
                                                                                   : "transparent"
 
                                     Rectangle {
@@ -921,9 +939,28 @@ Kirigami.ApplicationWindow {
                                     source: groupHeader.group?.collapsed ? "arrow-right" : "arrow-left"
                                 }
                             }
+                            property int clickModifiers: Qt.NoModifier
+                            TapHandler {
+                                acceptedButtons: Qt.LeftButton
+                                onPressedChanged: if (pressed) groupHeader.clickModifiers = point.modifiers
+                            }
                             onClicked: {
-                                if (!groupLabelDrag.active && !suppressClick)
+                                const modifiers = clickModifiers
+                                clickModifiers = Qt.NoModifier
+                                if (!groupLabelDrag.active && !suppressClick
+                                        && !root.selectGroupForAction(groupHeader.group.id, modifiers))
                                     root.updateTabGroup(groupHeader.group.id, {collapsed: !groupHeader.group.collapsed})
+                            }
+                            background: Rectangle {
+                                property real hoverAmount: groupHeader.hovered ? 1 : 0
+                                Behavior on hoverAmount {
+                                    enabled: !appSettings.reduceMotion
+                                    NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+                                }
+                                color: root.selectedGroupIds.includes(groupHeader.group?.id) ? root.selectionTint
+                                       : hoverAmount > 0 ? Qt.rgba(Kirigami.Theme.highlightColor.r,
+                                             Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.12 * hoverAmount)
+                                       : "transparent"
                             }
                             property bool suppressClick: false
                             DragHandler {
@@ -1028,6 +1065,9 @@ Kirigami.ApplicationWindow {
                             id: toolbarButton
                             required property var modelData
                             objectName: "toolbarButton-" + modelData.id
+                            animatePress: true
+                            pressedTint: root.selectionTint
+                            reduceMotion: appSettings.reduceMotion
                             dragWindow: root
                             width: 40
                             height: root.tabStripHeight
@@ -1276,7 +1316,7 @@ Kirigami.ApplicationWindow {
                 anchors.fill: parent
                 z: 40
                 visible: root.overviewVisible
-                Keys.onPressed: event => root.handleOverviewKey(event)
+                Keys.onPressed: event => root.handleOverviewInput(event)
 
                 Flickable {
                     id: overviewFlickable
@@ -1529,8 +1569,15 @@ Kirigami.ApplicationWindow {
                                     anchors.fill: parent
                                     z: 3
                                     radius: groupContainer.radius
-                                    color: groupContainer.members.some(view => root.selectedTabViews.includes(view))
-                                           ? root.selectionTint : "transparent"
+                                    property real hoverAmount: groupOverviewMouse.containsMouse ? 1 : 0
+                                    Behavior on hoverAmount {
+                                        enabled: !appSettings.reduceMotion
+                                        NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+                                    }
+                                    color: groupContainer.members.some(view => root.selectedTabViews.includes(view)) ? root.selectionTint
+                                           : hoverAmount > 0 ? Qt.rgba(root.selectionTint.r, root.selectionTint.g,
+                                                                      root.selectionTint.b, root.selectionTint.a * hoverAmount)
+                                                             : "transparent"
                                     border.width: groupContainer.group?.overviewCollapsed
                                                   && groupContainer.members.includes(root.activeView) ? 2 : 0
                                     border.color: Kirigami.Theme.highlightColor
@@ -1690,13 +1737,14 @@ Kirigami.ApplicationWindow {
                                     }
                                 }
                                 MouseArea {
+                                    id: groupOverviewMouse
+                                    hoverEnabled: true
                                     anchors.fill: parent
-                                    onClicked: {
-                                        if (!groupOverviewDrag.active && !groupContainer.settling) {
-                                            root.selectedTabViews = []
+                                    onClicked: mouse => {
+                                        if (!groupOverviewDrag.active && !groupContainer.settling
+                                                && !root.selectGroupForAction(groupContainer.group.id, mouse.modifiers))
                                             root.updateTabGroup(groupContainer.group.id,
                                                 {overviewCollapsed: !groupContainer.group.overviewCollapsed && !groupContainer.collapsing})
-                                        }
                                     }
                                 }
                                 TapHandler {
@@ -1944,14 +1992,21 @@ Kirigami.ApplicationWindow {
                                     anchors.fill: parent
                                     z: 3
                                     radius: overviewCard.cornerRadius
-                                    color: root.selectedTabViews.includes(overviewCard.previewView)
-                                           ? root.selectionTint : "transparent"
+                                    property real hoverAmount: overviewCardMouse.containsMouse ? 1 : 0
+                                    Behavior on hoverAmount {
+                                        enabled: !appSettings.reduceMotion
+                                        NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+                                    }
+                                    color: root.selectedTabViews.includes(overviewCard.previewView) ? root.selectionTint
+                                           : hoverAmount > 0 ? Qt.rgba(root.selectionTint.r, root.selectionTint.g,
+                                                                      root.selectionTint.b, root.selectionTint.a * hoverAmount)
+                                                             : "transparent"
                                     border.width: 1
                                     border.color: overviewCard.group ? overviewCard.group.color
-                                                  : overviewCardMouse.containsMouse ? Qt.rgba(0, 0, 0, 0.55)
                                                   : Qt.rgba(Kirigami.Theme.textColor.r,
-                                                          Kirigami.Theme.textColor.g,
-                                                          Kirigami.Theme.textColor.b, 0.3)
+                                                            Kirigami.Theme.textColor.g,
+                                                            Kirigami.Theme.textColor.b,
+                                                            0.3 + 0.25 * hoverAmount)
                                 }
 
                                 Rectangle {
@@ -2119,7 +2174,7 @@ Kirigami.ApplicationWindow {
                                     anchors.fill: parent
                                     z: 1
                                     hoverEnabled: true
-                                    enabled: root.overviewProgress > 0.95
+                                    enabled: root.overviewVisible && !root.overviewClosing
                                     onClicked: mouse => {
                                         if (!overviewCard.dragging && !overviewCard.settling)
                                             root.selectFileTabs(overviewCard.previewView, mouse.modifiers, true)
@@ -2288,7 +2343,10 @@ Kirigami.ApplicationWindow {
         syncOverviewModel()
         if (overviewVisible) Qt.callLater(root.syncOverviewNavigation)
     }
-    onTabGroupsChanged: if (overviewVisible) Qt.callLater(root.syncOverviewNavigation)
+    onTabGroupsChanged: {
+        selectedGroupIds = selectedGroupIds.filter(id => tabGroups.some(group => group.id === id))
+        if (overviewVisible) Qt.callLater(root.syncOverviewNavigation)
+    }
     onOverviewVisibleChanged: if (!overviewVisible) {
         overviewNavigationTarget = null
         overviewRangeAnchor = null
@@ -2510,6 +2568,8 @@ Kirigami.ApplicationWindow {
                     root.finishOverviewTransition()
                 } else {
                     root.overviewProgress = 1
+                    if (root.pendingOverviewSelection)
+                        root.selectOverviewView(root.pendingOverviewSelection)
                 }
             }
             if (appSettings.reduceMotion) {
@@ -2588,8 +2648,14 @@ Kirigami.ApplicationWindow {
         onFinished: {
             if (root.overviewClosing)
                 overviewFinishTimer.start()
-            else if (root.overviewVisible)
-                overviewSearch.forceActiveFocus()
+            else if (root.overviewVisible) {
+                const target = root.pendingOverviewSelection
+                root.pendingOverviewSelection = null
+                if (target && (target === root.homeView || root.views.includes(target))
+                        && !target.overviewClosingCard)
+                    root.selectOverviewView(target)
+                else overviewSearch.forceActiveFocus()
+            }
         }
     }
 
@@ -3432,8 +3498,28 @@ Kirigami.ApplicationWindow {
             overviewNavigationTarget = cards[0]?.target ?? null
     }
 
+    function handleOverviewInput(event) {
+        if (!overviewVisible || keyboardPopupActive) return
+        const sequence = appSettings.keyEventSequence(event.key, event.modifiers)
+        const action = Shortcuts.items.find(item => (item.category === "Overview" || item.category === "Selection")
+            && sequence && appSettings.shortcutSequenceText(Shortcuts.sequence(appSettings, item.id)) === sequence)
+        if (!action) return
+        if (action.category === "Selection") {
+            if (!selectionShortcutAvailable) return
+            event.accepted = true
+            actOnSelectedItems(action.id)
+        } else {
+            const keys = {Left: Qt.Key_Left, Right: Qt.Key_Right, Up: Qt.Key_Up,
+                          Down: Qt.Key_Down, Return: Qt.Key_Return, Enter: Qt.Key_Enter}
+            const navigation = {key: keys[action.key], modifiers: action.range ? Qt.ShiftModifier : Qt.NoModifier,
+                                accepted: false}
+            handleOverviewKey(navigation)
+            event.accepted = navigation.accepted
+        }
+    }
+
     function handleOverviewKey(event) {
-        if (!overviewVisible || overviewClosing || overviewProgress < 0.999 || overviewAnimationRunning
+        if (!overviewVisible || overviewClosing
                 || overviewDraggedView || draggedGroupId
                 || event.modifiers & (Qt.AltModifier | Qt.ControlModifier | Qt.MetaModifier)) return
         const horizontal = event.key === Qt.Key_Left || event.key === Qt.Key_Right
@@ -3487,6 +3573,7 @@ Kirigami.ApplicationWindow {
         selectedTabViews = Array.from(new Set(candidates)).filter(view => view &&
             (view === homeView || views.includes(view) && !pendingCloseViews.includes(view)
              && !closingViews.includes(view) && !readyCloseViews.includes(view) && !view.overviewClosingCard))
+        selectedGroupIds = selectionCards.filter(card => typeof card.target === "string").map(card => card.target)
         overviewNavigationTarget = next.target
         overviewFlickable.cancelFlick()
         const position = overviewWheelScroll.running ? overviewFlickable.wheelTargetY : overviewFlickable.contentY
@@ -3522,6 +3609,7 @@ Kirigami.ApplicationWindow {
         homeSelectionGlide = false
         selectionBar.startOffset = 0
         selectionBar.endOffset = 0
+        pendingOverviewSelection = null
         overviewSelectedView = activeView
         const selectedGroup = groupFor(activeView) || tabGroups.find(group => !group.overviewCollapsed)
         if (selectedGroup)
@@ -3532,6 +3620,7 @@ Kirigami.ApplicationWindow {
         const selectedCardY = overviewCardY(overviewFilteredSlot(overviewSlot(activeView)))
         overviewFlickable.resetScroll(selectedCardY - (overviewFlickable.height - overviewCardHeight) / 2)
         overviewVisible = true
+        overviewSearch.forceActiveFocus()
         overviewNavigationTarget = activeView
         for (const view of [homeView].concat(views)) {
             if (!view)
@@ -3557,6 +3646,13 @@ Kirigami.ApplicationWindow {
             activateView(target, target === homeView ? -1 : views.indexOf(target))
             return
         }
+        if (overviewAnimationRunning && !overviewClosing) {
+            // Retain early choices without changing the card that is scaling out.
+            pendingOverviewSelection = target
+            overviewNavigationTarget = target
+            return
+        }
+        pendingOverviewSelection = null
         target.memoryUnloaded = false
         target.requestedSleepState = WebEngineView.LifecycleState.Active
         target.lifecycleState = WebEngineView.LifecycleState.Active
@@ -3586,6 +3682,7 @@ Kirigami.ApplicationWindow {
             return
         const target = overviewSelectedView
         overviewVisible = false
+        pendingOverviewSelection = null
         restoreOverviewFrames()
         for (const view of views.slice())
             if (view.overviewClosingCard)
@@ -3609,6 +3706,7 @@ Kirigami.ApplicationWindow {
         overviewFinishTimer.stop()
         overviewAnimation.stop()
         overviewVisible = false
+        pendingOverviewSelection = null
         restoreOverviewFrames()
         for (const view of views.slice())
             if (view.overviewClosingCard)
@@ -4121,6 +4219,7 @@ Kirigami.ApplicationWindow {
 
     function selectFileTabs(view, modifiers, inOverview) {
         overviewRangeAnchor = null
+        selectedGroupIds = selectedGroupIds.filter(id => id !== view?.tabGroupId)
         if (!view || (view !== homeView && !views.includes(view))) return
         if (view !== homeView && (pendingCloseViews.includes(view) || closingViews.includes(view)
                                  || readyCloseViews.includes(view) || view.overviewClosingCard)) return
@@ -4191,6 +4290,47 @@ Kirigami.ApplicationWindow {
         return (selectedTabViews.includes(view) ? selectedTabViews : [view])
             .filter(item => item && views.includes(item) && !pendingCloseViews.includes(item)
                             && !closingViews.includes(item) && !readyCloseViews.includes(item) && !item.overviewClosingCard)
+    }
+
+    function selectGroupForAction(id, modifiers) {
+        overviewRangeAnchor = null
+        rangeSelectionAnchor = null
+        rangeSelectionBase = []
+        if (!(modifiers & Qt.ShiftModifier)) {
+            selectedTabViews = []
+            return false
+        }
+        const members = views.filter(view => view.tabGroupId === id && !view.overviewClosingCard)
+        const selected = selectedGroupIds.includes(id)
+        const groups = selected ? selectedGroupIds.filter(group => group !== id) : selectedGroupIds.concat(id)
+        selectedTabViews = selected ? selectedTabViews.filter(view => !members.includes(view))
+                                   : Array.from(new Set(selectedTabViews.concat(members)))
+        selectedGroupIds = groups
+        if (overviewVisible) overviewNavigationTarget = id
+        return true
+    }
+
+    function actOnSelectedItems(action) {
+        const groups = selectedGroupIds.filter(id => tabGroups.some(group => group.id === id))
+        const tabs = selectedTabViews.filter(view => views.includes(view)
+            && !groups.includes(view.tabGroupId) && !pendingCloseViews.includes(view)
+            && !closingViews.includes(view) && !readyCloseViews.includes(view) && !view.overviewClosingCard)
+        if (action === "group-selection") {
+            if (!groups.length && tabs.length) requestTabGroup(tabs[0])
+            else if (groups.length === 1 && tabs.length) {
+                for (const view of tabs) assignTabGroup(view, groups[0])
+            } else if (groups.length && !tabs.length) {
+                selectedTabViews = []
+                for (const id of groups) ungroupTabs(id)
+            }
+            return
+        }
+        selectedTabViews = []
+        for (const id of groups) {
+            if (action === "close-selection") closeTabGroup(id)
+            else ungroupTabs(id)
+        }
+        for (const view of tabs) closeTab(views.indexOf(view))
     }
 
     function closeSelectedTabs(view) {
@@ -5144,29 +5284,41 @@ Kirigami.ApplicationWindow {
     }
 
     Instantiator {
-        model: ["Left", "Right", "Up", "Down", "Shift+Left", "Shift+Right", "Shift+Up", "Shift+Down", "Return", "Enter"]
+        model: Shortcuts.items.filter(item => item.category === "Overview").map(item => item.id)
         delegate: Shortcut {
             required property string modelData
+            readonly property var definition: Shortcuts.items.find(item => item.id === modelData)
             objectName: "overviewKey" + modelData
-            sequence: modelData
+            sequence: Shortcuts.sequence(appSettings, modelData)
             context: Qt.WindowShortcut
-            enabled: root.overviewVisible && !root.Controls.Overlay.overlay.children.some(item => item.visible && item.activeFocus)
+            enabled: root.active && sequence !== "" && root.overviewVisible && !root.keyboardPopupActive
             onActivated: {
                 const keys = {Left: Qt.Key_Left, Right: Qt.Key_Right, Up: Qt.Key_Up,
                               Down: Qt.Key_Down, Return: Qt.Key_Return, Enter: Qt.Key_Enter}
-                root.handleOverviewKey({key: keys[modelData.split("+").pop()],
-                    modifiers: modelData.startsWith("Shift+") ? Qt.ShiftModifier : Qt.NoModifier,
-                    accepted: false})
+                root.handleOverviewKey({key: keys[definition.key],
+                    modifiers: definition.range ? Qt.ShiftModifier : Qt.NoModifier, accepted: false})
             }
         }
     }
+    Instantiator {
+        model: Shortcuts.items.filter(item => item.category === "Selection").map(item => item.id)
+        delegate: Shortcut {
+            required property string modelData
+            readonly property var definition: Shortcuts.items.find(item => item.id === modelData)
+            objectName: "selectionKey" + modelData
+            sequence: Shortcuts.sequence(appSettings, modelData)
+            context: Qt.WindowShortcut
+            enabled: root.active && sequence !== "" && root.selectionShortcutAvailable
+            onActivated: root.actOnSelectedItems(modelData)
+        }
+    }
 
-    Shortcut { sequence: "Ctrl+T"; onActivated: root.openTab(root.newTabUrl) }
-    Shortcut { sequence: "Ctrl+W"; onActivated: root.closeTab(root.activeIndex) }
-    Shortcut { sequence: "F11"; onActivated: root.toggleWebFullscreen() }
-    Shortcut { sequence: "Shift+F11"; onActivated: root.toggleToolbarAutoHide() }
+    Shortcut { sequence: Shortcuts.sequence(appSettings, "new-tab"); onActivated: root.openTab(root.newTabUrl) }
+    Shortcut { sequence: Shortcuts.sequence(appSettings, "close-tab"); onActivated: root.closeTab(root.activeIndex) }
+    Shortcut { sequence: Shortcuts.sequence(appSettings, "fullscreen"); onActivated: root.toggleWebFullscreen() }
+    Shortcut { sequence: Shortcuts.sequence(appSettings, "autohide-toolbar"); onActivated: root.toggleToolbarAutoHide() }
     Shortcut {
-        sequence: "Escape"
+        sequence: Shortcuts.sequence(appSettings, "cancel-selection")
         enabled: root.selectedTabViews.length > 0 || root.toolbarAutoHidden || root.webFullscreen
         onActivated: {
             if (root.selectedTabViews.length) root.selectedTabViews = []
@@ -5175,34 +5327,37 @@ Kirigami.ApplicationWindow {
         }
     }
     Shortcut {
-        sequence: "Ctrl+Shift+Alt+Left"
+        sequence: Shortcuts.sequence(appSettings, "previous-tab")
         context: Qt.ApplicationShortcut
+        enabled: root.active && sequence !== ""
         onActivated: root.cycleTab(-1)
     }
     Shortcut {
-        sequence: "Ctrl+Shift+Alt+Right"
+        sequence: Shortcuts.sequence(appSettings, "next-tab")
         context: Qt.ApplicationShortcut
+        enabled: root.active && sequence !== ""
         onActivated: root.cycleTab(1)
     }
     Shortcut {
-        sequence: "Ctrl+Tab"
+        sequence: Shortcuts.sequence(appSettings, "cycle-tabs")
         onActivated: {
             if (root.views.length)
                 root.activateTab((root.activeIndex + 1) % root.views.length)
         }
     }
     Shortcut {
-        sequence: "Ctrl+Alt+Shift+Up"
+        sequence: Shortcuts.sequence(appSettings, "toggle-overview")
         onActivated: root.toggleOverview()
     }
     Shortcut {
-        sequence: "Ctrl+Alt+Shift+Down"
+        sequence: Shortcuts.sequence(appSettings, "detach-tab")
         enabled: root.activeIndex >= 0 && root.views.length > 1
         onActivated: root.moveTabToNewWindow(root.activeIndex)
     }
     Shortcut {
-        sequence: "Ctrl+Alt+Shift+F"
+        sequence: Shortcuts.sequence(appSettings, "freeze-tabs")
         context: Qt.ApplicationShortcut
+        enabled: root.active && sequence !== ""
         onActivated: root.allFrozen ? root.wakeCurrentTab() : root.freezeAllTabs()
     }
 

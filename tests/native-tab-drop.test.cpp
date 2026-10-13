@@ -121,6 +121,25 @@ int main(int argc, char **argv)
         puts("Toolbar order, visibility, persistence, normalization and reset checks passed");
     }
     {
+        AppSettings shortcuts;
+        assert(shortcuts.shortcutOverrides().isEmpty());
+        shortcuts.setShortcutOverrides({{"new-tab", "Ctrl+Y"}, {"overview-left", ""}, {"invalid", "NotAKey"}});
+        AppSettings persisted;
+        assert(persisted.shortcutOverrides() == shortcuts.shortcutOverrides());
+        assert(shortcuts.shortcutOverrides().value("new-tab") == "Ctrl+Y");
+        assert(shortcuts.shortcutOverrides().contains("overview-left"));
+        assert(!shortcuts.shortcutOverrides().contains("invalid"));
+        assert(shortcuts.shortcutSequenceText(QKeySequence("Ctrl+Y")) == "Ctrl+Y");
+        assert(shortcuts.keyEventSequence(Qt::Key_Right, Qt::ShiftModifier) == "Shift+Right");
+        assert(shortcuts.keyEventSequence(Qt::Key_Enter, Qt::KeypadModifier) == "Enter");
+        shortcuts.setShortcutOverrides({});
+        assert(shortcuts.shortcutOverrides().isEmpty());
+        shortcuts.setShortcutOverrides({{"new-tab", "Ctrl+Y"}});
+        shortcuts.resetSettings();
+        assert(shortcuts.shortcutOverrides().isEmpty());
+        puts("Shortcut persistence, validation, clearing and reset checks passed");
+    }
+    {
         const QString proc = temporary.path() + "/proc";
         const auto write = [](const QString &path, const QByteArray &bytes) {
             assert(QDir().mkpath(QFileInfo(path).absolutePath()));
