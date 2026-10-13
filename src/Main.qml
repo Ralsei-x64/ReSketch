@@ -1526,13 +1526,14 @@ Kirigami.ApplicationWindow {
                                     anchors.fill: parent
                                     z: 3
                                     radius: groupContainer.radius
-                                    color: root.overviewNavigationTarget === groupContainer.group?.id
+                                    color: groupContainer.members.some(view => root.selectedTabViews.includes(view))
+                                           || root.overviewNavigationTarget === groupContainer.group?.id
+                                              && !groupContainer.members.includes(root.activeView)
                                            ? root.selectionTint : "transparent"
                                     border.width: groupContainer.group?.overviewCollapsed
                                                   && groupContainer.members.includes(root.activeView) ? 2 : 0
                                     border.color: Kirigami.Theme.highlightColor
-                                    visible: root.overviewNavigationTarget === groupContainer.group?.id
-                                             || border.width > 0
+                                    visible: color.a > 0 || border.width > 0
                                 }
                                 Kirigami.Icon {
                                     objectName: "overviewGroupIcon"
@@ -1942,6 +1943,7 @@ Kirigami.ApplicationWindow {
                                     radius: overviewCard.cornerRadius
                                     color: root.selectedTabViews.includes(overviewCard.previewView)
                                            || root.overviewNavigationTarget === overviewCard.previewView
+                                              && overviewCard.previewView !== root.activeView
                                            ? root.selectionTint : "transparent"
                                     border.width: 1
                                     border.color: overviewCard.group ? overviewCard.group.color

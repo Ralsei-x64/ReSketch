@@ -3,6 +3,7 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch; Arch Git packages also include the commit count and hash.
 
 0.2.0 - Unreleased
+Removed the automatic selection tint from the focused overview card and its collapsed group.
 Restored the blue overview border only on the focused tab, keeping keyboard navigation and multi-selection tinted.
 Changed overview keyboard focus to a selection tint and added Shift+Arrow range selection, including collapsed groups.
 Added this commit changelog and consistent version reporting in About, --version, and Arch packages.

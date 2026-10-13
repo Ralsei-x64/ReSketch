@@ -3001,6 +3001,9 @@ Item {
             findChild(app, "overviewSearch").forceActiveFocus()
             waitForRendering(app.contentItem)
             compare(app.overviewNavigationTarget, app.homeView)
+            compare(findChild(overviewCard(app.homeView), "overviewCardBorder").color.a, 0,
+                    "The focused card starts with a border and no selection tint")
+            verify(findChild(overviewCard(app.homeView), "overviewCardFocusRing").visible)
             keyClick(Qt.Key_Down)
             compare(app.overviewNavigationTarget, app.views[data.columns - 1])
             const flick = findChild(app, "overviewFlickable")
@@ -3012,6 +3015,8 @@ Item {
                    "Keyboard navigation scrolls the highlighted card into view")
             keyClick(Qt.Key_Up)
             compare(app.overviewNavigationTarget, app.homeView)
+            compare(findChild(overviewCard(app.homeView), "overviewCardBorder").color.a, 0,
+                    "Returning the keyboard cursor to the focused card does not tint it")
             keyClick(Qt.Key_Left)
             compare(app.overviewNavigationTarget, app.homeView, "Navigation stops at grid edges")
             keyClick(Qt.Key_Right)
@@ -3062,6 +3067,16 @@ Item {
             compare(app.activeView, app.views[0])
             keyClick(Qt.Key_Escape)
             compare(app.selectedTabViews, [])
+            app.overviewNavigationTarget = app.views[0]
+            compare(findChild(overviewCard(app.views[0]), "overviewCardBorder").color.a, 0)
+            const id = app.createTabGroup(app.views[0], "Focused group")
+            app.updateTabGroup(id, {overviewCollapsed: true}, true)
+            app.overviewNavigationTarget = id
+            const groupHighlight = findChild(app.overviewGroupContainer(id), "overviewGroupNavigationHighlight")
+            compare(groupHighlight.color.a, 0, "A collapsed focused group also has no selection tint")
+            compare(groupHighlight.border.width, 2)
+            app.selectFileTabs(app.views[0], Qt.ShiftModifier | Qt.AltModifier, true)
+            compare(groupHighlight.color, app.selectionTint, "Explicit selection still tints the focused group")
         }
 
         function test_overview_keyboard_navigation_search_and_no_results() {
