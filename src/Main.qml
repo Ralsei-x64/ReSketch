@@ -36,7 +36,9 @@ Kirigami.ApplicationWindow {
     readonly property color selectionTint: Qt.rgba(Kirigami.Theme.highlightColor.r,
                                                   Kirigami.Theme.highlightColor.g,
                                                   Kirigami.Theme.highlightColor.b, 0.14)
-    readonly property bool desktopSidebars: (appSettings.translucentSidebars || appSettings.floatingSidebars)
+    readonly property bool floatingFileSidebars: appSettings.floatingSidebars && !!activeView
+                                                  && Policy.isFileUrl(String(activeView.tabUrl))
+    readonly property bool desktopSidebars: (appSettings.translucentSidebars || floatingFileSidebars)
                                             && appSettings.sidebarBackdrop === "desktop"
                                             && appSettings.toolbarOpacity < 100
     readonly property int overviewColumns: Math.min(width < 1360 ? 3 : 4, tabModel.count + 1)
@@ -187,6 +189,7 @@ Kirigami.ApplicationWindow {
     color: "transparent"
     background: Item { }
     title: Policy.windowTitle(activeView ? activeView.tabUrl : "", activeView ? activeView.title : "")
+    onDesktopSidebarsChanged: appSettings.refreshWindowBlur(root)
     onChromiumFrameLoadedChanged: appSettings.refreshWindowBlur(root)
     onClosing: {
         for (const view of pendingPopups.slice()) discardPendingPopup(view)
@@ -1984,7 +1987,10 @@ Kirigami.ApplicationWindow {
                                     objectName: "overviewCardBackground"
                                     anchors.fill: parent
                                     color: Kirigami.Theme.backgroundColor
-                                    opacity: root.desktopSidebars && overviewCard.previewView
+                                    opacity: (appSettings.translucentSidebars || appSettings.floatingSidebars
+                                              && overviewCard.previewView && Policy.isFileUrl(String(overviewCard.previewView.tabUrl)))
+                                             && appSettings.sidebarBackdrop === "desktop" && appSettings.toolbarOpacity < 100
+                                             && overviewCard.previewView
                                              && overviewCard.previewView.hasLoadedFrame
                                              ? root.overviewSidebarBackdrop : 1
                                 }
@@ -2931,6 +2937,8 @@ Kirigami.ApplicationWindow {
                 if (dedicatedHome && Policy.isFileBrowserUrl(address)) {
                     lastHomeUrl = url
                 }
+                if (appSettings.floatingSidebars && Policy.isFigmaUrl(address))
+                    runJavaScript("window.__resketchSidebars?.schedule()")
                 webView.ownerWindow.syncTab(webView)
             }
 

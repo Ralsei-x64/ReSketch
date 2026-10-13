@@ -1880,11 +1880,13 @@ Item {
             tryVerify(() => result === true)
             const options = {theme: "light", floatingSidebars: true, sidebarCornerRadius: 22,
                              translucentSidebars: false, opacity: 60, sidebarBackdrop: "desktop"}
+            let fixturePath = "/design/Test/File"
             function apply() {
-                view.runJavaScript(FigmaTheme.sidebarMaskSource + ';' + FigmaTheme.sidebarSource
+                view.runJavaScript('window.sidebarFixturePath=' + JSON.stringify(fixturePath)
+                    + ';(()=>{const location={get pathname(){return window.sidebarFixturePath}};' + FigmaTheme.sidebarMaskSource + ';' + FigmaTheme.sidebarSource
                     + ';sidebarAppearance(' + JSON.stringify(options) + ',(id,css)=>{'
                     + 'let s=document.getElementById(id);if(!css){s?.remove();return}'
-                    + 'if(!s){s=document.createElement("style");s.id=id;document.head.appendChild(s)}s.textContent=css;});')
+                    + 'if(!s){s=document.createElement("style");s.id=id;document.head.appendChild(s)}s.textContent=css;});})()')
             }
             function inspect() {
                 view.runJavaScript('(()=>{const p=document.getElementById("home"),s=getComputedStyle(p),r=p.getBoundingClientRect();'
@@ -1926,6 +1928,22 @@ Item {
             apply()
             tryVerify(() => { inspect(); return result.bg === "rgb(238, 238, 238)" })
             compare(result.floating, true, "Floating layout also works with opaque sidebars")
+            // The same controller follows SPA routes and restores ordinary Home layout.
+            for (const path of ["/files/recent", "/desktop_new_tab", "/community", "/login"]) {
+                fixturePath = path
+                view.runJavaScript('window.sidebarFixturePath=' + JSON.stringify(path)
+                    + ';window.__resketchSidebars.schedule()')
+                tryVerify(() => { inspect(); return !result.marked })
+                compare(result.width, 260)
+                compare(result.x, 0); compare(result.y, 0)
+                compare(result.clip, "none")
+            }
+            options.opacity = 60
+            options.translucentSidebars = true
+            apply()
+            tryVerify(() => { inspect(); return result.marked && !result.floating })
+            verify(result.bg.includes("0.6"), "Home keeps ordinary translucency when it is independently enabled")
+            options.translucentSidebars = false
             options.floatingSidebars = false
             apply()
             tryVerify(() => { inspect(); return !result.marked })
@@ -1947,6 +1965,7 @@ Item {
             result = null
             view.runJavaScript('document.body.innerHTML=' + JSON.stringify(joinedFixture), () => result = true)
             tryVerify(() => result === true)
+            fixturePath = "/design/Test/File"
             options.floatingSidebars = true
             options.sidebarCornerRadius = 22
             options.opacity = 60
@@ -1965,7 +1984,7 @@ Item {
             compare(result.railRight, result.left, "There is no gap between the two sections")
             compare(result.railInner, "0px"); compare(result.layerInner, "0px")
             compare(result.railBorder, "1px"); compare(result.layerBorder, "1px")
-            compare(result.railSeam, "0px"); compare(result.layerSeam, "0px")
+            compare(result.railSeam, "1px"); compare(result.layerSeam, "0px")
             compare((result.mask.match(/M/g) || []).length, 3, "One outer path and exactly two floating sidebar holes")
 
             app.openSettings()

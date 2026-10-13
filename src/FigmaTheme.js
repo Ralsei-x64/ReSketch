@@ -230,7 +230,10 @@ var sidebarLayoutSource = `function floatingCanvasLayout() {
     } catch (_) { return null; }
 }`
 
-var sidebarSource = sidebarLayoutSource + `;function sidebarAppearance(options, stylesheet) {
+var sidebarSource = sidebarLayoutSource + `;function floatingFilePage() {
+    return /^\\/(file|design|board|proto|slides|deck|site|buzz|make)\\/[^/]+/i.test(location.pathname);
+}
+function sidebarAppearance(options, stylesheet) {
     let controller = window.__resketchSidebars;
     if (!options.floatingSidebars && (!options.translucentSidebars || options.opacity >= 100)) {
         controller?.dispose();
@@ -259,7 +262,7 @@ var sidebarSource = sidebarLayoutSource + `;function sidebarAppearance(options, 
         + 'height:var(--resketch-sidebar-height) !important; min-height:0 !important;'
         + 'border:1px solid var(--color-border) !important;'
         + 'margin:8px var(--resketch-sidebar-gap-right) 8px var(--resketch-sidebar-gap-left) !important; border-radius:var(--resketch-sidebar-radius) !important; overflow:hidden !important; }'
-        + '[data-resketch-sidebar-join="start"] { border-right:0 !important; border-radius:var(--resketch-sidebar-radius) 0 0 var(--resketch-sidebar-radius) !important; }'
+        + '[data-resketch-sidebar-join="start"] { border-right:1px solid var(--color-border) !important; border-radius:var(--resketch-sidebar-radius) 0 0 var(--resketch-sidebar-radius) !important; }'
         + '[data-resketch-sidebar-join="end"] { border-left:0 !important; border-radius:0 var(--resketch-sidebar-radius) var(--resketch-sidebar-radius) 0 !important; }'
         + '[data-resketch-floating-sidebar] :is([class*="left_panel_container--panel--"],[class*="properties_panel--panelPosition--"]) '
         + '{ box-sizing:border-box !important; width:100% !important; height:100% !important; border:0 !important; }'
@@ -302,9 +305,10 @@ var sidebarSource = sidebarLayoutSource + `;function sidebarAppearance(options, 
     function update() {
         frame = 0;
         clear();
-        if (!controller.options.floatingSidebars && layout) { layout.dispose(); layout = null; }
+        const options = {...controller.options, floatingSidebars:controller.options.floatingSidebars && floatingFilePage()};
+        if (!options.floatingSidebars && layout) { layout.dispose(); layout = null; }
         const canvasView = document.querySelector('.gpu-view-content');
-        if (controller.options.floatingSidebars && canvasView) {
+        if (options.floatingSidebars && canvasView) {
             layout ||= floatingCanvasLayout();
             const bounds = canvasView.getBoundingClientRect();
             if (bounds.left > 1 || Math.abs(bounds.width - innerWidth) > 1) layout?.update();
@@ -318,7 +322,9 @@ var sidebarSource = sidebarLayoutSource + `;function sidebarAppearance(options, 
         observer.observe(document.body, {childList:true, subtree:true});
         for (const panel of panels) observer.observe(panel, {attributes:true, attributeFilter:['style']});
         canvases = Array.from(document.querySelectorAll('.gpu-view-content'));
-        const options = controller.options;
+        const active = options.floatingSidebars || options.translucentSidebars && options.opacity < 100;
+        underlay.style.display = active ? "" : "none";
+        if (!active) return;
         const bg = getComputedStyle(document.body).getPropertyValue('--color-bg').trim() || (options.theme === 'dark' ? '#2c2c2c' : '#ffffff');
         // Desktop tint is already drawn by the native window background.
         // Applying it again here makes 85% opacity effectively 98%.

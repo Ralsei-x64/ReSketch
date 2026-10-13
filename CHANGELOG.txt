@@ -3,6 +3,9 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
 About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
+0.3.3 - 2026-10-13
+Restricted floating sidebars to Figma file pages and restored the thin navigation rail divider.
+
 0.3.2 - 2026-10-13
 Made floating sidebars overlay a full-width native Figma canvas with correct rendering and pointer coordinates, and outlined the complete sidebar.
 

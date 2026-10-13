@@ -454,7 +454,7 @@ Kirigami.ApplicationWindow {
                                     Controls.CheckBox {
                                         objectName: "floatingSidebarsToggle"
                                         Kirigami.FormData.label: "Floating sidebars:"
-                                        text: "Inset Figma sidebars from the window edges"
+                                        text: "Float sidebars over the Figma file canvas"
                                         checked: appSettings.floatingSidebars
                                         onToggled: appSettings.floatingSidebars = checked
                                     }

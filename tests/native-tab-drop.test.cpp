@@ -195,7 +195,10 @@ int main(int argc, char **argv)
         assert(requestedBlurRegion == QRegion(0, 0, window.width(), 40)); // The platform controls fullscreen geometry.
         settings.setFloatingSidebars(true);
         settings.refreshWindowBlur(&window);
-        assert(requestedBlurEnabled && requestedBlurRegion.isEmpty()); // Floating margins reveal the desktop as well.
+        assert(requestedBlurRegion == QRegion(0, 0, window.width(), 40)); // Home does not float.
+        window.setProperty("floatingFileSidebars", true);
+        settings.refreshWindowBlur(&window);
+        assert(requestedBlurEnabled && requestedBlurRegion.isEmpty()); // Only the floating surfaces reveal the desktop.
         settings.setFloatingSidebars(false);
         settings.setTranslucentSidebars(true);
         settings.refreshWindowBlur(&window);

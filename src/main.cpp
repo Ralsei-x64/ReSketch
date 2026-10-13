@@ -667,7 +667,9 @@ public:
         auto *window = qobject_cast<QWindow *>(object);
         if (!window)
             return;
-        const bool desktopSidebars = (translucentSidebars() || floatingSidebars()) && sidebarBackdrop() == QStringLiteral("desktop");
+        const bool desktopSidebars = (translucentSidebars()
+            || (floatingSidebars() && window->property("floatingFileSidebars").toBool()))
+            && sidebarBackdrop() == QStringLiteral("desktop");
         // A null region follows the whole surface through fullscreen and resize.
         const QRegion region = window->property("chromiumFrameLoaded").toBool() && !desktopSidebars
             ? QRegion(0, 0, window->width(), window->property("tabStripHeight").toInt()) : QRegion();
