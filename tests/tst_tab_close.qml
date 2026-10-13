@@ -1177,30 +1177,30 @@ Item {
             app.showNormal()
         }
 
-        function test_shift_alt_click_toggles_explicit_tabs_in_strip_and_overview() {
+        function test_shift_click_toggles_explicit_tabs_in_strip_and_overview() {
             appSettings.reduceMotion = true
             const first = app.views[0], second = app.views[1], third = app.views[2], fourth = app.views[3]
             compare(app.selectedTabViews, [])
-            mouseClick(tabButton(0), 80, 20, Qt.LeftButton, (Qt.ShiftModifier | Qt.AltModifier))
+            mouseClick(tabButton(0), 80, 20, Qt.LeftButton, Qt.ShiftModifier)
             compare(app.selectedTabViews, [first])
             compare(app.activeView, third, "Selection never starts from or switches the focused tab")
             verify(tabButton(0).multiSelected)
             verify(!tabButton(1).multiSelected)
-            mouseClick(tabButton(2), 80, 20, Qt.LeftButton, (Qt.ShiftModifier | Qt.AltModifier))
+            mouseClick(tabButton(2), 80, 20, Qt.LeftButton, Qt.ShiftModifier)
             compare(app.selectedTabViews, [first, third])
             const tint = findChild(tabButton(2), "tabSelectionTint")
             verify(tint.visible && tint.color.a > 0, "A focused tab still shows the selection tint")
-            mouseClick(tabButton(0), 80, 20, Qt.LeftButton, (Qt.ShiftModifier | Qt.AltModifier))
-            compare(app.selectedTabViews, [third], "Shift+Alt-click toggles the clicked tab exactly once")
+            mouseClick(tabButton(0), 80, 20, Qt.LeftButton, Qt.ShiftModifier)
+            compare(app.selectedTabViews, [third], "Shift-click toggles the clicked tab exactly once")
             app.toggleOverview()
             const card = overviewCard(fourth)
-            mouseClick(card, card.width / 2, card.height / 2, Qt.LeftButton, (Qt.ShiftModifier | Qt.AltModifier))
+            mouseClick(card, card.width / 2, card.height / 2, Qt.LeftButton, Qt.ShiftModifier)
             compare(app.overviewVisible, true)
             compare(app.selectedTabViews, [third, fourth])
             compare(app.activeView, third)
             verify(findChild(overviewCard(third), "overviewCardBorder").color.a > 0)
             compare(findChild(overviewCard(fourth), "overviewCardBorder").border.width, 1)
-            mouseClick(card, card.width / 2, card.height / 2, Qt.LeftButton, (Qt.ShiftModifier | Qt.AltModifier))
+            mouseClick(card, card.width / 2, card.height / 2, Qt.LeftButton, Qt.ShiftModifier)
             compare(app.selectedTabViews, [third])
             verify(findChild(card, "overviewCardBorder").color.a > 0, "A hovered card keeps its hover tint after deselection")
             const target = overviewCard(second)
@@ -1210,14 +1210,14 @@ Item {
             compare(app.activeView, second)
         }
 
-        function test_shift_range_selection_data() {
+        function test_shift_alt_range_selection_data() {
             return [{tag: "strip-forward", overview: false, reverse: false},
                     {tag: "strip-backward", overview: false, reverse: true},
                     {tag: "overview-forward", overview: true, reverse: false},
                     {tag: "overview-backward", overview: true, reverse: true}]
         }
 
-        function test_shift_range_selection(data) {
+        function test_shift_alt_range_selection(data) {
             appSettings.reduceMotion = true
             const selected = app.activeView, views = app.views.slice()
             if (data.overview) app.toggleOverview()
@@ -1225,15 +1225,15 @@ Item {
                 const item = data.overview ? overviewCard(views[index]) : tabButton(app.views.indexOf(views[index]))
                 mouseClick(item, item.width / 2, data.overview ? item.height / 2 : 20, Qt.LeftButton, modifiers)
             }
-            const modifiers = Qt.ShiftModifier
+            const modifiers = Qt.ShiftModifier | Qt.AltModifier
             const start = data.reverse ? 3 : 0, end = data.reverse ? 1 : 2
             click(start, modifiers)
             compare(app.selectedTabViews, [views[start]], "Only the explicit starting click establishes a range")
             click(end, modifiers)
             compare(app.selectedTabViews, data.reverse ? views.slice(1) : views.slice(0, 3))
             compare(app.activeView, selected, "Range selection must not switch tabs")
-            click(start, Qt.ShiftModifier | Qt.AltModifier)
-            verify(!app.selectedTabViews.includes(views[start]), "Shift+Alt toggles individual tabs")
+            click(start, Qt.ShiftModifier)
+            verify(!app.selectedTabViews.includes(views[start]), "Shift toggles individual tabs")
             compare(app.rangeSelectionAnchor, null)
             app.selectedTabViews = []
             click(end, modifiers)
@@ -1256,7 +1256,7 @@ Item {
             const id = app.createTabGroup(original[1], "Batch drag")
             app.updateTabGroup(id, {overviewCollapsed: true}, true)
             let frames = moving.map(view => view.frameContainer)
-            for (const view of moving) app.selectFileTabs(view, Qt.ShiftModifier | Qt.AltModifier)
+            for (const view of moving) app.selectFileTabs(view, Qt.ShiftModifier)
             if (data.overview) {
                 app.toggleOverview()
                 findChild(app, "overviewFlickable").resetScroll(0)
@@ -1375,8 +1375,8 @@ Item {
             const first = app.views[0], second = app.views[1], third = app.views[2], fourth = app.views[3]
             first.url = "about:blank#match-one"
             third.url = "about:blank#match-two"
-            app.selectFileTabs(first, Qt.ShiftModifier | Qt.AltModifier)
-            app.selectFileTabs(third, Qt.ShiftModifier | Qt.AltModifier)
+            app.selectFileTabs(first, Qt.ShiftModifier)
+            app.selectFileTabs(third, Qt.ShiftModifier)
             app.reorderTab(0, 3)
             compare(app.selectedTabViews, [first, third], "Selection follows view identities when reordered")
             app.toggleOverview()
@@ -1460,7 +1460,39 @@ Item {
             compare(findChild(app, "tabStrip").y, -app.tabStripHeight)
             keyClick(Qt.Key_F11, Qt.ShiftModifier)
             keyClick(Qt.Key_Escape)
-            verify(!app.webFullscreen, "Escape must still leave fullscreen when the toolbar is pinned")
+            verify(app.webFullscreen, "Escape must not leave fullscreen when the toolbar is pinned")
+            keyClick(Qt.Key_F11)
+            verify(!app.webFullscreen)
+        }
+
+        function test_fullscreen_only_exits_with_mapped_shortcut_data() {
+            return [{tag: "default", remapped: false}, {tag: "remapped", remapped: true}]
+        }
+
+        function test_fullscreen_only_exits_with_mapped_shortcut(data) {
+            appSettings.reduceMotion = true
+            if (data.remapped) appSettings.shortcutOverrides = {fullscreen: "F10"}
+            app.requestActivate()
+            tryVerify(() => app.active)
+            app.contentItem.forceActiveFocus()
+            const fullscreenKey = data.remapped ? Qt.Key_F10 : Qt.Key_F11
+            keyClick(fullscreenKey)
+            verify(app.webFullscreen)
+            app.selectFileTabs(app.views[0], Qt.ShiftModifier)
+            keyClick(Qt.Key_Escape)
+            compare(app.selectedTabViews, [])
+            verify(app.webFullscreen, "Escape only clears selected tabs")
+            const autohide = app.autoHideToolbar
+            app.activeView.forceActiveFocus()
+            keyClick(Qt.Key_Escape)
+            verify(app.webFullscreen, "Escape in Chromium does not exit app fullscreen")
+            compare(app.autoHideToolbar, autohide)
+            if (data.remapped) {
+                keyClick(Qt.Key_F11)
+                verify(app.webFullscreen, "The old fullscreen key no longer exits")
+            }
+            keyClick(fullscreenKey)
+            verify(!app.webFullscreen, "The configured fullscreen shortcut exits")
         }
 
         function test_maximize_from_fullscreen_keeps_autohide() {
@@ -3157,7 +3189,7 @@ Item {
             const groupHighlight = findChild(app.overviewGroupContainer(id), "overviewGroupNavigationHighlight")
             compare(groupHighlight.color.a, 0, "A collapsed focused group also has no selection tint")
             compare(groupHighlight.border.width, 2)
-            app.selectFileTabs(app.views[0], Qt.ShiftModifier | Qt.AltModifier, true)
+            app.selectFileTabs(app.views[0], Qt.ShiftModifier, true)
             compare(groupHighlight.color, app.selectionTint, "Explicit selection still tints the focused group")
         }
 

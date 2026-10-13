@@ -13,7 +13,7 @@ var items = [
     {id: "freeze-tabs", title: "Freeze or wake tabs", category: "Tabs", defaultSequence: "Ctrl+Alt+Shift+F"},
     {id: "fullscreen", title: "Toggle fullscreen", category: "Window", defaultSequence: "F11"},
     {id: "autohide-toolbar", title: "Toggle titlebar autohide", category: "Window", defaultSequence: "Shift+F11"},
-    {id: "cancel-selection", title: "Clear selection or leave fullscreen/autohide", category: "Window", defaultSequence: "Escape"},
+    {id: "cancel-selection", title: "Clear selection or leave titlebar autohide", category: "Window", defaultSequence: "Escape"},
     {id: "overview-left", title: "Select previous card", category: "Overview", defaultSequence: "Left", key: "Left"},
     {id: "overview-right", title: "Select next card", category: "Overview", defaultSequence: "Right", key: "Right"},
     {id: "overview-up", title: "Select card above", category: "Overview", defaultSequence: "Up", key: "Up"},

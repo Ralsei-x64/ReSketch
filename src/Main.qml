@@ -4225,7 +4225,7 @@ Kirigami.ApplicationWindow {
                                  || readyCloseViews.includes(view) || view.overviewClosingCard)) return
         if (modifiers & Qt.ShiftModifier) {
             if (view === homeView) return
-            if (!(modifiers & Qt.AltModifier)) {
+            if (modifiers & Qt.AltModifier) {
                 if (!rangeSelectionAnchor || !views.includes(rangeSelectionAnchor)) {
                     rangeSelectionAnchor = view
                     rangeSelectionBase = selectedTabViews.slice()
@@ -5319,10 +5319,9 @@ Kirigami.ApplicationWindow {
     Shortcut { sequence: Shortcuts.sequence(appSettings, "autohide-toolbar"); onActivated: root.toggleToolbarAutoHide() }
     Shortcut {
         sequence: Shortcuts.sequence(appSettings, "cancel-selection")
-        enabled: root.selectedTabViews.length > 0 || root.toolbarAutoHidden || root.webFullscreen
+        enabled: root.selectedTabViews.length > 0 || (!root.webFullscreen && root.toolbarAutoHidden)
         onActivated: {
             if (root.selectedTabViews.length) root.selectedTabViews = []
-            else if (root.webFullscreen) root.toggleWebFullscreen()
             else root.toggleToolbarAutoHide()
         }
     }

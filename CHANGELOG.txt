@@ -3,6 +3,7 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch; Arch Git packages also include the commit count and hash.
 
 0.2.0 - Unreleased
+Swapped mouse selection to Shift-click toggles and Shift+Alt-click ranges, and kept fullscreen active when pressing Escape.
 Added fading hover tints and a pressed selection tint with 300 ms Bézier icon scaling on toolbar action buttons.
 Accepted overview navigation and card clicks during opening, and added hover tints with theme-aware borders.
 Added selection-aware Delete, Alt+Delete, and Ctrl+G actions, plus saved shortcut editors with individual and complete resets.

@@ -4,13 +4,13 @@
 - **Configurable toolbar:** Toggle and rearrange tab-bar buttons in Settings, with optional Export History, Settings, Task Manager, and Developer Tools shortcuts.
 - **Dedicated Home:** A permanent Home page opens files in their own tabs.
 - **File tabs:** Open, switch, refresh, close, and copy links from a scrollable tab strip.
-- **Tab selection:** Shift-click ranges, use Shift+Alt to toggle individual tabs, or drag a selection box in the overview; tinted selections can be dragged into or out of groups, refreshed, or closed together.
+- **Tab selection:** Shift-click to toggle individual tabs, use Shift+Alt-click for ranges, or drag a selection box in the overview; tinted selections can be dragged into or out of groups, refreshed, or closed together.
 - **Tab groups:** Name, color, choose icons for, collapse, and rearrange groups, with context menus to edit, ungroup, or close all their tabs.
 - **Animated tabs:** Opening, closing, selection, and rearrangement use smooth transitions.
 - **Tab overview:** Browse searchable live previews in a responsive grid using the arrow keys and Enter, with 2×2 group previews and one expanded group container at a time.
 - **Overview dragging:** Rearrange cards or entire group containers, with a Home card that returns to its fixed position.
 - **Multiple windows:** Drag tabs or cards between windows or detach them without reloading their content.
-- **Fullscreen:** Press F11 for a fullscreen webview and hover the top edge to reveal the tab strip.
+- **Fullscreen:** Use the fullscreen shortcut (F11 by default) to enter or exit, and hover the top edge to reveal the tab strip; Escape keeps fullscreen active.
 - **Titlebar autohide:** Press Shift+F11 to hide the tab strip and reveal it at the top edge without entering fullscreen.
 - **Keyboard shortcuts:** Customize every app shortcut in Settings, reset individual bindings or all defaults, and use Delete, Alt+Delete, and Ctrl+G to manage selected tabs and groups.
 - **Smooth scrolling:** Mouse wheels and trackpads smoothly scroll the tab strip, overview, and web content.
