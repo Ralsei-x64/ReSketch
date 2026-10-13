@@ -490,6 +490,15 @@ Kirigami.ApplicationWindow {
                                     }
 
                                     Controls.CheckBox {
+                                        objectName: "hideFloatingScrollbarsToggle"
+                                        Kirigami.FormData.label: "Scrollbars:"
+                                        text: "Hide scrollbars in floating mode"
+                                        enabled: appSettings.floatingSidebars
+                                        checked: appSettings.hideFloatingScrollbars
+                                        onToggled: appSettings.hideFloatingScrollbars = checked
+                                    }
+
+                                    Controls.CheckBox {
                                         Kirigami.FormData.label: "Background blur:"
                                         text: "Ignore blur"
                                         checked: appSettings.ignoreToolbarBlur

@@ -290,8 +290,11 @@ function sidebarAppearance(options, stylesheet) {
         + '{ background:var(--resketch-sidebar-surface) !important; border:1px solid var(--color-border); }'
         + '[data-resketch-sidebar-ancestor] { background-color:transparent !important; }'
         + '[data-resketch-sidebar-canvas] { clip-path:var(--resketch-sidebar-clip) !important; }'
+        + '[data-resketch-hide-floating-scrollbars], [data-resketch-hide-floating-scrollbars] * { scrollbar-width:none !important; }'
+        + '[data-resketch-hide-floating-scrollbars]::-webkit-scrollbar, [data-resketch-hide-floating-scrollbars] *::-webkit-scrollbar { display:none !important; }'
         + '#resketch-sidebar-underlay { position:fixed; inset:0; z-index:-1; pointer-events:none; }');
     function clear() {
+        document.body.removeAttribute('data-resketch-hide-floating-scrollbars');
         for (const panel of panels) {
             panel.removeAttribute('data-resketch-sidebar');
             panel.removeAttribute('data-resketch-floating-sidebar');
@@ -310,6 +313,7 @@ function sidebarAppearance(options, stylesheet) {
         frame = 0;
         clear();
         const options = {...controller.options, floatingSidebars:controller.options.floatingSidebars && floatingFilePage()};
+        document.body.toggleAttribute('data-resketch-hide-floating-scrollbars', options.floatingSidebars && options.hideFloatingScrollbars !== false);
         if (!options.floatingSidebars && layout) { layout.dispose(); layout = null; }
         const canvasView = document.querySelector('.gpu-view-content');
         if (options.floatingSidebars && canvasView) {
@@ -513,6 +517,7 @@ function script(options, storeSource) {
         floatingSidebars: !!options.floatingSidebars,
         sidebarCornerRadius: Math.max(0, Math.min(40, Number.isFinite(options.sidebarCornerRadius) ? options.sidebarCornerRadius : 12)),
         sidebarMargin: Math.max(0, Math.min(40, Number.isFinite(options.sidebarMargin) ? options.sidebarMargin : 8)),
+        hideFloatingScrollbars: options.hideFloatingScrollbars !== false,
         sidebarBackdrop: options.sidebarBackdrop === "canvas" ? "canvas" : "desktop",
         opacity: Math.max(0, Math.min(100, Number.isFinite(options.opacity) ? options.opacity : 100))
     }

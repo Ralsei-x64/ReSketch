@@ -28,6 +28,7 @@ Item {
         property bool floatingSidebars: false
         property int sidebarCornerRadius: 12
         property int sidebarMargin: 8
+        property bool hideFloatingScrollbars: true
         property string sidebarBackdrop: "desktop"
         property bool reduceMotion: false
         property int toolbarOpacity: 100
@@ -1842,6 +1843,7 @@ Item {
             appSettings.floatingSidebars = false
             appSettings.sidebarCornerRadius = 12
             appSettings.sidebarMargin = 8
+            appSettings.hideFloatingScrollbars = true
             appSettings.toolbarOpacity = 100
             appSettings.toolbarItems = appSettings.defaultToolbarItems()
             appSettings.sidebarBackdrop = "desktop"
@@ -1873,15 +1875,16 @@ Item {
                 + '#nativeCanvasLayout{position:absolute;inset:0}.comments_sidebar--container--fixture{width:200px}'
                 + '#home{position:absolute;left:0;top:0;width:200px;height:400px;background:white}'
                 + '#home>div,.fb-sidebar{width:200px;height:400px}'
+                + '#sidebarScroll{height:40px;overflow-y:scroll}#sidebarScroll>div{height:200px}'
                 + '[data-testid=properties-panel]{position:absolute;right:0;top:0;width:200px;height:400px;background:white}'
                 + '.properties_panel--panelPosition--fixture{position:absolute;inset:0;width:200px;height:400px;background:var(--color-bg)}'
                 + '.properties_panel--panelContainer--fixture{border-left:1px solid #8899aa}</style>'
-                + '<div id="nativeCanvasLayout"><div class="gpu-view-content"></div></div><nav id="home" class="sidebar--navDefault--fixture"><div><div class="fb-sidebar"></div></div></nav>'
+                + '<div id="nativeCanvasLayout"><div class="gpu-view-content"></div></div><nav id="home" class="sidebar--navDefault--fixture"><div><div class="fb-sidebar"><div id="sidebarScroll"><div></div></div></div></div></nav>'
                 + '<aside data-testid="properties-panel"><div class="properties_panel--panelPosition--fixture"><div class="properties_panel--panelContainer--fixture"></div><div class="comments_sidebar--container--fixture"></div></div></aside>'
             let result = null
             view.runJavaScript('document.body.innerHTML=' + JSON.stringify(fixture), () => result = true)
             tryVerify(() => result === true)
-            const options = {theme: "light", floatingSidebars: true, sidebarCornerRadius: 22, sidebarMargin: 8,
+            const options = {theme: "light", floatingSidebars: true, sidebarCornerRadius: 22, sidebarMargin: 8, hideFloatingScrollbars: true,
                              translucentSidebars: false, opacity: 60, sidebarBackdrop: "desktop"}
             let fixturePath = "/design/Test/File"
             function apply() {
@@ -1899,6 +1902,8 @@ Item {
                     + 'commentsWidth:document.querySelector("[class*=comments_sidebar--container--]").getBoundingClientRect().width,'
                     + 'canvasLeft:document.querySelector(".gpu-view-content").getBoundingClientRect().left,'
                     + 'canvasWidth:document.querySelector(".gpu-view-content").getBoundingClientRect().width,'
+                    + 'scrollbarWidth:getComputedStyle(document.getElementById("sidebarScroll")).scrollbarWidth,'
+                    + 'scrollTop:document.getElementById("sidebarScroll").scrollTop,'
                     + 'homeChildWidth:document.querySelector(".fb-sidebar").getBoundingClientRect().width,'
                     + 'borders:[s.borderTopWidth,s.borderRightWidth,s.borderBottomWidth,s.borderLeftWidth],'
                     + 'innerBorder:getComputedStyle(document.querySelector("[class*=properties_panel--panelContainer--]")).borderLeftWidth,'
@@ -1909,6 +1914,16 @@ Item {
             }
             apply()
             tryVerify(() => { inspect(); return result && result.floating })
+            compare(result.scrollbarWidth, "none")
+            view.runJavaScript('document.getElementById("sidebarScroll").scrollTop=100')
+            tryVerify(() => { inspect(); return result.scrollTop === 100 })
+            options.hideFloatingScrollbars = false
+            apply()
+            tryVerify(() => { inspect(); return result.scrollbarWidth === "auto" })
+            compare(result.scrollTop, 100, "Restoring scrollbars retains scroll position")
+            options.hideFloatingScrollbars = true
+            apply()
+            tryVerify(() => { inspect(); return result.scrollbarWidth === "none" })
             compare(result.x, 8); compare(result.y, 8)
             compare(result.width, 184); compare(result.height, 384)
             compare(result.radius, "22px"); compare(result.overflow, "hidden")
@@ -1965,6 +1980,7 @@ Item {
                 compare(result.width, 260)
                 compare(result.x, 0); compare(result.y, 0)
                 compare(result.clip, "none")
+                compare(result.scrollbarWidth, "auto", "Home and other pages retain their scrollbars")
             }
             options.opacity = 60
             options.translucentSidebars = true
@@ -2019,6 +2035,8 @@ Item {
             const window = findChild(app, "settingsWindow")
             const toggle = findChild(window, "floatingSidebarsToggle")
             const radius = findChild(window, "sidebarCornerRadiusControl")
+            const scrollbars = findChild(window, "hideFloatingScrollbarsToggle")
+            verify(scrollbars && !scrollbars.enabled && scrollbars.checked)
             const margin = findChild(window, "sidebarMarginControl")
             verify(toggle && radius && margin)
             compare(margin.enabled, false)
@@ -2031,6 +2049,9 @@ Item {
             tryCompare(margin, "enabled", true)
             margin.value = 16; margin.valueModified()
             compare(appSettings.sidebarMargin, 16)
+            tryCompare(scrollbars, "enabled", true)
+            scrollbars.toggle(); scrollbars.toggled()
+            compare(appSettings.hideFloatingScrollbars, false)
             window.close()
         }
 

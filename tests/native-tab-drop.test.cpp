@@ -164,13 +164,14 @@ int main(int argc, char **argv)
     puts("Whole-process-family memory accounting, shared memory and fallback checks passed");
     puts("Safe-mode recovery and settings reset preserve export data and discard pending CSS checks passed");
     AppSettings settings;
-    assert(!settings.floatingSidebars() && settings.sidebarCornerRadius() == 12 && settings.sidebarMargin() == 8);
+    assert(!settings.floatingSidebars() && settings.sidebarCornerRadius() == 12 && settings.sidebarMargin() == 8 && settings.hideFloatingScrollbars());
     settings.setFloatingSidebars(true);
     settings.setSidebarCornerRadius(22);
     settings.setSidebarMargin(16);
+    settings.setHideFloatingScrollbars(false);
     {
         AppSettings persisted;
-        assert(persisted.floatingSidebars() && persisted.sidebarCornerRadius() == 22 && persisted.sidebarMargin() == 16);
+        assert(persisted.floatingSidebars() && persisted.sidebarCornerRadius() == 22 && persisted.sidebarMargin() == 16 && !persisted.hideFloatingScrollbars());
     }
     settings.setSidebarMargin(99);
     assert(settings.sidebarMargin() == 40);
@@ -181,7 +182,7 @@ int main(int argc, char **argv)
     settings.setSidebarCornerRadius(-1);
     assert(settings.sidebarCornerRadius() == 0);
     settings.resetSettings();
-    assert(!settings.floatingSidebars() && settings.sidebarCornerRadius() == 12 && settings.sidebarMargin() == 8);
+    assert(!settings.floatingSidebars() && settings.sidebarCornerRadius() == 12 && settings.sidebarMargin() == 8 && settings.hideFloatingScrollbars());
     {
         QQuickWindow window;
         settings.registerMainWindow(&window);

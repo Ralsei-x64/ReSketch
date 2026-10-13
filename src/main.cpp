@@ -221,6 +221,7 @@ class AppSettings : public QObject
     Q_PROPERTY(bool floatingSidebars READ floatingSidebars WRITE setFloatingSidebars NOTIFY changed)
     Q_PROPERTY(int sidebarCornerRadius READ sidebarCornerRadius WRITE setSidebarCornerRadius NOTIFY changed)
     Q_PROPERTY(int sidebarMargin READ sidebarMargin WRITE setSidebarMargin NOTIFY changed)
+    Q_PROPERTY(bool hideFloatingScrollbars READ hideFloatingScrollbars WRITE setHideFloatingScrollbars NOTIFY changed)
     Q_PROPERTY(QString sidebarBackdrop READ sidebarBackdrop WRITE setSidebarBackdrop NOTIFY changed)
     Q_PROPERTY(bool menuIntegration READ menuIntegration WRITE setMenuIntegration NOTIFY changed)
     Q_PROPERTY(bool reduceMotion READ reduceMotion WRITE setReduceMotion NOTIFY changed)
@@ -460,6 +461,7 @@ public:
     bool floatingSidebars() const { return store.value(QStringLiteral("floatingSidebars"), false).toBool(); }
     int sidebarCornerRadius() const { return qBound(0, store.value(QStringLiteral("sidebarCornerRadius"), 12).toInt(), 40); }
     int sidebarMargin() const { return qBound(0, store.value(QStringLiteral("sidebarMargin"), 8).toInt(), 40); }
+    bool hideFloatingScrollbars() const { return store.value(QStringLiteral("hideFloatingScrollbars"), true).toBool(); }
     QString sidebarBackdrop() const { return store.value(QStringLiteral("sidebarBackdrop"), QStringLiteral("desktop")).toString(); }
     QVariantMap figmaPalette() const
     {
@@ -885,6 +887,13 @@ public:
         value = qBound(0, value, 40);
         if (sidebarMargin() == value) return;
         store.setValue(QStringLiteral("sidebarMargin"), value);
+        emit changed();
+        emit figmaAppearanceChanged();
+    }
+    void setHideFloatingScrollbars(bool value)
+    {
+        if (hideFloatingScrollbars() == value) return;
+        store.setValue(QStringLiteral("hideFloatingScrollbars"), value);
         emit changed();
         emit figmaAppearanceChanged();
     }
