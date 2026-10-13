@@ -1526,9 +1526,13 @@ Kirigami.ApplicationWindow {
                                     anchors.fill: parent
                                     z: 3
                                     radius: groupContainer.radius
-                                    color: root.selectionTint
-                                    border.width: 0
+                                    color: root.overviewNavigationTarget === groupContainer.group?.id
+                                           ? root.selectionTint : "transparent"
+                                    border.width: groupContainer.group?.overviewCollapsed
+                                                  && groupContainer.members.includes(root.activeView) ? 2 : 0
+                                    border.color: Kirigami.Theme.highlightColor
                                     visible: root.overviewNavigationTarget === groupContainer.group?.id
+                                             || border.width > 0
                                 }
                                 Kirigami.Icon {
                                     objectName: "overviewGroupIcon"
@@ -1939,10 +1943,8 @@ Kirigami.ApplicationWindow {
                                     color: root.selectedTabViews.includes(overviewCard.previewView)
                                            || root.overviewNavigationTarget === overviewCard.previewView
                                            ? root.selectionTint : "transparent"
-                                    border.width: root.selectedTabViews.includes(overviewCard.previewView) ? 2 : 1
-                                    border.color: root.selectedTabViews.includes(overviewCard.previewView)
-                                                  ? Kirigami.Theme.highlightColor
-                                                  : overviewCard.group ? overviewCard.group.color
+                                    border.width: 1
+                                    border.color: overviewCard.group ? overviewCard.group.color
                                                   : overviewCardMouse.containsMouse ? Qt.rgba(0, 0, 0, 0.55)
                                                   : Qt.rgba(Kirigami.Theme.textColor.r,
                                                           Kirigami.Theme.textColor.g,
@@ -2217,8 +2219,8 @@ Kirigami.ApplicationWindow {
                                     radius: overviewCard.cornerRadius
                                     color: "transparent"
                                     border.width: 2
-                                    border.color: overviewCard.group ? overviewCard.group.color : Kirigami.Theme.highlightColor
-                                    visible: overviewCard.zooming && (root.overviewClosing || root.overviewProgress < 0.999)
+                                    border.color: Kirigami.Theme.highlightColor
+                                    visible: overviewCard.zooming
                                     opacity: root.overviewProgress
                                 }
                             }
