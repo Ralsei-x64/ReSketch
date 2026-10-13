@@ -164,6 +164,19 @@ int main(int argc, char **argv)
     puts("Whole-process-family memory accounting, shared memory and fallback checks passed");
     puts("Safe-mode recovery and settings reset preserve export data and discard pending CSS checks passed");
     AppSettings settings;
+    assert(!settings.floatingSidebars() && settings.sidebarCornerRadius() == 12);
+    settings.setFloatingSidebars(true);
+    settings.setSidebarCornerRadius(22);
+    {
+        AppSettings persisted;
+        assert(persisted.floatingSidebars() && persisted.sidebarCornerRadius() == 22);
+    }
+    settings.setSidebarCornerRadius(99);
+    assert(settings.sidebarCornerRadius() == 40);
+    settings.setSidebarCornerRadius(-1);
+    assert(settings.sidebarCornerRadius() == 0);
+    settings.resetSettings();
+    assert(!settings.floatingSidebars() && settings.sidebarCornerRadius() == 12);
     {
         QQuickWindow window;
         settings.registerMainWindow(&window);
@@ -180,6 +193,10 @@ int main(int argc, char **argv)
         window.setProperty("chromiumFrameLoaded", true);
         settings.refreshWindowBlur(&window);
         assert(requestedBlurRegion == QRegion(0, 0, window.width(), 40)); // The platform controls fullscreen geometry.
+        settings.setFloatingSidebars(true);
+        settings.refreshWindowBlur(&window);
+        assert(requestedBlurEnabled && requestedBlurRegion.isEmpty()); // Floating margins reveal the desktop as well.
+        settings.setFloatingSidebars(false);
         settings.setTranslucentSidebars(true);
         settings.refreshWindowBlur(&window);
         assert(requestedBlurRegion.isEmpty()); // Transparent sidebars need the whole surface too.

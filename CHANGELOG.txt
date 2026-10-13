@@ -3,6 +3,9 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
 About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
+0.3.0 - 2026-10-13
+Added optional floating Figma sidebars, with adjustable corner radius and the existing desktop/canvas transparency controls.
+
 0.2.1 - 2026-10-12
 Added commit IDs to About and --version, and recorded the version bump policy for each update.
 Made Escape clear selections first or close the overview, without leaving fullscreen or disabling titlebar autohide.

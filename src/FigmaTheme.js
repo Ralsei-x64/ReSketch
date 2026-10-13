@@ -164,7 +164,7 @@ var sidebarMaskSource = `function sidebarMask(bounds, panels) {
 
 var sidebarSource = `function sidebarAppearance(options, stylesheet) {
     let controller = window.__resketchSidebars;
-    if (!options.translucentSidebars || options.opacity >= 100) {
+    if (!options.floatingSidebars && (!options.translucentSidebars || options.opacity >= 100)) {
         controller?.dispose();
         delete window.__resketchSidebars;
         stylesheet('resketch-sidebars', '');
@@ -177,12 +177,25 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
     }
     const selector = '[data-testid="navigation-bar"], [data-onboarding-key="unified-design-onboarding-left-panel"], [data-testid="properties-panel"], [class*="sidebar--navDefault--"], .fb-sidebar';
     let panels = [], ancestors = new Set(), canvases = [], frame = 0;
+    const authoredSizes = new WeakMap();
+    const authoredSize = panel => panel.style.width + ':' + panel.style.height;
     const underlay = document.createElement('div');
     underlay.id = 'resketch-sidebar-underlay';
     document.body.prepend(underlay);
     stylesheet('resketch-sidebars',
-        '[data-resketch-sidebar], [data-resketch-sidebar] [data-preferred-theme] { --color-bg:transparent !important; }'
+        '[data-resketch-sidebar], [data-resketch-sidebar] [data-preferred-theme] { --color-bg:var(--resketch-sidebar-content) !important; }'
         + '[data-resketch-sidebar] { background-color:var(--resketch-sidebar-tint) !important; }'
+        + '[data-resketch-floating-sidebar] { box-sizing:border-box !important;'
+        + 'width:var(--resketch-sidebar-width) !important; min-width:0 !important; max-width:none !important;'
+        + 'height:var(--resketch-sidebar-height) !important; min-height:0 !important;'
+        + 'margin:8px var(--resketch-sidebar-gap) !important; border-radius:var(--resketch-sidebar-radius) !important; overflow:hidden !important; }'
+        + '[data-resketch-floating-sidebar] :is([class*="left_panel_container--panel--"],[class*="properties_panel--panelPosition--"]) '
+        + '{ box-sizing:border-box !important; width:100% !important; height:100% !important; }'
+        + '[data-resketch-floating-sidebar][class*="sidebar--navDefault--"] > *, '
+        + '[data-resketch-floating-sidebar][class*="sidebar--navDefault--"] .fb-sidebar { box-sizing:border-box !important; width:100% !important; }'
+        + '[data-resketch-floating-sidebar][data-onboarding-key="unified-design-onboarding-left-panel"] { position:relative !important; }'
+        + '[data-resketch-floating-sidebar] > .data-fullscreen-prevent-event-capture { top:0 !important; height:100% !important; left:auto !important; right:0 !important; }'
+        + '[data-resketch-floating-sidebar][data-testid="properties-panel"] > .data-fullscreen-prevent-event-capture { left:0 !important; right:auto !important; }'
         // Figma forces its TreeGrid action fade to alpha 1, turning transparent
         // sidebar colors black. Keep the original color's alpha at the fade end.
         + '[data-resketch-sidebar] :is(.ublpttv, .ublptty), '
@@ -201,8 +214,9 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
     function clear() {
         for (const panel of panels) {
             panel.removeAttribute('data-resketch-sidebar');
-            panel.style.removeProperty('--resketch-sidebar-tint');
-            panel.style.removeProperty('--resketch-sidebar-surface');
+            panel.removeAttribute('data-resketch-floating-sidebar');
+            for (const name of ['tint','surface','content','width','height','gap','radius'])
+                panel.style.removeProperty('--resketch-sidebar-' + name);
         }
         for (const ancestor of ancestors) ancestor.removeAttribute('data-resketch-sidebar-ancestor');
         for (const canvas of canvases) {
@@ -219,12 +233,16 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
         for (const panel of panels) if (!next.includes(panel)) resize.unobserve(panel);
         for (const panel of next) if (!panels.includes(panel)) resize.observe(panel);
         panels = next;
+        observer.disconnect();
+        observer.observe(document.body, {childList:true, subtree:true});
+        for (const panel of panels) observer.observe(panel, {attributes:true, attributeFilter:['style']});
         canvases = Array.from(document.querySelectorAll('.gpu-view-content'));
         const options = controller.options;
         const bg = getComputedStyle(document.body).getPropertyValue('--color-bg').trim() || (options.theme === 'dark' ? '#2c2c2c' : '#ffffff');
         // Desktop tint is already drawn by the native window background.
         // Applying it again here makes 85% opacity effectively 98%.
-        const tint = options.sidebarBackdrop === 'desktop' ? 'transparent'
+        const translucent = (options.translucentSidebars || options.floatingSidebars) && options.opacity < 100;
+        const tint = !translucent ? bg : options.sidebarBackdrop === 'desktop' ? 'transparent'
             : 'color-mix(in srgb, ' + bg + ' ' + options.opacity + '%, transparent)';
         const rects = panels.map(panel => panel.getBoundingClientRect()).filter(rect => rect.width && rect.height);
         underlay.style.backgroundColor = options.sidebarBackdrop === 'canvas' && canvases.length
@@ -232,8 +250,19 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
         underlay.style.clipPath = options.sidebarBackdrop === 'desktop'
             ? sidebarMask({left:0, top:0, width:innerWidth, height:innerHeight}, rects) : 'none';
         for (const panel of panels) {
+            authoredSizes.set(panel, authoredSize(panel));
             panel.style.setProperty('--resketch-sidebar-tint', tint);
             panel.style.setProperty('--resketch-sidebar-surface', bg);
+            panel.style.setProperty('--resketch-sidebar-content', translucent ? 'transparent' : bg);
+            const bounds = panel.getBoundingClientRect();
+            if (options.floatingSidebars && bounds.width && bounds.height) {
+                const gap = bounds.width < 100 ? 4 : 8;
+                panel.style.setProperty('--resketch-sidebar-width', Math.max(1, bounds.width - gap * 2) + 'px');
+                panel.style.setProperty('--resketch-sidebar-height', Math.max(1, bounds.height - 16) + 'px');
+                panel.style.setProperty('--resketch-sidebar-gap', gap + 'px');
+                panel.style.setProperty('--resketch-sidebar-radius', options.sidebarCornerRadius + 'px');
+                panel.setAttribute('data-resketch-floating-sidebar', '');
+            }
             panel.setAttribute('data-resketch-sidebar', '');
             for (let node = panel.parentElement; node; node = node.parentElement) ancestors.add(node);
         }
@@ -246,7 +275,9 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
     function schedule() { if (!frame) frame = requestAnimationFrame(update); }
     const resize = new ResizeObserver(schedule);
     const observer = new MutationObserver(records => {
-        if (records.some(record => [...record.addedNodes, ...record.removedNodes].some(node =>
+        if (records.some(record => record.type === 'attributes'
+            ? panels.includes(record.target) && authoredSizes.get(record.target) !== authoredSize(record.target)
+            : [...record.addedNodes, ...record.removedNodes].some(node =>
             node.nodeType === 1 && (node.matches(selector + ', .gpu-view-content') || node.querySelector(selector + ', .gpu-view-content'))))) schedule();
     });
     observer.observe(document.body, {childList:true, subtree:true});
@@ -363,6 +394,8 @@ function script(options, storeSource) {
         customCss: options.customCssEnabled ? options.customCss : "",
         loadingCss: loadingCss(Number.isFinite(options.opacity) ? options.opacity : 100),
         translucentSidebars: !!options.translucentSidebars,
+        floatingSidebars: !!options.floatingSidebars,
+        sidebarCornerRadius: Math.max(0, Math.min(40, Number.isFinite(options.sidebarCornerRadius) ? options.sidebarCornerRadius : 12)),
         sidebarBackdrop: options.sidebarBackdrop === "canvas" ? "canvas" : "desktop",
         opacity: Math.max(0, Math.min(100, Number.isFinite(options.opacity) ? options.opacity : 100))
     }

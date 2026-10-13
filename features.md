@@ -26,7 +26,7 @@
 - **App themes:** Choose light, dark, or automatic system-following appearance.
 - **KDE colors:** Optionally apply the system color palette to Figma's web interface.
 - **Custom CSS:** Optionally customize Figma's interface with your own CSS.
-- **Transparency and blur:** Adjust background opacity and optional translucent Figma sidebars with desktop or canvas backdrops.
+- **Transparency and blur:** Adjust background opacity and optional translucent or floating Figma sidebars with desktop or canvas backdrops and configurable corner radius.
 - **Window controls:** Use theme icons for integrated controls, optionally keeping the desktop titlebar and decorations.
 - **Reduced motion:** Disable interface animations through settings.
 - **Export folders:** Choose and remember a separate export folder for each Figma file.

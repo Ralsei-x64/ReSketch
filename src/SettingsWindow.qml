@@ -43,7 +43,7 @@ Kirigami.ApplicationWindow {
             ? Object.assign({}, item, {enabled: checked}) : item)
     }
     readonly property var sections: [
-        {title: "Appearance", icon: "preferences-desktop-theme", keywords: "theme colors CSS transparency opacity blur window controls decorations motion"},
+        {title: "Appearance", icon: "preferences-desktop-theme", keywords: "theme colors CSS transparency opacity blur floating sidebars corners radius window controls decorations motion"},
         {title: "Tabs", icon: "tab-duplicate", keywords: "sleep remember restore loaded Home"},
         {title: "Performance", icon: "preferences-system-performance", keywords: "memory preview quality menus Chromium GPU Vulkan canvas flags switches"},
         {title: "Notifications", icon: "preferences-desktop-notification", keywords: "desktop alerts enable disable Home"},
@@ -445,16 +445,35 @@ Kirigami.ApplicationWindow {
 
                                     Controls.ComboBox {
                                         Kirigami.FormData.label: "Sidebar backdrop:"
-                                        enabled: appSettings.translucentSidebars
+                                        enabled: appSettings.translucentSidebars || appSettings.floatingSidebars
                                         model: ["Desktop", "Figma canvas"]
                                         currentIndex: appSettings.sidebarBackdrop === "canvas" ? 1 : 0
                                         onActivated: appSettings.sidebarBackdrop = currentIndex === 1 ? "canvas" : "desktop"
                                     }
 
+                                    Controls.CheckBox {
+                                        objectName: "floatingSidebarsToggle"
+                                        Kirigami.FormData.label: "Floating sidebars:"
+                                        text: "Inset Figma sidebars from the window edges"
+                                        checked: appSettings.floatingSidebars
+                                        onToggled: appSettings.floatingSidebars = checked
+                                    }
+
+                                    Controls.SpinBox {
+                                        objectName: "sidebarCornerRadiusControl"
+                                        Kirigami.FormData.label: "Corner radius (px):"
+                                        enabled: appSettings.floatingSidebars
+                                        from: 0
+                                        to: 40
+                                        editable: true
+                                        value: appSettings.sidebarCornerRadius
+                                        onValueModified: appSettings.sidebarCornerRadius = value
+                                    }
+
                                     Controls.Label {
                                         Layout.fillWidth: true
                                         Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
-                                        text: "Background opacity controls the toolbar and enabled sidebars. Canvas uses the canvas background where Figma's canvas does not extend behind the sidebars."
+                                        text: "Background opacity controls the toolbar and translucent or floating sidebars. Canvas uses the canvas background where Figma's canvas does not extend behind the sidebars."
                                         opacity: 0.72
                                         wrapMode: Text.WordWrap
                                     }

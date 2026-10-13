@@ -36,7 +36,7 @@ Kirigami.ApplicationWindow {
     readonly property color selectionTint: Qt.rgba(Kirigami.Theme.highlightColor.r,
                                                   Kirigami.Theme.highlightColor.g,
                                                   Kirigami.Theme.highlightColor.b, 0.14)
-    readonly property bool desktopSidebars: appSettings.translucentSidebars
+    readonly property bool desktopSidebars: (appSettings.translucentSidebars || appSettings.floatingSidebars)
                                             && appSettings.sidebarBackdrop === "desktop"
                                             && appSettings.toolbarOpacity < 100
     readonly property int overviewColumns: Math.min(width < 1360 ? 3 : 4, tabModel.count + 1)
@@ -68,6 +68,8 @@ Kirigami.ApplicationWindow {
         customCssEnabled: appSettings.figmaCustomCssEnabled,
         customCss: appSettings.figmaCustomCss,
         translucentSidebars: appSettings.translucentSidebars,
+        floatingSidebars: appSettings.floatingSidebars,
+        sidebarCornerRadius: appSettings.sidebarCornerRadius,
         sidebarBackdrop: appSettings.sidebarBackdrop,
         opacity: appSettings.toolbarOpacity
     }, FigmaMenu.storeSource)

@@ -25,6 +25,8 @@ Item {
         property string figmaCustomCss: ""
         property var figmaPalette: ({})
         property bool translucentSidebars: false
+        property bool floatingSidebars: false
+        property int sidebarCornerRadius: 12
         property string sidebarBackdrop: "desktop"
         property bool reduceMotion: false
         property int toolbarOpacity: 100
@@ -1836,6 +1838,8 @@ Item {
             appSettings.sleepingTabPreviews = false
             appSettings.keepHomeAwake = true
             appSettings.translucentSidebars = false
+            appSettings.floatingSidebars = false
+            appSettings.sidebarCornerRadius = 12
             appSettings.toolbarOpacity = 100
             appSettings.toolbarItems = appSettings.defaultToolbarItems()
             appSettings.sidebarBackdrop = "desktop"
@@ -1858,6 +1862,81 @@ Item {
             for (const window of app.detachedWindows.slice()) window.close()
             app.dismissOverview()
             app.show()
+        }
+
+        function test_floating_sidebars_keep_backdrops_and_restore_layout() {
+            const view = app.activeView
+            const fixture = '<style>body{margin:0;--color-bg:#eee}'
+                + '.gpu-view-content{position:absolute;inset:0;background:#444}'
+                + '#home{position:absolute;left:0;top:0;width:200px;height:400px;background:white}'
+                + '#home>div,.fb-sidebar{width:200px;height:400px}'
+                + '[data-testid=properties-panel]{position:absolute;right:0;top:0;width:200px;height:400px;background:white}'
+                + '.properties_panel--panelPosition--fixture{position:absolute;inset:0;width:200px;height:400px;background:var(--color-bg)}</style>'
+                + '<div class="gpu-view-content"></div><nav id="home" class="sidebar--navDefault--fixture"><div><div class="fb-sidebar"></div></div></nav>'
+                + '<aside data-testid="properties-panel"><div class="properties_panel--panelPosition--fixture"></div></aside>'
+            let result = null
+            view.runJavaScript('document.body.innerHTML=' + JSON.stringify(fixture), () => result = true)
+            tryVerify(() => result === true)
+            const options = {theme: "light", floatingSidebars: true, sidebarCornerRadius: 22,
+                             translucentSidebars: false, opacity: 60, sidebarBackdrop: "desktop"}
+            function apply() {
+                view.runJavaScript(FigmaTheme.sidebarMaskSource + ';' + FigmaTheme.sidebarSource
+                    + ';sidebarAppearance(' + JSON.stringify(options) + ',(id,css)=>{'
+                    + 'let s=document.getElementById(id);if(!css){s?.remove();return}'
+                    + 'if(!s){s=document.createElement("style");s.id=id;document.head.appendChild(s)}s.textContent=css;});')
+            }
+            function inspect() {
+                view.runJavaScript('(()=>{const p=document.getElementById("home"),s=getComputedStyle(p),r=p.getBoundingClientRect();'
+                    + 'const right=document.querySelector("[data-testid=properties-panel]"),child=right.firstElementChild;'
+                    + 'return {x:r.x,y:r.y,width:r.width,height:r.height,radius:s.borderRadius,overflow:s.overflow,bg:s.backgroundColor,'
+                    + 'rightWidth:right.getBoundingClientRect().width,childWidth:child.getBoundingClientRect().width,'
+                    + 'homeChildWidth:document.querySelector(".fb-sidebar").getBoundingClientRect().width,'
+                    + 'clip:getComputedStyle(document.querySelector(".gpu-view-content")).clipPath,'
+                    + 'floating:p.hasAttribute("data-resketch-floating-sidebar"),marked:p.hasAttribute("data-resketch-sidebar")}})()',
+                    value => result = value)
+            }
+            apply()
+            tryVerify(() => { inspect(); return result && result.floating })
+            compare(result.x, 8); compare(result.y, 8)
+            compare(result.width, 184); compare(result.height, 384)
+            compare(result.radius, "22px"); compare(result.overflow, "hidden")
+            compare(result.childWidth, result.rightWidth, "Inner file panels fit inside the floating card")
+            compare(result.homeChildWidth, result.width, "Home's nested sidebar also fits its floating card")
+            compare(result.bg, "rgba(0, 0, 0, 0)")
+            verify(result.clip.includes("200px 0px"), "The sidebar's original slot, including its margins, reveals the desktop")
+            options.sidebarCornerRadius = 0
+            apply()
+            tryVerify(() => { inspect(); return result.radius === "0px" })
+            compare(result.width, 184, "Updating settings does not shrink the sidebar repeatedly")
+            view.runJavaScript('document.getElementById("home").style.width="260px"')
+            tryVerify(() => { inspect(); return result.width === 244 })
+            options.sidebarBackdrop = "canvas"
+            apply()
+            tryVerify(() => { inspect(); return result.bg.includes("0.6") && result.clip === "none" })
+            options.translucentSidebars = false
+            options.opacity = 100
+            apply()
+            tryVerify(() => { inspect(); return result.bg === "rgb(238, 238, 238)" })
+            compare(result.floating, true, "Floating layout also works with opaque sidebars")
+            options.floatingSidebars = false
+            apply()
+            tryVerify(() => { inspect(); return !result.marked })
+            compare(result.width, 260); compare(result.height, 400)
+            compare(result.x, 0); compare(result.y, 0)
+            compare(result.radius, "0px"); compare(result.clip, "none")
+
+            app.openSettings()
+            const window = findChild(app, "settingsWindow")
+            const toggle = findChild(window, "floatingSidebarsToggle")
+            const radius = findChild(window, "sidebarCornerRadiusControl")
+            verify(toggle && radius)
+            compare(radius.enabled, false)
+            toggle.toggle(); toggle.toggled()
+            compare(appSettings.floatingSidebars, true)
+            tryCompare(radius, "enabled", true)
+            radius.value = 24; radius.valueModified()
+            compare(appSettings.sidebarCornerRadius, 24)
+            window.close()
         }
 
         function test_sidebar_transparency_uses_native_tint_once() {

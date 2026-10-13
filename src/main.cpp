@@ -218,6 +218,8 @@ class AppSettings : public QObject
     Q_PROPERTY(QString figmaCustomCss READ figmaCustomCss WRITE setFigmaCustomCss NOTIFY changed)
     Q_PROPERTY(QVariantMap figmaPalette READ figmaPalette NOTIFY effectiveThemeChanged)
     Q_PROPERTY(bool translucentSidebars READ translucentSidebars WRITE setTranslucentSidebars NOTIFY changed)
+    Q_PROPERTY(bool floatingSidebars READ floatingSidebars WRITE setFloatingSidebars NOTIFY changed)
+    Q_PROPERTY(int sidebarCornerRadius READ sidebarCornerRadius WRITE setSidebarCornerRadius NOTIFY changed)
     Q_PROPERTY(QString sidebarBackdrop READ sidebarBackdrop WRITE setSidebarBackdrop NOTIFY changed)
     Q_PROPERTY(bool menuIntegration READ menuIntegration WRITE setMenuIntegration NOTIFY changed)
     Q_PROPERTY(bool reduceMotion READ reduceMotion WRITE setReduceMotion NOTIFY changed)
@@ -454,6 +456,8 @@ public:
     bool figmaCustomCssEnabled() const { return store.value(QStringLiteral("figmaCustomCssEnabled"), false).toBool(); }
     QString figmaCustomCss() const { return store.value(QStringLiteral("figmaCustomCss")).toString(); }
     bool translucentSidebars() const { return store.value(QStringLiteral("translucentSidebars"), false).toBool(); }
+    bool floatingSidebars() const { return store.value(QStringLiteral("floatingSidebars"), false).toBool(); }
+    int sidebarCornerRadius() const { return qBound(0, store.value(QStringLiteral("sidebarCornerRadius"), 12).toInt(), 40); }
     QString sidebarBackdrop() const { return store.value(QStringLiteral("sidebarBackdrop"), QStringLiteral("desktop")).toString(); }
     QVariantMap figmaPalette() const
     {
@@ -663,7 +667,7 @@ public:
         auto *window = qobject_cast<QWindow *>(object);
         if (!window)
             return;
-        const bool desktopSidebars = translucentSidebars() && sidebarBackdrop() == QStringLiteral("desktop");
+        const bool desktopSidebars = (translucentSidebars() || floatingSidebars()) && sidebarBackdrop() == QStringLiteral("desktop");
         // A null region follows the whole surface through fullscreen and resize.
         const QRegion region = window->property("chromiumFrameLoaded").toBool() && !desktopSidebars
             ? QRegion(0, 0, window->width(), window->property("tabStripHeight").toInt()) : QRegion();
@@ -857,6 +861,21 @@ public:
         emit changed();
         emit figmaAppearanceChanged();
     }
+    void setFloatingSidebars(bool value)
+    {
+        if (floatingSidebars() == value) return;
+        store.setValue(QStringLiteral("floatingSidebars"), value);
+        emit changed();
+        emit figmaAppearanceChanged();
+    }
+    void setSidebarCornerRadius(int value)
+    {
+        value = qBound(0, value, 40);
+        if (sidebarCornerRadius() == value) return;
+        store.setValue(QStringLiteral("sidebarCornerRadius"), value);
+        emit changed();
+        emit figmaAppearanceChanged();
+    }
     void setReduceMotion(bool value)
     {
         if (reduceMotion() == value)
@@ -871,7 +890,7 @@ public:
             return;
         store.setValue(QStringLiteral("toolbarOpacity"), value);
         emit changed();
-        if (translucentSidebars())
+        if (translucentSidebars() || floatingSidebars())
             emit figmaAppearanceChanged();
     }
     void setShortcutOverrides(const QVariantMap &value)
