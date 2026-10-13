@@ -80,6 +80,11 @@ assert.equal(app.context.sidebarMask({left: 200, top: 0, width: 600, height: 700
              'inset Figma canvas must not be clipped or resized')
 assert.match(app.context.sidebarMask({left: 150, top: 20, width: 700, height: 500}, panels),
              /0px 0px, 50px 0px, 50px 500px/, 'holes must use canvas-local coordinates')
+const floating = [{left:8, top:8, right:192, bottom:692, radius:22}]
+assert.match(app.context.sidebarMask(viewport, floating), /^path\(evenodd,/)
+assert.match(app.context.sidebarMask(viewport, floating), /M30 8 H170 A22 22/,
+             'rounded holes follow the actual floating surface, leaving the surrounding canvas opaque')
+assert.equal(app.context.sidebarMask({left:200, top:0, width:600, height:700}, floating), 'none')
 app.run({dark: true})
 assert.equal(app.body.theme, 'dark')
 assert.equal(app.nested.theme, 'dark', 'Figma state must update nested text/theme scopes')

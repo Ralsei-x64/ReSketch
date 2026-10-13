@@ -1891,6 +1891,7 @@ Item {
                     + 'return {x:r.x,y:r.y,width:r.width,height:r.height,radius:s.borderRadius,overflow:s.overflow,bg:s.backgroundColor,'
                     + 'rightWidth:right.getBoundingClientRect().width,childWidth:child.getBoundingClientRect().width,'
                     + 'homeChildWidth:document.querySelector(".fb-sidebar").getBoundingClientRect().width,'
+                    + 'underlayBg:document.getElementById("resketch-sidebar-underlay")?getComputedStyle(document.getElementById("resketch-sidebar-underlay")).backgroundColor:"",'
                     + 'clip:getComputedStyle(document.querySelector(".gpu-view-content")).clipPath,'
                     + 'floating:p.hasAttribute("data-resketch-floating-sidebar"),marked:p.hasAttribute("data-resketch-sidebar")}})()',
                     value => result = value)
@@ -1903,7 +1904,9 @@ Item {
             compare(result.childWidth, result.rightWidth, "Inner file panels fit inside the floating card")
             compare(result.homeChildWidth, result.width, "Home's nested sidebar also fits its floating card")
             compare(result.bg, "rgba(0, 0, 0, 0)")
-            verify(result.clip.includes("200px 0px"), "The sidebar's original slot, including its margins, reveals the desktop")
+            verify(result.clip.startsWith("path(evenodd,"), "Transparency follows the rounded sidebar shape")
+            verify(/H\s*170\b/.test(result.clip), "The mask uses the inset sidebar's bounds and 22 px corners")
+            compare(result.underlayBg, "rgb(68, 68, 68)", "The surrounding space uses the opaque Figma canvas background")
             options.sidebarCornerRadius = 0
             apply()
             tryVerify(() => { inspect(); return result.radius === "0px" })
@@ -1924,6 +1927,36 @@ Item {
             compare(result.width, 260); compare(result.height, 400)
             compare(result.x, 0); compare(result.y, 0)
             compare(result.radius, "0px"); compare(result.clip, "none")
+
+            // In files, the navigation rail and layer panel form one floating card.
+            const joinedFixture = '<style>body{margin:0;--color-bg:#eee}'
+                + '.gpu-view-content{position:absolute;inset:0;background:#444}'
+                + '#rail{position:absolute;left:0;top:0;width:49px;height:400px}'
+                + '#positioner{position:absolute;left:49px;top:0}'
+                + '#layers{width:200px;height:400px}'
+                + '#right{position:absolute;right:0;top:0;width:200px;height:400px}</style>'
+                + '<div class="gpu-view-content"></div><nav id="rail" data-testid="navigation-bar"></nav>'
+                + '<div id="positioner"><div id="layers" data-onboarding-key="unified-design-onboarding-left-panel"></div></div>'
+                + '<aside id="right" data-testid="properties-panel"></aside>'
+            result = null
+            view.runJavaScript('document.body.innerHTML=' + JSON.stringify(joinedFixture), () => result = true)
+            tryVerify(() => result === true)
+            options.floatingSidebars = true
+            options.sidebarCornerRadius = 22
+            options.opacity = 60
+            options.sidebarBackdrop = "desktop"
+            apply()
+            tryVerify(() => {
+                view.runJavaScript('(()=>{const rail=document.getElementById("rail"),layers=document.getElementById("layers");'
+                    + 'return {railRight:rail.getBoundingClientRect().right,left:layers.getBoundingClientRect().left,'
+                    + 'start:rail.getAttribute("data-resketch-sidebar-join"),end:layers.getAttribute("data-resketch-sidebar-join"),'
+                    + 'railInner:getComputedStyle(rail).borderTopRightRadius,layerInner:getComputedStyle(layers).borderTopLeftRadius,'
+                    + 'mask:document.getElementById("resketch-sidebar-underlay").style.clipPath}})()', value => result = value)
+                return result && result.start === "start" && result.end === "end"
+            })
+            compare(result.railRight, result.left, "There is no gap between the two sections")
+            compare(result.railInner, "0px"); compare(result.layerInner, "0px")
+            compare((result.mask.match(/M/g) || []).length, 3, "One outer path and exactly two floating sidebar holes")
 
             app.openSettings()
             const window = findChild(app, "settingsWindow")

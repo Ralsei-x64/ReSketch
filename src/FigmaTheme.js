@@ -150,16 +150,29 @@ function paletteCss(palette) {
 
 // Cut holes in opaque page/canvas backgrounds without changing Figma's layout.
 var sidebarMaskSource = `function sidebarMask(bounds, panels) {
+    const rounded = panels.some(panel => panel.radius > 0);
+    const paths = ['M0 0 H' + bounds.width + ' V' + bounds.height + ' H0 Z'];
     const points = ['0px 0px', bounds.width + 'px 0px', bounds.width + 'px ' + bounds.height + 'px', '0px ' + bounds.height + 'px', '0px 0px'];
     let holes = 0;
     for (const panel of panels) {
         const left = Math.max(0, panel.left - bounds.left), top = Math.max(0, panel.top - bounds.top);
         const right = Math.min(bounds.width, panel.right - bounds.left), bottom = Math.min(bounds.height, panel.bottom - bounds.top);
         if (right <= left || bottom <= top) continue;
+        if (rounded) {
+            const x = panel.left - bounds.left, y = panel.top - bounds.top;
+            const w = panel.right - panel.left, h = panel.bottom - panel.top;
+            const r = Math.max(0, Math.min(panel.radius || 0, w / 2, h / 2));
+            paths.push('M' + (x + r) + ' ' + y + ' H' + (x + w - r)
+                + ' A' + r + ' ' + r + ' 0 0 1 ' + (x + w) + ' ' + (y + r)
+                + ' V' + (y + h - r) + ' A' + r + ' ' + r + ' 0 0 1 ' + (x + w - r) + ' ' + (y + h)
+                + ' H' + (x + r) + ' A' + r + ' ' + r + ' 0 0 1 ' + x + ' ' + (y + h - r)
+                + ' V' + (y + r) + ' A' + r + ' ' + r + ' 0 0 1 ' + (x + r) + ' ' + y + ' Z');
+        }
         points.push(left + 'px ' + top + 'px', right + 'px ' + top + 'px', right + 'px ' + bottom + 'px', left + 'px ' + bottom + 'px', left + 'px ' + top + 'px', '0px 0px');
         ++holes;
     }
-    return holes ? 'polygon(evenodd, ' + points.join(', ') + ')' : 'none';
+    return !holes ? 'none' : rounded ? 'path(evenodd, "' + paths.join(' ') + '")'
+        : 'polygon(evenodd, ' + points.join(', ') + ')';
 }`
 
 var sidebarSource = `function sidebarAppearance(options, stylesheet) {
@@ -188,7 +201,9 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
         + '[data-resketch-floating-sidebar] { box-sizing:border-box !important;'
         + 'width:var(--resketch-sidebar-width) !important; min-width:0 !important; max-width:none !important;'
         + 'height:var(--resketch-sidebar-height) !important; min-height:0 !important;'
-        + 'margin:8px var(--resketch-sidebar-gap) !important; border-radius:var(--resketch-sidebar-radius) !important; overflow:hidden !important; }'
+        + 'margin:8px var(--resketch-sidebar-gap-right) 8px var(--resketch-sidebar-gap-left) !important; border-radius:var(--resketch-sidebar-radius) !important; overflow:hidden !important; }'
+        + '[data-resketch-sidebar-join="start"] { border-radius:var(--resketch-sidebar-radius) 0 0 var(--resketch-sidebar-radius) !important; }'
+        + '[data-resketch-sidebar-join="end"] { border-radius:0 var(--resketch-sidebar-radius) var(--resketch-sidebar-radius) 0 !important; }'
         + '[data-resketch-floating-sidebar] :is([class*="left_panel_container--panel--"],[class*="properties_panel--panelPosition--"]) '
         + '{ box-sizing:border-box !important; width:100% !important; height:100% !important; }'
         + '[data-resketch-floating-sidebar][class*="sidebar--navDefault--"] > *, '
@@ -215,7 +230,8 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
         for (const panel of panels) {
             panel.removeAttribute('data-resketch-sidebar');
             panel.removeAttribute('data-resketch-floating-sidebar');
-            for (const name of ['tint','surface','content','width','height','gap','radius'])
+            panel.removeAttribute('data-resketch-sidebar-join');
+            for (const name of ['tint','surface','content','width','height','gap-left','gap-right','radius'])
                 panel.style.removeProperty('--resketch-sidebar-' + name);
         }
         for (const ancestor of ancestors) ancestor.removeAttribute('data-resketch-sidebar-ancestor');
@@ -244,11 +260,13 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
         const translucent = (options.translucentSidebars || options.floatingSidebars) && options.opacity < 100;
         const tint = !translucent ? bg : options.sidebarBackdrop === 'desktop' ? 'transparent'
             : 'color-mix(in srgb, ' + bg + ' ' + options.opacity + '%, transparent)';
-        const rects = panels.map(panel => panel.getBoundingClientRect()).filter(rect => rect.width && rect.height);
-        underlay.style.backgroundColor = options.sidebarBackdrop === 'canvas' && canvases.length
+        const rail = panels.find(panel => panel.matches('[data-testid="navigation-bar"]'));
+        const leftPanel = panels.find(panel => panel.matches('[data-onboarding-key="unified-design-onboarding-left-panel"]'));
+        const railBounds = rail?.getBoundingClientRect(), leftBounds = leftPanel?.getBoundingClientRect();
+        const joined = options.floatingSidebars && railBounds?.width && leftBounds?.width
+            && Math.abs(railBounds.right - leftBounds.left) < 3;
+        underlay.style.backgroundColor = (options.floatingSidebars || options.sidebarBackdrop === 'canvas') && canvases.length
             ? getComputedStyle(canvases[0]).backgroundColor : bg;
-        underlay.style.clipPath = options.sidebarBackdrop === 'desktop'
-            ? sidebarMask({left:0, top:0, width:innerWidth, height:innerHeight}, rects) : 'none';
         for (const panel of panels) {
             authoredSizes.set(panel, authoredSize(panel));
             panel.style.setProperty('--resketch-sidebar-tint', tint);
@@ -257,16 +275,29 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
             const bounds = panel.getBoundingClientRect();
             if (options.floatingSidebars && bounds.width && bounds.height) {
                 const gap = bounds.width < 100 ? 4 : 8;
-                panel.style.setProperty('--resketch-sidebar-width', Math.max(1, bounds.width - gap * 2) + 'px');
+                const gapLeft = joined && panel === leftPanel ? 0 : joined && panel === rail ? 8 : gap;
+                const gapRight = joined && panel === rail ? 0 : gap;
+                panel.style.setProperty('--resketch-sidebar-width', Math.max(1, bounds.width - gapLeft - gapRight) + 'px');
                 panel.style.setProperty('--resketch-sidebar-height', Math.max(1, bounds.height - 16) + 'px');
-                panel.style.setProperty('--resketch-sidebar-gap', gap + 'px');
+                panel.style.setProperty('--resketch-sidebar-gap-left', gapLeft + 'px');
+                panel.style.setProperty('--resketch-sidebar-gap-right', gapRight + 'px');
                 panel.style.setProperty('--resketch-sidebar-radius', options.sidebarCornerRadius + 'px');
                 panel.setAttribute('data-resketch-floating-sidebar', '');
+                if (joined && (panel === rail || panel === leftPanel))
+                    panel.setAttribute('data-resketch-sidebar-join', panel === rail ? 'start' : 'end');
             }
             panel.setAttribute('data-resketch-sidebar', '');
             for (let node = panel.parentElement; node; node = node.parentElement) ancestors.add(node);
         }
         for (const ancestor of ancestors) ancestor.setAttribute('data-resketch-sidebar-ancestor', '');
+        const rects = panels.filter(panel => !joined || panel !== leftPanel).map(panel => {
+            const bounds = panel.getBoundingClientRect();
+            const right = joined && panel === rail ? leftPanel.getBoundingClientRect().right : bounds.right;
+            return {left:bounds.left, top:bounds.top, right, bottom:bounds.bottom,
+                    radius:options.floatingSidebars ? options.sidebarCornerRadius : 0};
+        }).filter(rect => rect.right > rect.left && rect.bottom > rect.top);
+        underlay.style.clipPath = options.sidebarBackdrop === 'desktop'
+            ? sidebarMask({left:0, top:0, width:innerWidth, height:innerHeight}, rects) : 'none';
         if (options.sidebarBackdrop === 'desktop') for (const canvas of canvases) {
             canvas.style.setProperty('--resketch-sidebar-clip', sidebarMask(canvas.getBoundingClientRect(), rects));
             canvas.setAttribute('data-resketch-sidebar-canvas', '');
