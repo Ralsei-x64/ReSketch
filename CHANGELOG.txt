@@ -3,6 +3,7 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch; Arch Git packages also include the commit count and hash.
 
 0.2.0 - Unreleased
+Changed overview keyboard focus to a selection tint and added Shift+Arrow range selection, including collapsed groups.
 Added this commit changelog and consistent version reporting in About, --version, and Arch packages.
 Fixed fullscreen autohide controls, reduced the toolbar reveal zone, and refined its slide easing.
 Fixed whole-window blur coverage when entering fullscreen or resizing.

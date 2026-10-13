@@ -1522,13 +1522,12 @@ Kirigami.ApplicationWindow {
                                 width: parent.width
                                 height: parent.height
                                 Rectangle {
-                                    objectName: "overviewGroupFocusRing"
+                                    objectName: "overviewGroupNavigationHighlight"
                                     anchors.fill: parent
                                     z: 3
                                     radius: groupContainer.radius
-                                    color: "transparent"
-                                    border.width: 2
-                                    border.color: Kirigami.Theme.highlightColor
+                                    color: root.selectionTint
+                                    border.width: 0
                                     visible: root.overviewNavigationTarget === groupContainer.group?.id
                                 }
                                 Kirigami.Icon {
@@ -1937,7 +1936,9 @@ Kirigami.ApplicationWindow {
                                     anchors.fill: parent
                                     z: 3
                                     radius: overviewCard.cornerRadius
-                                    color: root.selectedTabViews.includes(overviewCard.previewView) ? root.selectionTint : "transparent"
+                                    color: root.selectedTabViews.includes(overviewCard.previewView)
+                                           || root.overviewNavigationTarget === overviewCard.previewView
+                                           ? root.selectionTint : "transparent"
                                     border.width: root.selectedTabViews.includes(overviewCard.previewView) ? 2 : 1
                                     border.color: root.selectedTabViews.includes(overviewCard.previewView)
                                                   ? Kirigami.Theme.highlightColor
@@ -2217,8 +2218,7 @@ Kirigami.ApplicationWindow {
                                     color: "transparent"
                                     border.width: 2
                                     border.color: overviewCard.group ? overviewCard.group.color : Kirigami.Theme.highlightColor
-                                    visible: root.overviewNavigationTarget === overviewCard.previewView
-                                             || overviewCard.zooming && (root.overviewClosing || root.overviewProgress < 0.999)
+                                    visible: overviewCard.zooming && (root.overviewClosing || root.overviewProgress < 0.999)
                                     opacity: root.overviewProgress
                                 }
                             }
@@ -3427,11 +3427,11 @@ Kirigami.ApplicationWindow {
     function handleOverviewKey(event) {
         if (!overviewVisible || overviewClosing || overviewProgress < 0.999 || overviewAnimationRunning
                 || overviewDraggedView || draggedGroupId
-                || event.modifiers & (Qt.ShiftModifier | Qt.AltModifier | Qt.ControlModifier | Qt.MetaModifier)) return
+                || event.modifiers & (Qt.AltModifier | Qt.ControlModifier | Qt.MetaModifier)) return
         const horizontal = event.key === Qt.Key_Left || event.key === Qt.Key_Right
         const vertical = event.key === Qt.Key_Up || event.key === Qt.Key_Down
         const enter = event.key === Qt.Key_Return || event.key === Qt.Key_Enter
-        if (!horizontal && !vertical && !enter) return
+        if (!horizontal && !vertical && !enter || enter && event.modifiers & Qt.ShiftModifier) return
         event.accepted = true
         const cards = overviewNavigationCards()
         if (!cards.length) return
@@ -3455,6 +3455,20 @@ Kirigami.ApplicationWindow {
                 const distance = Math.abs(along) * (horizontal ? 1 : browserArea.width) + Math.abs(across)
                 if (distance < nearest) { nearest = distance; next = card }
             }
+        }
+        if (event.modifiers & Qt.ShiftModifier) {
+            const currentViews = typeof current?.target === "string"
+                ? views.filter(view => view.tabGroupId === current.target) : [current?.target]
+            const nextViews = typeof next.target === "string"
+                ? views.filter(view => view.tabGroupId === next.target) : [next.target]
+            if (!rangeSelectionAnchor) {
+                const anchor = currentViews.find(view => view && view !== homeView)
+                if (anchor) selectFileTabs(anchor, Qt.ShiftModifier, true)
+            }
+            for (const view of nextViews) selectFileTabs(view, Qt.ShiftModifier, true)
+        } else {
+            rangeSelectionAnchor = null
+            rangeSelectionBase = []
         }
         overviewNavigationTarget = next.target
         overviewFlickable.cancelFlick()
