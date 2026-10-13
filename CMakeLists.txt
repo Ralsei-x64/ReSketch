@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-project(ReSketch VERSION 0.1.0 LANGUAGES CXX)
+project(ReSketch VERSION 0.2.0 LANGUAGES CXX)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Network Quick QuickControls2 WebEngineQuick Widgets)
 find_package(KF6WindowSystem REQUIRED)
@@ -14,6 +14,7 @@ find_package(Freetype REQUIRED)
 qt_standard_project_setup(REQUIRES 6.8)
 
 qt_add_executable(resketch src/main.cpp src/FontHelper.cpp src/FontHelper.h)
+target_compile_definitions(resketch PRIVATE RESKETCH_VERSION="${PROJECT_VERSION}")
 qt_add_qml_module(resketch
     URI org.aether64.resketch
     VERSION 1.0

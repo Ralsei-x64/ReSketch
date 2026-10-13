@@ -11,11 +11,24 @@ Kirigami.ApplicationWindow {
     transientParent: null
     objectName: "settingsWindow"
     property int selectedSection: 0
+    property int toolbarDraggedIndex: -1
+    property int toolbarDropIndex: -1
+    function moveToolbarItem(from, to) {
+        const items = appSettings.toolbarItems.slice()
+        if (from < 0 || to < 0 || from >= items.length || to >= items.length || from === to) return
+        items.splice(to, 0, items.splice(from, 1)[0])
+        appSettings.toolbarItems = items
+    }
+    function toggleToolbarItem(id, checked) {
+        appSettings.toolbarItems = appSettings.toolbarItems.map(item => item.id === id
+            ? Object.assign({}, item, {enabled: checked}) : item)
+    }
     readonly property var sections: [
         {title: "Appearance", icon: "preferences-desktop-theme", keywords: "theme colors CSS transparency opacity blur window controls decorations motion"},
         {title: "Tabs", icon: "tab-duplicate", keywords: "sleep remember restore loaded Home"},
         {title: "Performance", icon: "preferences-system-performance", keywords: "memory preview quality menus Chromium GPU Vulkan canvas flags switches"},
-        {title: "Notifications", icon: "preferences-desktop-notification", keywords: "desktop alerts enable disable Home"}
+        {title: "Notifications", icon: "preferences-desktop-notification", keywords: "desktop alerts enable disable Home"},
+        {title: "Toolbar", icon: "configure", keywords: "buttons icons rearrange order new tab overview refresh menu export history settings task manager developer tools"}
     ]
     readonly property var filteredSections: sections.map((section, index) => ({title: section.title, icon: section.icon, keywords: section.keywords, section: index}))
         .filter(section => (section.title + " " + section.keywords).toLowerCase().includes(settingsSearch.text.toLowerCase()))
@@ -120,6 +133,118 @@ Kirigami.ApplicationWindow {
                     ColumnLayout {
                         width: sectionScroll.availableWidth
                         spacing: Kirigami.Units.largeSpacing
+                        Controls.Frame {
+                            Layout.fillWidth: true
+                            visible: settingsWindow.selectedSection === 4
+                            padding: 0
+                            background: Item {}
+                            contentItem: ColumnLayout {
+                                spacing: Kirigami.Units.smallSpacing
+                                Controls.Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Choose which buttons appear next to the tabs. Drag the handles or use the arrows to change their order.")
+                                    wrapMode: Text.WordWrap
+                                }
+                                Controls.Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Changes apply immediately. Right-click Home or empty space in the tab bar to configure the toolbar again.")
+                                    opacity: 0.72
+                                    wrapMode: Text.WordWrap
+                                }
+                                Item {
+                                    objectName: "toolbarSettingsList"
+                                    Layout.fillWidth: true
+                                    implicitHeight: appSettings.toolbarItems.length * 48
+                                    Repeater {
+                                        objectName: "toolbarSettingsRepeater"
+                                        model: appSettings.toolbarItems.length
+                                        Rectangle {
+                                            id: toolbarRow
+                                            required property int index
+                                            readonly property var item: appSettings.toolbarItems[index]
+                                            objectName: "toolbarSettingsRow-" + item.id
+                                            x: 0; y: index * 48
+                                            width: parent.width; height: 44
+                                            radius: Kirigami.Units.smallSpacing
+                                            color: settingsWindow.toolbarDropIndex === index ? Kirigami.Theme.alternateBackgroundColor
+                                                                                           : Kirigami.Theme.backgroundColor
+                                            border.width: 1
+                                            border.color: settingsWindow.toolbarDropIndex === index ? Kirigami.Theme.highlightColor
+                                                                                                  : Qt.rgba(Kirigami.Theme.textColor.r,
+                                                                                                            Kirigami.Theme.textColor.g,
+                                                                                                            Kirigami.Theme.textColor.b, 0.15)
+                                            z: toolbarRowDrag.active ? 2 : 0
+                                            transform: Translate { y: toolbarRowDrag.active ? toolbarRowDrag.activeTranslation.y : 0 }
+                                            RowLayout {
+                                                anchors.fill: parent
+                                                anchors.margins: 4
+                                                spacing: 8
+                                                Item {
+                                                    objectName: "toolbarDragHandle-" + toolbarRow.item.id
+                                                    Layout.preferredWidth: 28
+                                                    Layout.fillHeight: true
+                                                    Accessible.name: qsTr("Drag to move %1").arg(toolbarRow.item.title)
+                                                    Kirigami.Icon {
+                                                        anchors.centerIn: parent
+                                                        width: 18; height: width
+                                                        source: "drag-handle-symbolic"
+                                                    }
+                                                    DragHandler {
+                                                        id: toolbarRowDrag
+                                                        target: null
+                                                        acceptedButtons: Qt.LeftButton
+                                                        onActiveChanged: {
+                                                            if (active) {
+                                                                settingsWindow.toolbarDraggedIndex = toolbarRow.index
+                                                                settingsWindow.toolbarDropIndex = toolbarRow.index
+                                                            } else if (settingsWindow.toolbarDraggedIndex === toolbarRow.index) {
+                                                                const destination = settingsWindow.toolbarDropIndex
+                                                                settingsWindow.toolbarDraggedIndex = -1
+                                                                settingsWindow.toolbarDropIndex = -1
+                                                                settingsWindow.moveToolbarItem(toolbarRow.index, destination)
+                                                            }
+                                                        }
+                                                        onActiveTranslationChanged: if (active)
+                                                            settingsWindow.toolbarDropIndex = Math.max(0, Math.min(appSettings.toolbarItems.length - 1,
+                                                                Math.round(toolbarRow.index + activeTranslation.y / 48)))
+                                                    }
+                                                }
+                                                Kirigami.Icon {
+                                                    Layout.preferredWidth: 20
+                                                    Layout.preferredHeight: 20
+                                                    source: toolbarRow.item.icon
+                                                }
+                                                Controls.CheckBox {
+                                                    objectName: "toolbarToggle-" + toolbarRow.item.id
+                                                    Layout.fillWidth: true
+                                                    text: toolbarRow.item.title
+                                                    checked: toolbarRow.item.enabled
+                                                    onToggled: settingsWindow.toggleToolbarItem(toolbarRow.item.id, checked)
+                                                }
+                                                Controls.ToolButton {
+                                                    objectName: "toolbarMoveUp-" + toolbarRow.item.id
+                                                    icon.name: "go-up"
+                                                    enabled: toolbarRow.index > 0
+                                                    Accessible.name: qsTr("Move %1 up").arg(toolbarRow.item.title)
+                                                    Controls.ToolTip.text: Accessible.name
+                                                    Controls.ToolTip.visible: hovered
+                                                    onClicked: settingsWindow.moveToolbarItem(toolbarRow.index, toolbarRow.index - 1)
+                                                }
+                                                Controls.ToolButton {
+                                                    objectName: "toolbarMoveDown-" + toolbarRow.item.id
+                                                    icon.name: "go-down"
+                                                    enabled: toolbarRow.index < appSettings.toolbarItems.length - 1
+                                                    Accessible.name: qsTr("Move %1 down").arg(toolbarRow.item.title)
+                                                    Controls.ToolTip.text: Accessible.name
+                                                    Controls.ToolTip.visible: hovered
+                                                    onClicked: settingsWindow.moveToolbarItem(toolbarRow.index, toolbarRow.index + 1)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         Controls.Frame {
                             Layout.fillWidth: true
                             visible: settingsWindow.selectedSection === 0

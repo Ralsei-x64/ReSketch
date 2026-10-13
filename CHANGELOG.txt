@@ -1,0 +1,47 @@
+ReSketch changelog
+Newest commits first; one brief summary per commit.
+Versions use major.minor.patch; Arch Git packages also include the commit count and hash.
+
+0.2.0 - Unreleased
+Added this commit changelog and consistent version reporting in About, --version, and Arch packages.
+Fixed fullscreen autohide controls, reduced the toolbar reveal zone, and refined its slide easing.
+Fixed whole-window blur coverage when entering fullscreen or resizing.
+Added selected-tab tints, Shift range selection, Shift+Alt toggles, and dragging selected tabs together into and out of groups.
+Added arrow-key overview navigation and Enter to open cards or expand and collapse groups.
+Added a saved toolbar configuration with visibility checkboxes, drag and arrow reordering, and optional Export History, Settings, Task Manager, and Developer Tools buttons.
+
+0.1.0 - Development history (not separate releases)
+
+c0843f5 | 2026-10-12 | Documented building, installing, and running on Arch using the PKGBUILD.
+382278a | 2026-10-12 | Added a total app memory limit that unloads the oldest unused background tabs across windows.
+2a03a08 | 2026-10-12 | Made external windows independent and refined their titlebar height and icons.
+28b49c8 | 2026-10-12 | Added tab task manager, DevTools, range selection, and coordinated group preview animations.
+adb6922 | 2026-10-12 | Made overview group cards match tab card dimensions and support dragging.
+d6e29d0 | 2026-10-12 | Improved overview group sizing and synchronized expansion and collapse animations.
+53ec077 | 2026-10-12 | Refined Shift selection, added Escape deselection and overview drag selection, and fixed group separators.
+de4eb63 | 2026-10-12 | Added titlebar autohide, Shift tab selection, and an Arch Linux PKGBUILD.
+ca26dac | 2026-10-12 | Fixed notification popup colors and improved notification delivery speed and reliability.
+47d585a | 2026-10-12 | Routed desktop notifications through the primary Home feed.
+c5ea9dd | 2026-10-12 | Saved tab groups between sessions, added group menus, and fixed preview clipping and notifications.
+7354959 | 2026-10-12 | Renamed the feature reference heading.
+07727f7 | 2026-10-12 | Improved group dragging, release animations, and overview container styling.
+7263b75 | 2026-10-12 | Added tab groups, Home notifications, fullscreen, and a KDE-style settings layout.
+53a6847 | 2026-10-12 | Made remembered file tabs load on selection by default, with an optional immediate-loading setting.
+c5865c6 | 2026-10-12 | Added local font integration and optional restoration of opened file tabs.
+f65cfc1 | 2026-10-12 | Matched selected Home sidebar items to Figma's selected page styling.
+5f0c026 | 2026-10-11 | Smoothed overview selection, tab closing, and automatic tab strip scrolling.
+9dc7a47 | 2026-10-11 | Improved Figma theme contrast, transparent loading screens, and repainting after theme changes.
+3868e8b | 2026-10-12 | Removed incorrect settings recovery instructions from the README.
+d479f4b | 2026-10-11 | Allowed dragging the Home overview card and omitted it from unrelated searches.
+8bcd9ac | 2026-10-11 | Fixed blank tabs from external links, positioned linked tabs correctly, and refined overview transparency.
+59b8da0 | 2026-10-11 | Added recovery safe mode and settings reset, adopted GPLv3, and revised new-tab placement.
+79a6508 | 2026-10-11 | Fixed trackpad gestures in the tab strip and overview and added a GPU acceleration warning.
+5bbcdd3 | 2026-10-11 | Reduced UI memory usage and added optional optimizations and overview preview quality settings.
+009800e | 2026-10-11 | Improved live tab transfers, sleeping tab previews, and translucent sidebars.
+90d7603 | 2026-10-11 | Shortened the README by removing detailed feature explanations.
+e350fec | 2026-10-11 | Smoothed export removal animations and polished external window titlebars.
+b4b8953 | 2026-10-11 | Added Figma appearance options, per-file export folders, and persistent export history.
+74bbd31 | 2026-10-11 | Added shortcuts to toggle the overview and move the current tab into a new window.
+ef2f6f5 | 2026-10-11 | Changed overview scaling to a 300 ms ease-out animation.
+9e83035 | 2026-10-11 | Added the README image and removed test commands from its build instructions.
+f94d087 | 2026-10-11 | Released the initial Kirigami Figma client with tabs, overview, settings, native menus, and ReSketch branding.

@@ -30,6 +30,7 @@ Row {
         onClicked: controls.targetWindow.showMinimized()
     }
     TabBarButton {
+        objectName: "maximizeWindowButton"
         visible: controls.showMinimizeMaximize
         width: controls.buttonSize
         height: controls.buttonSize

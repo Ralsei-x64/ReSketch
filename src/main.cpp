@@ -216,6 +216,7 @@ class AppSettings : public QObject
     Q_PROPERTY(bool menuIntegration READ menuIntegration WRITE setMenuIntegration NOTIFY changed)
     Q_PROPERTY(bool reduceMotion READ reduceMotion WRITE setReduceMotion NOTIFY changed)
     Q_PROPERTY(int toolbarOpacity READ toolbarOpacity WRITE setToolbarOpacity NOTIFY changed)
+    Q_PROPERTY(QVariantList toolbarItems READ toolbarItems WRITE setToolbarItems NOTIFY changed)
     Q_PROPERTY(bool windowControlsInTabBar READ windowControlsInTabBar WRITE setWindowControlsInTabBar NOTIFY changed)
     Q_PROPERTY(bool keepWindowDecorations READ keepWindowDecorations WRITE setKeepWindowDecorations NOTIFY changed)
     Q_PROPERTY(bool ignoreToolbarBlur READ ignoreToolbarBlur WRITE setIgnoreToolbarBlur NOTIFY changed)
@@ -466,6 +467,36 @@ public:
     }
     bool reduceMotion() const { return store.value(QStringLiteral("reduceMotion"), false).toBool(); }
     int toolbarOpacity() const { return qBound(0, store.value(QStringLiteral("toolbarOpacity"), 100).toInt(), 100); }
+    QVariantList toolbarItems() const
+    {
+        const QVariantList defaults {
+            QVariantMap{{"id", "new-tab"}, {"title", tr("New tab")}, {"icon", "tab-new"}, {"enabled", true}},
+            QVariantMap{{"id", "overview"}, {"title", tr("Tab overview")}, {"icon", "view-grid"}, {"enabled", true}},
+            QVariantMap{{"id", "refresh"}, {"title", tr("Refresh page")}, {"icon", "view-refresh"}, {"enabled", true}},
+            QVariantMap{{"id", "menu"}, {"title", tr("Application menu")}, {"icon", "application-menu"}, {"enabled", true}},
+            QVariantMap{{"id", "export-history"}, {"title", tr("Export History")}, {"icon", "document-export"}, {"enabled", false}},
+            QVariantMap{{"id", "settings"}, {"title", tr("Settings")}, {"icon", "configure"}, {"enabled", false}},
+            QVariantMap{{"id", "task-manager"}, {"title", tr("Task Manager")}, {"icon", "view-process-system"}, {"enabled", false}},
+            QVariantMap{{"id", "developer-tools"}, {"title", tr("Developer Tools")}, {"icon", "applications-development"}, {"enabled", false}}
+        };
+        QVariantList result;
+        QSet<QString> seen;
+        const auto append = [&](const QVariant &entry, bool saved) {
+            const auto item = entry.toMap();
+            const auto id = item.value("id").toString();
+            const auto match = std::find_if(defaults.cbegin(), defaults.cend(), [&](const QVariant &candidate) {
+                return candidate.toMap().value("id").toString() == id;
+            });
+            if (seen.contains(id) || match == defaults.cend()) return;
+            auto definition = match->toMap();
+            if (saved && item.contains("enabled")) definition["enabled"] = item.value("enabled").toBool();
+            result.append(definition);
+            seen.insert(id);
+        };
+        for (const auto &item : store.value(QStringLiteral("toolbarItems")).toList()) append(item, true);
+        for (const auto &item : defaults) append(item, false);
+        return result;
+    }
     bool windowControlsInTabBar() const { return store.value(QStringLiteral("windowControlsInTabBar"), false).toBool(); }
     bool keepWindowDecorations() const { return store.value(QStringLiteral("keepWindowDecorations"), false).toBool(); }
     bool ignoreToolbarBlur() const { return store.value(QStringLiteral("ignoreToolbarBlur"), false).toBool(); }
@@ -614,9 +645,9 @@ public:
         if (!window)
             return;
         const bool desktopSidebars = translucentSidebars() && sidebarBackdrop() == QStringLiteral("desktop");
-        const int blurHeight = window->property("chromiumFrameLoaded").toBool() && !desktopSidebars
-                                   ? window->property("tabStripHeight").toInt() : window->height();
-        const QRegion region(0, 0, window->width(), blurHeight);
+        // A null region follows the whole surface through fullscreen and resize.
+        const QRegion region = window->property("chromiumFrameLoaded").toBool() && !desktopSidebars
+            ? QRegion(0, 0, window->width(), window->property("tabStripHeight").toInt()) : QRegion();
         KWindowEffects::enableBlurBehind(window, !safeMode() && toolbarOpacity() < 100 && !ignoreToolbarBlur(), region);
     }
     Q_INVOKABLE void refreshMemoryUsage()
@@ -706,7 +737,19 @@ public:
         if (!window || registeredWindows.contains(window))
             return;
         registeredWindows.insert(window);
-        const auto updateBlur = [this, window] { refreshWindowBlur(window); };
+        const auto updateBlur = [this, window, pending = std::make_shared<bool>(false)] {
+            refreshWindowBlur(window);
+            auto *quickWindow = qobject_cast<QQuickWindow *>(window);
+            if (!quickWindow || *pending) return;
+            *pending = true;
+            // Resize signals precede the new surface commit. Reapply once that
+            // frame is sent so compositor effects invalidate their old bounds.
+            connect(quickWindow, &QQuickWindow::frameSwapped, window, [this, window, pending] {
+                *pending = false;
+                KWindowEffects::enableBlurBehind(window, false);
+                refreshWindowBlur(window);
+            }, Qt::ConnectionType(Qt::QueuedConnection | Qt::SingleShotConnection));
+        };
         connect(window, &QWindow::widthChanged, window, updateBlur);
         connect(window, &QWindow::heightChanged, window, updateBlur);
         connect(window, &QWindow::visibilityChanged, window, updateBlur);
@@ -811,6 +854,12 @@ public:
         emit changed();
         if (translucentSidebars())
             emit figmaAppearanceChanged();
+    }
+    void setToolbarItems(const QVariantList &value)
+    {
+        if (toolbarItems() == value) return;
+        store.setValue(QStringLiteral("toolbarItems"), value);
+        emit changed();
     }
     void setWindowControlsInTabBar(bool value)
     {
@@ -992,6 +1041,12 @@ int main(int argc, char *argv[])
     QStringList arguments;
     for (int index = 1; index < argc; ++index)
         arguments.append(QString::fromLocal8Bit(argv[index]));
+#ifdef RESKETCH_VERSION
+    if (arguments.contains(QStringLiteral("--version"))) {
+        printf("ReSketch %s\n", RESKETCH_VERSION);
+        return 0;
+    }
+#endif
     bool safeMode = arguments.contains(QStringLiteral("--safe-mode")) || heldAltKey().value_or(false);
     if (safeMode) {
         qputenv("QT_QUICK_BACKEND", "software");
@@ -1003,6 +1058,9 @@ int main(int argc, char *argv[])
     QQuickWindow::setDefaultAlphaBuffer(true);
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("ReSketch"));
+#ifdef RESKETCH_VERSION
+    QApplication::setApplicationVersion(QStringLiteral(RESKETCH_VERSION));
+#endif
     QApplication::setOrganizationName(QStringLiteral("aether64"));
     QApplication::setDesktopFileName(QStringLiteral("org.aether64.resketch"));
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/Branding/SketchbookPNG/Folder-256.png")));

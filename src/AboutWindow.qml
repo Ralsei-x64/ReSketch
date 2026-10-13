@@ -50,6 +50,11 @@ Kirigami.ApplicationWindow {
             }
             Controls.Label {
                 Layout.alignment: Qt.AlignHCenter
+                text: qsTr("Version %1").arg(Qt.application.version)
+                opacity: 0.75
+            }
+            Controls.Label {
+                Layout.alignment: Qt.AlignHCenter
                 text: qsTr("Open-source Figma client for Linux!")
             }
             Controls.Label {

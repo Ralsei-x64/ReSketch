@@ -27,6 +27,17 @@ Item {
         property string sidebarBackdrop: "desktop"
         property bool reduceMotion: false
         property int toolbarOpacity: 100
+        function defaultToolbarItems() {
+            return [{id: "new-tab", title: "New tab", icon: "tab-new", enabled: true},
+                    {id: "overview", title: "Tab overview", icon: "view-grid", enabled: true},
+                    {id: "refresh", title: "Refresh page", icon: "view-refresh", enabled: true},
+                    {id: "menu", title: "Application menu", icon: "application-menu", enabled: true},
+                    {id: "export-history", title: "Export History", icon: "document-export", enabled: false},
+                    {id: "settings", title: "Settings", icon: "configure", enabled: false},
+                    {id: "task-manager", title: "Task Manager", icon: "view-process-system", enabled: false},
+                    {id: "developer-tools", title: "Developer Tools", icon: "applications-development", enabled: false}]
+        }
+        property var toolbarItems: defaultToolbarItems()
         property bool windowControlsInTabBar: false
         property bool keepWindowDecorations: true
         property bool ignoreToolbarBlur: false
@@ -85,7 +96,7 @@ Item {
             recordedOrigin = originName
         }
         function clearExports() { exportHistory = [] }
-        function resetSettings() { figmaCustomCss = "" }
+        function resetSettings() { figmaCustomCss = ""; toolbarItems = defaultToolbarItems() }
         function openExport(path, folder) { return true }
         function deleteExport(path) {
             if (!exportDeletionSucceeds) return false
@@ -138,6 +149,15 @@ Item {
                 return null
             }
             return find((window || app).contentItem)
+        }
+
+        function visualChild(item, name) {
+            if (item.objectName === name) return item
+            for (const child of item.children || []) {
+                const result = visualChild(child, name)
+                if (result) return result
+            }
+            return null
         }
 
         function init() {
@@ -1120,6 +1140,8 @@ Item {
             app.requestActivate()
             tryVerify(() => app.active)
             app.contentItem.forceActiveFocus()
+            waitForRendering(app.contentItem)
+            wait(100) // Allow the compositor's maximize resize before recording geometry.
             const state = app.visibility, width = app.width, height = app.height
             const strip = findChild(app, "tabStrip")
             keyClick(Qt.Key_F11, Qt.ShiftModifier)
@@ -1141,28 +1163,32 @@ Item {
             app.showNormal()
         }
 
-        function test_shift_click_toggles_explicit_tabs_in_strip_and_overview() {
+        function test_shift_alt_click_toggles_explicit_tabs_in_strip_and_overview() {
             appSettings.reduceMotion = true
             const first = app.views[0], second = app.views[1], third = app.views[2], fourth = app.views[3]
             compare(app.selectedTabViews, [])
-            mouseClick(tabButton(0), 80, 20, Qt.LeftButton, Qt.ShiftModifier)
+            mouseClick(tabButton(0), 80, 20, Qt.LeftButton, (Qt.ShiftModifier | Qt.AltModifier))
             compare(app.selectedTabViews, [first])
             compare(app.activeView, third, "Selection never starts from or switches the focused tab")
             verify(tabButton(0).multiSelected)
             verify(!tabButton(1).multiSelected)
-            mouseClick(tabButton(2), 80, 20, Qt.LeftButton, Qt.ShiftModifier)
+            mouseClick(tabButton(2), 80, 20, Qt.LeftButton, (Qt.ShiftModifier | Qt.AltModifier))
             compare(app.selectedTabViews, [first, third])
-            mouseClick(tabButton(0), 80, 20, Qt.LeftButton, Qt.ShiftModifier)
-            compare(app.selectedTabViews, [third], "Shift-click toggles the clicked tab exactly once")
+            const tint = findChild(tabButton(2), "tabSelectionTint")
+            verify(tint.visible && tint.color.a > 0, "A focused tab still shows the selection tint")
+            mouseClick(tabButton(0), 80, 20, Qt.LeftButton, (Qt.ShiftModifier | Qt.AltModifier))
+            compare(app.selectedTabViews, [third], "Shift+Alt-click toggles the clicked tab exactly once")
             app.toggleOverview()
             const card = overviewCard(fourth)
-            mouseClick(card, card.width / 2, card.height / 2, Qt.LeftButton, Qt.ShiftModifier)
+            mouseClick(card, card.width / 2, card.height / 2, Qt.LeftButton, (Qt.ShiftModifier | Qt.AltModifier))
             compare(app.overviewVisible, true)
             compare(app.selectedTabViews, [third, fourth])
             compare(app.activeView, third)
+            verify(findChild(overviewCard(third), "overviewCardBorder").color.a > 0)
             compare(findChild(overviewCard(fourth), "overviewCardBorder").border.width, 2)
-            mouseClick(card, card.width / 2, card.height / 2, Qt.LeftButton, Qt.ShiftModifier)
+            mouseClick(card, card.width / 2, card.height / 2, Qt.LeftButton, (Qt.ShiftModifier | Qt.AltModifier))
             compare(app.selectedTabViews, [third])
+            compare(findChild(card, "overviewCardBorder").color.a, 0)
             const target = overviewCard(second)
             mouseClick(target, target.width / 2, target.height / 2)
             compare(app.overviewVisible, false)
@@ -1170,14 +1196,14 @@ Item {
             compare(app.activeView, second)
         }
 
-        function test_shift_alt_range_selection_data() {
+        function test_shift_range_selection_data() {
             return [{tag: "strip-forward", overview: false, reverse: false},
                     {tag: "strip-backward", overview: false, reverse: true},
                     {tag: "overview-forward", overview: true, reverse: false},
                     {tag: "overview-backward", overview: true, reverse: true}]
         }
 
-        function test_shift_alt_range_selection(data) {
+        function test_shift_range_selection(data) {
             appSettings.reduceMotion = true
             const selected = app.activeView, views = app.views.slice()
             if (data.overview) app.toggleOverview()
@@ -1185,19 +1211,85 @@ Item {
                 const item = data.overview ? overviewCard(views[index]) : tabButton(app.views.indexOf(views[index]))
                 mouseClick(item, item.width / 2, data.overview ? item.height / 2 : 20, Qt.LeftButton, modifiers)
             }
-            const modifiers = Qt.ShiftModifier | Qt.AltModifier
+            const modifiers = Qt.ShiftModifier
             const start = data.reverse ? 3 : 0, end = data.reverse ? 1 : 2
             click(start, modifiers)
             compare(app.selectedTabViews, [views[start]], "Only the explicit starting click establishes a range")
             click(end, modifiers)
             compare(app.selectedTabViews, data.reverse ? views.slice(1) : views.slice(0, 3))
             compare(app.activeView, selected, "Range selection must not switch tabs")
-            click(start, Qt.ShiftModifier)
-            verify(!app.selectedTabViews.includes(views[start]), "Shift alone retains its individual toggle")
+            click(start, Qt.ShiftModifier | Qt.AltModifier)
+            verify(!app.selectedTabViews.includes(views[start]), "Shift+Alt toggles individual tabs")
             compare(app.rangeSelectionAnchor, null)
             app.selectedTabViews = []
             click(end, modifiers)
             compare(app.selectedTabViews, [views[end]], "Clearing a selection starts a new range")
+        }
+
+        function test_selected_tabs_drag_together_into_and_out_of_groups_data() {
+            return [{tag: "strip", overview: false, motion: false},
+                    {tag: "overview", overview: true, motion: false},
+                    {tag: "overview-animated", overview: true, motion: true},
+                    {tag: "strip-empty-group", overview: false, motion: false, emptyGroup: true},
+                    {tag: "overview-empty-group", overview: true, motion: true, emptyGroup: true}]
+        }
+
+        function test_selected_tabs_drag_together_into_and_out_of_groups(data) {
+            appSettings.reduceMotion = true
+            const original = app.views.slice(), focused = app.activeView
+            let moving = [original[0], original[2]]
+            const anchor = moving[1]
+            const id = app.createTabGroup(original[1], "Batch drag")
+            app.updateTabGroup(id, {overviewCollapsed: true}, true)
+            let frames = moving.map(view => view.frameContainer)
+            for (const view of moving) app.selectFileTabs(view, Qt.ShiftModifier | Qt.AltModifier)
+            if (data.overview) {
+                app.toggleOverview()
+                findChild(app, "overviewFlickable").resetScroll(0)
+            }
+            appSettings.reduceMotion = !data.motion
+            function drag(target) {
+                const item = data.overview ? overviewCard(anchor) : tabButton(app.views.indexOf(anchor))
+                waitForRendering(app.contentItem)
+                const start = item.mapToItem(app.contentItem, data.overview ? item.width / 2 : item.groupPrefix + 80,
+                                            data.overview ? item.height / 2 : 20)
+                mousePress(app.contentItem, start.x, start.y)
+                mouseMove(app.contentItem, start.x + 30, start.y, 20)
+                mouseMove(app.contentItem, target.x, target.y, 20)
+                tryCompare(app, "dragViews", moving)
+                if (data.overview) {
+                    const peer = overviewCard(moving[0])
+                    verify(peer.floating, "Selected peers must not be clipped by their old group")
+                    compare(peer.previewView.frameContainer.parent, peer)
+                    compare(anchor.frameContainer.parent, item)
+                }
+                mouseRelease(app.contentItem, target.x, target.y)
+                tryCompare(app, "dragViews", [])
+                wait(300)
+                compare(app.activeView, focused, "A block move preserves the focused webview")
+                compare(app.selectedTabViews, moving)
+                compare(app.views.filter(view => moving.includes(view)), moving, "The block keeps its original tab order")
+                for (let index = 0; index < moving.length; ++index) compare(moving[index].frameContainer, frames[index])
+            }
+            const header = data.overview ? app.overviewGroupContainer(id) : app.tabGroupHeaderItem(id)
+            drag(header.mapToItem(app.contentItem, 80, 25))
+            for (const view of moving) compare(view.tabGroupId, id)
+            const members = app.views.filter(view => view.tabGroupId === id)
+            compare(members.length, 3)
+            compare(app.views.indexOf(members[2]) - app.views.indexOf(members[0]), 2)
+            if (data.emptyGroup) {
+                moving = members
+                frames = moving.map(view => view.frameContainer)
+                app.selectedTabViews = moving
+            }
+            const home = data.overview ? overviewCard(app.homeView) : null
+            const leave = data.overview ? home.mapToItem(app.contentItem, 60, 100)
+                                       : app.tabGroupHeaderItem(id).mapToItem(app.contentItem, -40, 20)
+            drag(leave)
+            for (const view of moving) compare(view.tabGroupId, "")
+            compare(app.views.indexOf(moving[1]), app.views.indexOf(moving[0]) + 1)
+            compare(original[1].tabGroupId, data.emptyGroup ? "" : id)
+            if (data.emptyGroup) compare(app.tabGroups.length, 0)
         }
 
         function test_selection_escape_and_click_away() {
@@ -1269,8 +1361,8 @@ Item {
             const first = app.views[0], second = app.views[1], third = app.views[2], fourth = app.views[3]
             first.url = "about:blank#match-one"
             third.url = "about:blank#match-two"
-            app.selectFileTabs(first, Qt.ShiftModifier)
-            app.selectFileTabs(third, Qt.ShiftModifier)
+            app.selectFileTabs(first, Qt.ShiftModifier | Qt.AltModifier)
+            app.selectFileTabs(third, Qt.ShiftModifier | Qt.AltModifier)
             app.reorderTab(0, 3)
             compare(app.selectedTabViews, [first, third], "Selection follows view identities when reordered")
             app.toggleOverview()
@@ -1332,6 +1424,65 @@ Item {
             compare(app.webFullscreen, false)
             tryCompare(strip, "y", 0)
             compare(app.browserHeight, app.height - app.tabStripHeight)
+        }
+
+        function test_shift_f11_toggles_toolbar_hiding_in_fullscreen() {
+            appSettings.reduceMotion = true
+            app.requestActivate()
+            tryVerify(() => app.active)
+            app.contentItem.forceActiveFocus()
+            mouseMove(app.contentItem, 100, 150, 20)
+            keyClick(Qt.Key_F11)
+            compare(app.visibility, Window.FullScreen)
+            verify(app.toolbarAutoHidden)
+            keyClick(Qt.Key_F11, Qt.ShiftModifier)
+            compare(app.visibility, Window.FullScreen)
+            verify(!app.toolbarAutoHidden)
+            compare(findChild(app, "tabStrip").y, 0)
+            compare(app.browserHeight, app.height - app.tabStripHeight)
+            keyClick(Qt.Key_F11, Qt.ShiftModifier)
+            verify(app.toolbarAutoHidden)
+            compare(app.visibility, Window.FullScreen)
+            compare(findChild(app, "tabStrip").y, -app.tabStripHeight)
+            keyClick(Qt.Key_F11, Qt.ShiftModifier)
+            keyClick(Qt.Key_Escape)
+            verify(!app.webFullscreen, "Escape must still leave fullscreen when the toolbar is pinned")
+        }
+
+        function test_maximize_from_fullscreen_keeps_autohide() {
+            appSettings.reduceMotion = true
+            appSettings.windowControlsInTabBar = true
+            app.showNormal()
+            app.toggleWebFullscreen()
+            mouseMove(app.contentItem, 100, 2, 20)
+            const strip = findChild(app, "tabStrip")
+            tryCompare(strip, "y", 0)
+            const maximize = findChild(app, "maximizeWindowButton")
+            mouseClick(maximize, maximize.width / 2, maximize.height / 2)
+            compare(app.visibility, Window.Maximized)
+            compare(app.webFullscreen, false)
+            verify(app.autoHideToolbar)
+            mouseMove(app.contentItem, 100, 150, 20)
+            tryCompare(strip, "y", -app.tabStripHeight)
+            compare(app.browserHeight, app.height)
+            app.showNormal()
+        }
+
+        function test_autohide_reveal_zone_does_not_cover_figma_toolbar() {
+            appSettings.reduceMotion = true
+            app.toggleToolbarAutoHide()
+            const strip = findChild(app, "tabStrip")
+            mouseMove(app.contentItem, 100, 150, 20)
+            mouseMove(app.contentItem, 100, 12, 20)
+            compare(strip.y, -app.tabStripHeight, "Figma's top controls must not reveal the app toolbar")
+            mouseMove(app.contentItem, 100, 2, 20)
+            tryCompare(strip, "y", 0)
+            mouseMove(app.contentItem, 100, app.tabStripHeight - 4, 20)
+            compare(strip.y, 0, "Keep the revealed toolbar open while using its controls")
+            mouseMove(app.contentItem, 100, 150, 20)
+            tryCompare(strip, "y", -app.tabStripHeight)
+            mouseMove(app.contentItem, 100, 12, 20)
+            compare(strip.y, -app.tabStripHeight)
         }
 
         function test_only_home_can_create_notifications_with_shared_permission() {
@@ -1553,6 +1704,7 @@ Item {
             appSettings.keepHomeAwake = true
             appSettings.translucentSidebars = false
             appSettings.toolbarOpacity = 100
+            appSettings.toolbarItems = appSettings.defaultToolbarItems()
             appSettings.sidebarBackdrop = "desktop"
             appSettings.memoryLimitMiB = 0
             appSettings.sleepMinutes = 5
@@ -2338,6 +2490,80 @@ Item {
             return find((window || app).contentItem)
         }
 
+        function test_toolbar_buttons_toggle_reorder_and_open_export_history() {
+            appSettings.reduceMotion = true
+            const toolbar = findChild(app, "toolbarActions")
+            compare(toolbar.width, 160)
+            const area = app.tabAreaWidth
+            app.openSettings()
+            const settings = findChild(app, "settingsWindow")
+            settings.selectedSection = settings.sections.findIndex(section => section.title === "Toolbar")
+            waitForRendering(settings.contentItem)
+            const toggle = visualChild(settings.contentItem, "toolbarToggle-export-history")
+            verify(!toggle.checked)
+            mouseClick(toggle, toggle.width / 2, toggle.height / 2)
+            tryCompare(toolbar, "width", 200)
+            compare(app.tabAreaWidth, area - 40)
+            const up = visualChild(settings.contentItem, "toolbarMoveUp-export-history")
+            mouseClick(up, up.width / 2, up.height / 2)
+            compare(appSettings.toolbarItems[3].id, "export-history")
+            waitForRendering(app.contentItem)
+            const exports = visualChild(app.contentItem, "toolbarButton-export-history")
+            compare(exports.x, 120)
+            compare(visualChild(app.contentItem, "toolbarButton-menu").x, 160)
+            mouseClick(exports, exports.width / 2, exports.height / 2)
+            verify(findChild(app, "exportHistoryWindow").visible)
+            const overview = visualChild(settings.contentItem, "toolbarToggle-overview")
+            mouseClick(overview, overview.width / 2, overview.height / 2)
+            tryCompare(toolbar, "width", 160)
+            verify(!visualChild(app.contentItem, "toolbarButton-overview"))
+            compare(visualChild(settings.contentItem, "toolbarToggle-overview").checked, false)
+            const menu = visualChild(app.contentItem, "toolbarButton-menu")
+            mouseClick(menu, menu.width / 2, menu.height / 2)
+            const popup = findChild(app, "applicationPopupMenu")
+            tryCompare(popup, "visible", true)
+            popup.close()
+        }
+
+        function test_toolbar_drag_reorders_settings_and_hidden_menu_can_be_recovered() {
+            appSettings.reduceMotion = true
+            app.openSettings()
+            const settings = findChild(app, "settingsWindow")
+            settings.selectedSection = 4
+            waitForRendering(settings.contentItem)
+            const handle = visualChild(settings.contentItem, "toolbarDragHandle-new-tab")
+            const start = handle.mapToItem(settings.contentItem, handle.width / 2, handle.height / 2)
+            const end = Qt.point(start.x, start.y + 96)
+            mousePress(settings.contentItem, start.x, start.y)
+            mouseMove(settings.contentItem, start.x, start.y + 30, 20)
+            mouseMove(settings.contentItem, end.x, end.y, 20)
+            tryCompare(settings, "toolbarDraggedIndex", 0)
+            compare(settings.toolbarDropIndex, 2)
+            mouseRelease(settings.contentItem, end.x, end.y)
+            compare(appSettings.toolbarItems[2].id, "new-tab")
+            compare(settings.toolbarDraggedIndex, -1)
+            waitForRendering(app.contentItem)
+            compare(visualChild(app.contentItem, "toolbarButton-new-tab").x, 80)
+            appSettings.toolbarItems = appSettings.toolbarItems.map(item => Object.assign({}, item, {enabled: false}))
+            tryCompare(findChild(app, "toolbarActions"), "width", 0)
+            verify(!visualChild(app.contentItem, "toolbarButton-menu"))
+            settings.close()
+            tryVerify(() => !findChild(app, "settingsWindow"))
+            const home = findChild(app, "homeButton")
+            mouseClick(home, home.width / 2, home.height / 2, Qt.RightButton)
+            const menu = findChild(app, "toolbarContextMenu")
+            tryCompare(menu, "opened", true)
+            const configure = menu.itemAt(0)
+            mouseClick(configure, configure.width / 2, configure.height / 2)
+            const reopened = findChild(app, "settingsWindow")
+            verify(reopened && reopened.visible)
+            compare(reopened.selectedSection, 4)
+            const toggle = visualChild(reopened.contentItem, "toolbarToggle-menu")
+            toggle.checked = true
+            toggle.toggled()
+            tryVerify(() => !!visualChild(app.contentItem, "toolbarButton-menu"))
+        }
+
         function test_settings_notification_toggle_changes_home_source_immediately() {
             app.openSettings()
             const settings = findChild(app, "settingsWindow")
@@ -2753,6 +2979,115 @@ Item {
             compare(home.visible, true)
             compare(app.overviewFilteredCount(), app.views.length + 1)
             compare(overviewCard(app.views[0]).gridSlot, 1)
+        }
+
+        function test_overview_arrow_navigation_and_enter_data() {
+            return [{tag: "three-columns", width: 1280, columns: 3},
+                    {tag: "four-columns", width: 1600, columns: 4},
+                    {tag: "animated", width: 1280, columns: 3, motion: true}]
+        }
+
+        function test_overview_arrow_navigation_and_enter(data) {
+            appSettings.reduceMotion = !data.motion
+            app.width = data.width
+            app.height = 400
+            waitForRendering(app.contentItem)
+            app.activateHome()
+            app.toggleOverview()
+            tryCompare(app, "overviewProgress", 1)
+            tryCompare(app, "overviewAnimationRunning", false)
+            app.requestActivate()
+            tryVerify(() => app.active)
+            findChild(app, "overviewSearch").forceActiveFocus()
+            waitForRendering(app.contentItem)
+            compare(app.overviewNavigationTarget, app.homeView)
+            keyClick(Qt.Key_Down)
+            compare(app.overviewNavigationTarget, app.views[data.columns - 1])
+            const flick = findChild(app, "overviewFlickable")
+            const card = overviewCard(app.overviewNavigationTarget)
+            tryVerify(() => Math.abs(flick.contentY - flick.wheelTargetY) < 0.5)
+            verify(flick.contentY > 0, "Navigating below the viewport scrolls the overview")
+            const point = card.mapToItem(flick, 0, 0)
+            verify(point.y + card.height <= flick.height - app.overviewMargin + 1,
+                   "Keyboard navigation scrolls the highlighted card into view")
+            keyClick(Qt.Key_Up)
+            compare(app.overviewNavigationTarget, app.homeView)
+            keyClick(Qt.Key_Left)
+            compare(app.overviewNavigationTarget, app.homeView, "Navigation stops at grid edges")
+            keyClick(Qt.Key_Right)
+            compare(app.overviewNavigationTarget, app.views[0])
+            verify(findChild(overviewCard(app.views[0]), "overviewCardFocusRing").visible)
+            verify(!findChild(overviewCard(app.homeView), "overviewCardFocusRing").visible)
+            keyClick(Qt.Key_Right)
+            compare(app.overviewNavigationTarget, app.views[1])
+            keyClick(Qt.Key_Left)
+            compare(app.overviewNavigationTarget, app.views[0])
+            compare(app.activeView, app.homeView, "Arrow navigation does not switch the live tab")
+            compare(app.selectedTabViews, [])
+            keyClick(Qt.Key_Return)
+            tryCompare(app, "overviewVisible", false)
+            compare(app.activeView, app.views[0])
+            compare(app.overviewNavigationTarget, null)
+        }
+
+        function test_overview_keyboard_navigation_search_and_no_results() {
+            appSettings.reduceMotion = true
+            const first = app.views[0], third = app.views[2]
+            first.url = "about:blank#keyboard-one"
+            third.url = "about:blank#keyboard-two"
+            app.activateHome()
+            app.toggleOverview()
+            app.requestActivate()
+            tryVerify(() => app.active)
+            const search = findChild(app, "overviewSearch")
+            search.forceActiveFocus()
+            waitForRendering(app.contentItem)
+            for (const character of "keyboard") keyClick(character)
+            compare(search.text, "keyboard", "Typing still edits the search field")
+            compare(app.overviewNavigationTarget, first)
+            keyClick(Qt.Key_Right)
+            compare(app.overviewNavigationTarget, third, "Arrows skip filtered-out cards and Home")
+            compare(search.text, "keyboard")
+            keyClick(Qt.Key_Left, Qt.ControlModifier)
+            compare(app.overviewNavigationTarget, third, "Modified editing keys stay with the search field")
+            search.text = "no-matching-card"
+            compare(app.overviewNavigationTarget, null)
+            keyClick(Qt.Key_Return)
+            compare(app.overviewVisible, true, "Enter with no search results does not open a hidden tab")
+            search.text = "Home"
+            compare(app.overviewNavigationTarget, app.homeView)
+            keyClick(Qt.Key_Enter, Qt.KeypadModifier)
+            compare(app.overviewVisible, false)
+            compare(app.activeView, app.homeView)
+        }
+
+        function test_overview_keyboard_navigates_group_cards_and_expanded_contents() {
+            appSettings.reduceMotion = true
+            const first = app.views[0], second = app.views[1]
+            const id = app.createTabGroup(first, "Keyboard group")
+            app.assignTabGroup(second, id)
+            app.updateTabGroup(id, {overviewCollapsed: true}, true)
+            app.activateHome()
+            app.toggleOverview()
+            app.requestActivate()
+            tryVerify(() => app.active)
+            findChild(app, "overviewSearch").forceActiveFocus()
+            waitForRendering(app.contentItem)
+            keyClick(Qt.Key_Right)
+            compare(app.overviewNavigationTarget, id)
+            verify(findChild(app.overviewGroupContainer(id), "overviewGroupFocusRing").visible)
+            keyClick(Qt.Key_Return)
+            compare(app.groupFor(first).overviewCollapsed, false)
+            compare(app.overviewVisible, true)
+            keyClick(Qt.Key_Return)
+            compare(app.groupFor(first).overviewCollapsed, true)
+            keyClick(Qt.Key_Return)
+            keyClick(Qt.Key_Down)
+            compare(app.overviewNavigationTarget, second, "Down follows the group's card column")
+            compare(app.activeView, app.homeView)
+            keyClick(Qt.Key_Return)
+            compare(app.overviewVisible, false)
+            compare(app.activeView, second)
         }
 
         function test_home_card_drag_returns_to_its_slot_data() {

@@ -26,6 +26,20 @@
 #include <QTcpSocket>
 #include <cassert>
 
+// Capture requests to the compositor, including when tests run without KWin.
+static QRegion requestedBlurRegion;
+static bool requestedBlurEnabled = false;
+static QWindow *blurProbe = nullptr;
+static QList<bool> blurRequests;
+namespace KWindowEffects {
+void enableBlurBehind(QWindow *window, bool enable, const QRegion &region)
+{
+    requestedBlurRegion = region;
+    requestedBlurEnabled = enable;
+    if (window == blurProbe) blurRequests.append(enable);
+}
+}
+
 class PaintProbe : public QQuickItem {
 public:
     explicit PaintProbe(QQuickItem *parent) : QQuickItem(parent)
@@ -81,6 +95,32 @@ int main(int argc, char **argv)
         assert(saved.value(QStringLiteral("settingsInitialized")).toBool());
     }
     {
+        AppSettings toolbar;
+        const auto defaults = toolbar.toolbarItems();
+        assert(defaults.size() == 8);
+        assert(std::count_if(defaults.cbegin(), defaults.cend(), [](const QVariant &item) {
+            return item.toMap().value("enabled").toBool();
+        }) == 4);
+        auto configured = defaults;
+        configured.move(4, 0);
+        auto exports = configured.first().toMap();
+        exports["enabled"] = true;
+        configured[0] = exports;
+        toolbar.setToolbarItems(configured);
+        AppSettings persisted;
+        assert(persisted.toolbarItems() == configured);
+        toolbar.setToolbarItems({exports, exports, QVariantMap{{"id", "unknown"}},
+                                 QVariantMap{{"id", "menu"}, {"enabled", false}}});
+        const auto normalized = toolbar.toolbarItems();
+        assert(normalized.size() == defaults.size());
+        assert(normalized[0].toMap().value("id") == "export-history");
+        assert(normalized[1].toMap().value("id") == "menu");
+        assert(!normalized[1].toMap().value("enabled").toBool());
+        toolbar.resetSettings();
+        assert(toolbar.toolbarItems() == defaults);
+        puts("Toolbar order, visibility, persistence, normalization and reset checks passed");
+    }
+    {
         const QString proc = temporary.path() + "/proc";
         const auto write = [](const QString &path, const QByteArray &bytes) {
             assert(QDir().mkpath(QFileInfo(path).absolutePath()));
@@ -105,6 +145,43 @@ int main(int argc, char **argv)
     puts("Whole-process-family memory accounting, shared memory and fallback checks passed");
     puts("Safe-mode recovery and settings reset preserve export data and discard pending CSS checks passed");
     AppSettings settings;
+    {
+        QQuickWindow window;
+        settings.registerMainWindow(&window);
+        window.resize(1280, 800);
+        window.setProperty("chromiumFrameLoaded", false);
+        window.setProperty("tabStripHeight", 40);
+        settings.setToolbarOpacity(60);
+        settings.refreshWindowBlur(&window);
+        assert(requestedBlurEnabled && requestedBlurRegion.isEmpty());
+        window.showFullScreen();
+        window.resize(2560, 1440);
+        settings.refreshWindowBlur(&window);
+        assert(requestedBlurEnabled && requestedBlurRegion.isEmpty()); // Whole-window hint has no stale bounds.
+        window.setProperty("chromiumFrameLoaded", true);
+        settings.refreshWindowBlur(&window);
+        assert(requestedBlurRegion == QRegion(0, 0, window.width(), 40)); // The platform controls fullscreen geometry.
+        settings.setTranslucentSidebars(true);
+        settings.refreshWindowBlur(&window);
+        assert(requestedBlurRegion.isEmpty()); // Transparent sidebars need the whole surface too.
+        blurProbe = &window;
+        blurRequests.clear();
+        QEventLoop loop;
+        QTimer::singleShot(200, &loop, &QEventLoop::quit);
+        loop.exec();
+        assert(blurRequests.contains(false) && !blurRequests.isEmpty() && blurRequests.last());
+        assert(requestedBlurRegion.isEmpty()); // Reapply after the resized frame, clearing cached compositor bounds.
+        blurProbe = nullptr;
+        settings.setIgnoreToolbarBlur(true);
+        settings.refreshWindowBlur(&window);
+        assert(!requestedBlurEnabled);
+        settings.setIgnoreToolbarBlur(false);
+        settings.setTranslucentSidebars(false);
+        settings.setToolbarOpacity(100);
+        settings.refreshWindowBlur(&window);
+        assert(!requestedBlurEnabled);
+    }
+    puts("Fullscreen and resized window blur hints, toolbar bounds, sidebar coverage and disable checks passed");
     {
         // Exercise the service-worker path used by Figma, not just new Notification().
         QTcpServer server;

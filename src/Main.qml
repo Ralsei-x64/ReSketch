@@ -25,14 +25,16 @@ Kirigami.ApplicationWindow {
     readonly property int tabStripHeight: Math.max(40, Math.round(Kirigami.Units.gridUnit * 2.25))
     readonly property int tabWidth: 220
     readonly property real tabAreaWidth: Math.max(0, width - homeButton.width
-                                               - addTabButton.width - overviewButton.width
-                                               - refreshButton.width - menuButton.width
+                                               - toolbarActions.width
                                                - windowControlGroup.width)
     readonly property real tabStripWidth: views.reduce((total, view, index) => total + tabSlotWidth(index), 0)
     readonly property bool tabStripOverflow: tabStripWidth > tabAreaWidth + 1
     readonly property int tabIconSize: Kirigami.Units.iconSizes.small
     readonly property int tabContentLeftMargin: Kirigami.Units.smallSpacing + 5
     readonly property real toolbarAlpha: appSettings.toolbarOpacity / 100
+    readonly property color selectionTint: Qt.rgba(Kirigami.Theme.highlightColor.r,
+                                                  Kirigami.Theme.highlightColor.g,
+                                                  Kirigami.Theme.highlightColor.b, 0.14)
     readonly property bool desktopSidebars: appSettings.translucentSidebars
                                             && appSettings.sidebarBackdrop === "desktop"
                                             && appSettings.toolbarOpacity < 100
@@ -110,6 +112,7 @@ Kirigami.ApplicationWindow {
     property var detachedWindows: []
     property var tabDragSession: null
     property var dragView: null
+    property var dragViews: []
     property var dragSnapshot: null
     property string dragToken: ""
     property point dragScenePosition: Qt.point(0, 0)
@@ -146,6 +149,7 @@ Kirigami.ApplicationWindow {
     readonly property bool overviewAnimationRunning: overviewAnimation.running
     readonly property bool overviewGroupAnimationRunning: tabGroups.some(group => overviewGroupContainer(group.id)?.transitioning)
     property var overviewSelectedView: null
+    property var overviewNavigationTarget: null
     property var overviewDraggedView: null
     property int overviewDropIndex: -1
     property string overviewDropGroupId: ""
@@ -156,11 +160,12 @@ Kirigami.ApplicationWindow {
     property string overviewDraggedGroupId: ""
     property int overviewGroupGeneration: 0
     property bool skipNextWebSlide: false
-    property bool webFullscreen: false
+    readonly property bool webFullscreen: visibility === Window.FullScreen
     property bool autoHideToolbar: false
-    readonly property bool toolbarAutoHidden: webFullscreen || autoHideToolbar
+    readonly property bool toolbarAutoHidden: autoHideToolbar
     property bool fullscreenToolbarHovered: false
     property int visibilityBeforeFullscreen: Window.Windowed
+    property bool autoHideBeforeFullscreen: false
 
     width: 1280
     height: 800
@@ -275,7 +280,11 @@ Kirigami.ApplicationWindow {
                 y: root.toolbarAutoHidden && !root.fullscreenToolbarHovered ? -height : 0
                 Behavior on y {
                     enabled: !appSettings.reduceMotion
-                    NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                    NumberAnimation {
+                        duration: 180
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: [0, 0.6, 0.15, 1, 1, 1]
+                    }
                 }
                 color: Qt.rgba(Kirigami.Theme.backgroundColor.r,
                                Kirigami.Theme.backgroundColor.g,
@@ -287,6 +296,7 @@ Kirigami.ApplicationWindow {
 
                 Controls.ToolButton {
                     id: homeButton
+                    objectName: "homeButton"
                     width: 49
                     height: root.tabStripHeight
                     text: ""
@@ -316,6 +326,10 @@ Kirigami.ApplicationWindow {
                         TapHandler {
                             acceptedButtons: Qt.LeftButton
                             onTapped: homeButton.clicked()
+                        }
+                        TapHandler {
+                            acceptedButtons: Qt.RightButton
+                            onTapped: toolbarContextMenu.popup(homeButton, 0, homeButton.height)
                         }
 
                         Kirigami.Icon {
@@ -571,13 +585,17 @@ Kirigami.ApplicationWindow {
                                                                         Kirigami.Theme.backgroundColor.g,
                                                                         Kirigami.Theme.backgroundColor.b,
                                                                         root.toolbarAlpha)
-                                                              : tabButton.multiSelected ? Qt.rgba(Kirigami.Theme.highlightColor.r,
-                                                                                                 Kirigami.Theme.highlightColor.g,
-                                                                                                 Kirigami.Theme.highlightColor.b, 0.2)
                                                               : tabButton.hovered ? Qt.rgba(Kirigami.Theme.highlightColor.r,
                                                                                              Kirigami.Theme.highlightColor.g,
                                                                                              Kirigami.Theme.highlightColor.b, 0.12)
                                                                                   : "transparent"
+
+                                    Rectangle {
+                                        objectName: "tabSelectionTint"
+                                        anchors.fill: parent
+                                        color: root.selectionTint
+                                        visible: tabButton.multiSelected
+                                    }
 
                                     Rectangle {
                                         anchors.left: parent.left
@@ -780,6 +798,7 @@ Kirigami.ApplicationWindow {
                                                             root.finishItemDrag(point)
                                                             return
                                                         }
+                                                        const members = root.dragViews.slice()
                                                         root.cancelItemDrag()
                                                         const source = root.draggedTabIndex
                                                         const destination = root.tabDropIndex
@@ -787,7 +806,7 @@ Kirigami.ApplicationWindow {
                                                         const positions = root.captureTabStripPositions()
                                                         root.draggedTabIndex = -1
                                                         root.tabDropIndex = -1
-                                                        root.reorderTab(source, destination, positions, false, groupId)
+                                                        root.reorderTab(source, destination, positions, false, groupId, members)
                                                     }
                                                 }
                                                 onActiveTranslationChanged: {
@@ -997,73 +1016,35 @@ Kirigami.ApplicationWindow {
                     }
                 }
 
-                TabBarButton {
-                    id: addTabButton
-                    dragWindow: root
-                    width: 40
+                Row {
+                    id: toolbarActions
+                    objectName: "toolbarActions"
                     height: root.tabStripHeight
-                    icon.name: "tab-new"
-                    icon.width: root.tabIconSize
-                    icon.height: root.tabIconSize
-                    Accessible.name: "New tab"
-                    Controls.ToolTip.text: qsTr("New file tab")
-                    Controls.ToolTip.visible: hovered
-                    onClicked: root.openTab(root.newTabUrl)
-                }
-
-                TabBarButton {
-                    id: overviewButton
-                    dragWindow: root
-                    width: 40
-                    height: root.tabStripHeight
-                    dimmed: !root.homeView && !root.overviewVisible
-                    icon.name: "view-grid"
-                    icon.width: root.tabIconSize
-                    icon.height: root.tabIconSize
-                    Accessible.name: "Tab overview"
-                    Controls.ToolTip.text: qsTr("Tab overview")
-                    Controls.ToolTip.visible: hovered
-                    onClicked: {
-                        if (!dimmed)
-                            root.toggleOverview()
+                    Repeater {
+                        model: appSettings.toolbarItems.filter(item => item.enabled)
+                        TabBarButton {
+                            id: toolbarButton
+                            required property var modelData
+                            objectName: "toolbarButton-" + modelData.id
+                            dragWindow: root
+                            width: 40
+                            height: root.tabStripHeight
+                            icon.name: modelData.icon
+                            icon.width: root.tabIconSize
+                            icon.height: root.tabIconSize
+                            dimmed: modelData.id === "refresh" ? !root.activeView || root.allFrozen
+                                  : modelData.id === "overview" ? !root.homeView && !root.overviewVisible
+                                  : modelData.id === "developer-tools" ? !root.activeView : false
+                            Accessible.name: modelData.title
+                            Controls.ToolTip.text: modelData.title
+                            Controls.ToolTip.visible: hovered
+                            onClicked: if (!dimmed) root.triggerToolbarItem(modelData.id, toolbarButton)
+                        }
                     }
-                }
-
-                TabBarButton {
-                    id: refreshButton
-                    dragWindow: root
-                    width: 40
-                    height: root.tabStripHeight
-                    icon.name: "view-refresh"
-                    icon.width: root.tabIconSize
-                    icon.height: root.tabIconSize
-                    dimmed: !root.activeView || root.allFrozen
-                    Accessible.name: "Refresh page"
-                    Controls.ToolTip.text: qsTr("Refresh page")
-                    Controls.ToolTip.visible: hovered
-                    onClicked: {
-                        if (!dimmed)
-                            root.triggerPageAction(WebEngineView.Reload)
-                    }
-                }
-
-                TabBarButton {
-                    id: menuButton
-                    dragWindow: root
-                    width: 40
-                    height: root.tabStripHeight
-                    icon.name: "application-menu"
-                    icon.width: root.tabIconSize
-                    icon.height: root.tabIconSize
-                    Accessible.name: "Application menu"
-                    Controls.ToolTip.text: qsTr("Application menu")
-                    Controls.ToolTip.visible: hovered
-                    onClicked: appMenu.open()
 
                     Controls.Menu {
                         id: appMenu
-                        x: menuButton.width - width
-                        y: menuButton.height
+                        objectName: "applicationPopupMenu"
                         onAboutToShow: figmaMenus.refresh()
 
                         Controls.Menu {
@@ -1113,8 +1094,14 @@ Kirigami.ApplicationWindow {
                     z: 8
                     width: Math.max(0, tabsViewport.x + tabsViewport.width - x)
                     height: root.tabStripHeight - 1
-                    acceptedButtons: Qt.LeftButton
-                    onDoubleClicked: root.toggleMaximize()
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    onClicked: mouse => {
+                        if (mouse.button === Qt.RightButton)
+                            toolbarContextMenu.popup(blankTabStripDrag, mouse.x, mouse.y)
+                    }
+                    onDoubleClicked: mouse => {
+                        if (mouse.button === Qt.LeftButton) root.toggleMaximize()
+                    }
                     DragHandler {
                         target: null
                         acceptedButtons: Qt.LeftButton
@@ -1283,9 +1270,11 @@ Kirigami.ApplicationWindow {
             }
 
             Item {
+                id: overviewOverlay
                 anchors.fill: parent
                 z: 40
                 visible: root.overviewVisible
+                Keys.onPressed: event => root.handleOverviewKey(event)
 
                 Flickable {
                     id: overviewFlickable
@@ -1532,6 +1521,16 @@ Kirigami.ApplicationWindow {
                                 objectName: "overviewGroupHeader"
                                 width: parent.width
                                 height: parent.height
+                                Rectangle {
+                                    objectName: "overviewGroupFocusRing"
+                                    anchors.fill: parent
+                                    z: 3
+                                    radius: groupContainer.radius
+                                    color: "transparent"
+                                    border.width: 2
+                                    border.color: Kirigami.Theme.highlightColor
+                                    visible: root.overviewNavigationTarget === groupContainer.group?.id
+                                }
                                 Kirigami.Icon {
                                     objectName: "overviewGroupIcon"
                                     x: 14; y: (60 - height) / 2
@@ -1819,7 +1818,8 @@ Kirigami.ApplicationWindow {
                                 readonly property int tabIndex: previewView === root.homeView ? -1 : root.views.indexOf(previewView)
                                 readonly property var group: root.groupFor(previewView)
                                 readonly property var container: group ? root.overviewGroupContainer(group.id) : null
-                                readonly property bool floating: dragging || settling || closing
+                                readonly property bool dragMember: !!root.dragView && root.dragViews.includes(previewView)
+                                readonly property bool floating: dragging || dragMember || settling || closing
                                     || zooming && (root.overviewClosing || root.overviewProgress < 0.999)
                                 parent: container && root.overviewVisible && !floating
                                         ? container.cardArea : overviewFlickable.contentItem
@@ -1852,10 +1852,10 @@ Kirigami.ApplicationWindow {
                                 readonly property real headerHeight: root.overviewTitleHeight
                                                                      * (zooming ? root.overviewProgress : 1)
                                 visible: closing || root.overviewMatches(tabIndex)
-                                                    && (!group?.overviewCollapsed || dragging || settling)
+                                                    && (!group?.overviewCollapsed || dragging || dragMember || settling)
                                          || (zooming && root.overviewProgress < 0.999)
                                 enabled: !closing && !container?.transitioning
-                                z: dragging || settling ? 20 : zooming ? 10 : closing ? 9 : 0
+                                z: dragging || settling ? 20 : dragMember ? 19 : zooming ? 10 : closing ? 9 : 0
                                 transform: Translate { x: overviewCard.dragOffsetX; y: overviewCard.dragOffsetY }
                                 opacity: entrance
                                 x: (closing ? previewView.overviewCloseX
@@ -1910,6 +1910,19 @@ Kirigami.ApplicationWindow {
                                     NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
                                 }
 
+                                function settleFrom(point) {
+                                    cardSettle.stop()
+                                    const slot = root.overviewFilteredSlot(root.views.indexOf(previewView))
+                                    settling = true
+                                    dragOffsetX = point.x - root.overviewCardX(slot)
+                                    dragOffsetY = point.y - root.overviewCardY(slot)
+                                    if (appSettings.reduceMotion) {
+                                        dragOffsetX = 0
+                                        dragOffsetY = 0
+                                        settling = false
+                                    } else cardSettle.start()
+                                }
+
                                 Rectangle {
                                     objectName: "overviewCardBackground"
                                     anchors.fill: parent
@@ -1924,7 +1937,7 @@ Kirigami.ApplicationWindow {
                                     anchors.fill: parent
                                     z: 3
                                     radius: overviewCard.cornerRadius
-                                    color: "transparent"
+                                    color: root.selectedTabViews.includes(overviewCard.previewView) ? root.selectionTint : "transparent"
                                     border.width: root.selectedTabViews.includes(overviewCard.previewView) ? 2 : 1
                                     border.color: root.selectedTabViews.includes(overviewCard.previewView)
                                                   ? Kirigami.Theme.highlightColor
@@ -2135,6 +2148,12 @@ Kirigami.ApplicationWindow {
                                             const destinationGroup = root.overviewDropGroupId
                                             const visualX = overviewCard.x + overviewCard.dragOffsetX
                                             const visualY = overviewCard.y + overviewCard.dragOffsetY
+                                            const members = root.dragViews.slice()
+                                            const peers = root.outsideWindow(point) ? [] : members.filter(item => item !== view)
+                                                .map(item => overviewCardRepeater.itemAt(root.views.indexOf(item) + 1)?.card)
+                                                .filter(card => !!card)
+                                                .map(card => ({card: card, point: card.mapToItem(overviewFlickable.contentItem, 0, 0)}))
+                                            for (const peer of peers) peer.card.settling = true
                                             overviewCard.settling = true
                                             root.overviewDraggedView = null
                                             root.overviewDropIndex = -1
@@ -2152,17 +2171,11 @@ Kirigami.ApplicationWindow {
                                                 root.finishItemDrag(point)
                                             } else {
                                                 root.cancelItemDrag()
-                                                root.reorderTab(root.views.indexOf(view), destination, stripPositions, false, destinationGroup)
+                                                root.reorderTab(root.views.indexOf(view), destination, stripPositions, false, destinationGroup, members)
                                                 if (destinationGroup)
                                                     root.updateTabGroup(destinationGroup, {overviewCollapsed: false})
-                                                const slot = root.overviewFilteredSlot(root.views.indexOf(view))
-                                                overviewCard.dragOffsetX = visualX - root.overviewCardX(slot)
-                                                overviewCard.dragOffsetY = visualY - root.overviewCardY(slot)
-                                                if (appSettings.reduceMotion) {
-                                                    overviewCard.dragOffsetX = 0
-                                                    overviewCard.dragOffsetY = 0
-                                                    overviewCard.settling = false
-                                                } else cardSettle.start()
+                                                overviewCard.settleFrom(Qt.point(visualX, visualY))
+                                                for (const peer of peers) peer.card.settleFrom(peer.point)
                                             }
                                         }
                                     }
@@ -2197,13 +2210,15 @@ Kirigami.ApplicationWindow {
                                     }
                                 }
                                 Rectangle {
+                                    objectName: "overviewCardFocusRing"
                                     anchors.fill: parent
                                     z: 4
                                     radius: overviewCard.cornerRadius
                                     color: "transparent"
                                     border.width: 2
                                     border.color: overviewCard.group ? overviewCard.group.color : Kirigami.Theme.highlightColor
-                                    visible: overviewCard.zooming
+                                    visible: root.overviewNavigationTarget === overviewCard.previewView
+                                             || overviewCard.zooming && (root.overviewClosing || root.overviewProgress < 0.999)
                                     opacity: root.overviewProgress
                                 }
                             }
@@ -2223,7 +2238,11 @@ Kirigami.ApplicationWindow {
                     leftPadding: 12 + root.tabIconSize + Kirigami.Units.smallSpacing
                     rightPadding: 12
                     Accessible.name: qsTr("Search tabs")
-                    onTextChanged: overviewFlickable.resetScroll()
+                    Keys.forwardTo: [overviewOverlay]
+                    onTextChanged: {
+                        overviewFlickable.resetScroll()
+                        root.syncOverviewNavigation()
+                    }
 
                     Kirigami.Icon {
                         anchors.left: parent.left
@@ -2251,9 +2270,9 @@ Kirigami.ApplicationWindow {
         parent: root.contentItem
         enabled: root.toolbarAutoHidden
         onPointChanged: root.fullscreenToolbarHovered = hovered && point.position.y >= 0
-                                                       && point.position.y < root.tabStripHeight
+                                                       && point.position.y < (root.fullscreenToolbarHovered ? root.tabStripHeight : 3)
         onHoveredChanged: root.fullscreenToolbarHovered = hovered && point.position.y >= 0
-                                                         && point.position.y < root.tabStripHeight
+                                                         && point.position.y < (root.fullscreenToolbarHovered ? root.tabStripHeight : 3)
     }
 
     ListModel { id: tabModel }
@@ -2262,7 +2281,10 @@ Kirigami.ApplicationWindow {
         selectedTabViews = selectedTabViews.filter(view => views.includes(view))
         tabGroups = tabGroups.filter(group => views.some(view => view.tabGroupId === group.id))
         syncOverviewModel()
+        if (overviewVisible) Qt.callLater(root.syncOverviewNavigation)
     }
+    onTabGroupsChanged: if (overviewVisible) Qt.callLater(root.syncOverviewNavigation)
+    onOverviewVisibleChanged: if (!overviewVisible) overviewNavigationTarget = null
     onHomeViewChanged: syncOverviewModel()
 
     DropArea {
@@ -3230,8 +3252,10 @@ Kirigami.ApplicationWindow {
         let y = overviewMargin + overviewSearchHeight, column = 0, rowGroups = []
         const order = preview ? previewTabOrder() : views
         const visibleViews = (overviewMatches(-1) ? [homeView] : []).concat(order.filter(view => overviewMatches(views.indexOf(view))))
-        const groupId = view => preview && overviewDraggedView === view && view !== homeView
-                                  ? overviewDropGroupId : view.tabGroupId || ""
+        const dragging = overviewDraggedView || (draggedTabIndex >= 0 ? views[draggedTabIndex] : null)
+        const groupId = view => preview && dragging && view !== homeView
+                                  && (dragViews.includes(view) || dragging === view)
+                                  ? (overviewDraggedView ? overviewDropGroupId : tabDropGroupId) : view.tabGroupId || ""
         function flushRow() {
             if (!column) return
             y += overviewCardHeight + overviewGap
@@ -3384,6 +3408,65 @@ Kirigami.ApplicationWindow {
         return overviewLayout.items.find(item => item.view === view)?.y ?? overviewMargin + overviewSearchHeight
     }
 
+    function overviewNavigationCards() {
+        const layout = layoutOverview(false)
+        return layout.items.filter(item => item.view === homeView || !groupFor(item.view)?.overviewCollapsed
+            && tabsForAction(item.view).includes(item.view))
+            .map(item => ({target: item.view, x: item.x, y: item.y}))
+            .concat(layout.groups.map(item => ({target: item.id, x: item.x, y: item.y})))
+            .sort((a, b) => a.y - b.y || a.x - b.x)
+    }
+
+    function syncOverviewNavigation() {
+        if (!overviewVisible || overviewClosing) return
+        const cards = overviewNavigationCards()
+        if (!cards.some(item => item.target === overviewNavigationTarget))
+            overviewNavigationTarget = cards[0]?.target ?? null
+    }
+
+    function handleOverviewKey(event) {
+        if (!overviewVisible || overviewClosing || overviewProgress < 0.999 || overviewAnimationRunning
+                || overviewDraggedView || draggedGroupId
+                || event.modifiers & (Qt.ShiftModifier | Qt.AltModifier | Qt.ControlModifier | Qt.MetaModifier)) return
+        const horizontal = event.key === Qt.Key_Left || event.key === Qt.Key_Right
+        const vertical = event.key === Qt.Key_Up || event.key === Qt.Key_Down
+        const enter = event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+        if (!horizontal && !vertical && !enter) return
+        event.accepted = true
+        const cards = overviewNavigationCards()
+        if (!cards.length) return
+        const current = cards.find(item => item.target === overviewNavigationTarget)
+        let next = current || cards[0]
+        if (enter) {
+            overviewNavigationTarget = next.target
+            if (typeof next.target === "string") {
+                const group = tabGroups.find(item => item.id === next.target)
+                updateTabGroup(group.id, {overviewCollapsed: !group.overviewCollapsed})
+            } else selectOverviewView(next.target)
+            return
+        }
+        if (current) {
+            const direction = event.key === Qt.Key_Left || event.key === Qt.Key_Up ? -1 : 1
+            let nearest = Infinity
+            for (const card of cards) {
+                const along = horizontal ? card.x - current.x : card.y - current.y
+                const across = horizontal ? card.y - current.y : card.x - current.x
+                if (direction * along <= 1 || horizontal && Math.abs(across) > 1) continue
+                const distance = Math.abs(along) * (horizontal ? 1 : browserArea.width) + Math.abs(across)
+                if (distance < nearest) { nearest = distance; next = card }
+            }
+        }
+        overviewNavigationTarget = next.target
+        overviewFlickable.cancelFlick()
+        const position = overviewWheelScroll.running ? overviewFlickable.wheelTargetY : overviewFlickable.contentY
+        const top = overviewMargin + overviewSearchHeight
+        let scroll = position
+        if (next.y < position + top) scroll = next.y - top
+        else if (next.y + overviewCardHeight > position + overviewFlickable.height - overviewMargin)
+            scroll = next.y + overviewCardHeight - overviewFlickable.height + overviewMargin
+        if (scroll !== position) overviewFlickable.scrollBy(position - scroll, false)
+    }
+
     function toggleOverview() {
         if (allFrozen || !activeView)
             return
@@ -3418,6 +3501,7 @@ Kirigami.ApplicationWindow {
         const selectedCardY = overviewCardY(overviewFilteredSlot(overviewSlot(activeView)))
         overviewFlickable.resetScroll(selectedCardY - (overviewFlickable.height - overviewCardHeight) / 2)
         overviewVisible = true
+        overviewNavigationTarget = activeView
         for (const view of [homeView].concat(views)) {
             if (!view)
                 continue
@@ -3586,7 +3670,7 @@ Kirigami.ApplicationWindow {
     function memoryUnloadEligible(view) {
         return !!view && (view === homeView ? !homeMustStayAwake : views.includes(view))
             && view !== activeView && view !== outgoingView && view !== overviewSelectedView
-            && view !== dragView && view !== tabDragSession?.view && !view.devToolsView
+            && !dragViews.includes(view) && view !== dragView && view !== tabDragSession?.view && !view.devToolsView
             && !view.memoryUnloaded && !String(view.deferredRestoreUrl)
             && view.lifecycleState !== WebEngineView.LifecycleState.Discarded
             && !view.overviewClosingCard && !pendingCloseViews.includes(view) && !closingViews.includes(view)
@@ -3671,6 +3755,32 @@ Kirigami.ApplicationWindow {
 
     function openSettings() {
         settingsWindowLoader.openWindow()
+    }
+
+    function triggerToolbarItem(id, button) {
+        switch (id) {
+        case "new-tab": openTab(newTabUrl); break
+        case "overview": toggleOverview(); break
+        case "refresh": triggerPageAction(WebEngineView.Reload); break
+        case "menu": appMenu.popup(button, button.width - appMenu.width, button.height); break
+        case "export-history": openExportHistory(); break
+        case "settings": openSettings(); break
+        case "task-manager": openTaskManager(); break
+        case "developer-tools": openDeveloperTools(); break
+        }
+    }
+
+    Controls.Menu {
+        id: toolbarContextMenu
+        objectName: "toolbarContextMenu"
+        Controls.MenuItem {
+            text: qsTr("Configure toolbar…")
+            icon.name: "configure"
+            onTriggered: {
+                root.openSettings()
+                settingsWindowLoader.item.selectedSection = 4
+            }
+        }
     }
 
     function openTaskManager() {
@@ -3841,6 +3951,8 @@ Kirigami.ApplicationWindow {
     function beginItemDrag(view, item, point) {
         cancelItemDrag()
         dragView = view
+        const members = tabsForAction(view)
+        dragViews = views.filter(item => members.includes(item))
         dragScenePosition = point
         dragToken = Date.now().toString(36) + Math.random().toString(36).slice(2)
         const owner = primaryWindow || root
@@ -3942,6 +4054,7 @@ Kirigami.ApplicationWindow {
         const owner = primaryWindow || root
         if (owner.tabDragSession?.sourceWindow === root) owner.tabDragSession = null
         dragView = null
+        dragViews = []
         dragSnapshot = null
         dragToken = ""
         nativeTabDragRequested = false
@@ -3958,11 +4071,12 @@ Kirigami.ApplicationWindow {
     function toggleWebFullscreen() {
         if (!webFullscreen) {
             visibilityBeforeFullscreen = visibility
-            webFullscreen = true
+            autoHideBeforeFullscreen = autoHideToolbar
+            autoHideToolbar = true
             fullscreenToolbarHovered = false
             showFullScreen()
         } else {
-            webFullscreen = false
+            autoHideToolbar = autoHideBeforeFullscreen
             fullscreenToolbarHovered = false
             if (visibilityBeforeFullscreen === Window.Maximized) showMaximized()
             else showNormal()
@@ -3980,7 +4094,7 @@ Kirigami.ApplicationWindow {
                                  || readyCloseViews.includes(view) || view.overviewClosingCard)) return
         if (modifiers & Qt.ShiftModifier) {
             if (view === homeView) return
-            if (modifiers & Qt.AltModifier) {
+            if (!(modifiers & Qt.AltModifier)) {
                 if (!rangeSelectionAnchor || !views.includes(rangeSelectionAnchor)) {
                     rangeSelectionAnchor = view
                     rangeSelectionBase = selectedTabViews.slice()
@@ -4750,8 +4864,8 @@ Kirigami.ApplicationWindow {
                      ? overviewDropIndex : tabDropIndex
         if (from < 0 || to < 0)
             return order
-        order.splice(to, 0, order.splice(from, 1)[0])
-        return order
+        return tabMoveOrder(from, to, dragViews.length ? dragViews : [views[from]],
+                            overviewDraggedView ? overviewDropGroupId : tabDropGroupId)
     }
 
     function groupHeaderPosition(id) {
@@ -4790,6 +4904,10 @@ Kirigami.ApplicationWindow {
         if (!members.length) return
         const order = views.filter(view => view.tabGroupId !== id)
         order.splice(Math.max(0, Math.min(destination, order.length)), 0, ...members)
+        applyTabOrder(order, positions)
+    }
+
+    function applyTabOrder(order, positions) {
         selectionGlide.stop()
         selectionBar.startOffset = 0
         selectionBar.endOffset = 0
@@ -4808,6 +4926,7 @@ Kirigami.ApplicationWindow {
         animateTabReorder(positions)
         tabBar.currentIndex = activeIndex
         if (overviewVisible) Qt.callLater(root.syncOverviewFrames)
+        Qt.callLater(root.processPendingClose)
     }
 
     function animateTabReorder(positions) {
@@ -4825,28 +4944,26 @@ Kirigami.ApplicationWindow {
                                             + (tabRepeater.itemAt(index)?.visualOffset || 0)}))
     }
 
-    function reorderTab(from, to, stripPositions, preserveGroup, groupId) {
+    function tabMoveOrder(from, to, members, groupId) {
+        if (from === to && (groupId === undefined || members.every(view => view.tabGroupId === groupId)))
+            return views.slice()
+        const moving = views.filter(view => members.includes(view))
+        const remaining = views.filter(view => !moving.includes(view))
+        const edge = to + (to > from ? 1 : 0)
+        const destination = views.slice(0, edge).filter(view => !moving.includes(view)).length
+        remaining.splice(destination, 0, ...moving)
+        return remaining
+    }
+
+    function reorderTab(from, to, stripPositions, preserveGroup, groupId, members) {
         if (from < 0 || to < 0 || from >= views.length || to >= views.length
                 || from === to && !stripPositions && groupId === undefined)
             return
-        selectionGlide.stop()
-        homeSelectionGlide = false
-        selectionBar.startOffset = 0
-        selectionBar.endOffset = 0
-        const moved = views[from]
-        if (!preserveGroup) moved.tabGroupId = groupId === undefined ? views[to].tabGroupId : groupId
-        if (from !== to) {
-            views.splice(to, 0, views.splice(from, 1)[0])
-            views = views.slice()
-            tabModel.move(from, to, 1)
-        }
-        tabGroups = tabGroups.filter(group => views.some(view => view.tabGroupId === group.id))
-        tabBar.contentItem.forceLayout()
-        animateTabReorder(stripPositions)
-        if (overviewVisible)
-            Qt.callLater(root.syncOverviewFrames)
-        tabBar.currentIndex = activeIndex
-        Qt.callLater(root.processPendingClose)
+        const moving = (members || [views[from]]).filter(view => tabsForAction(view).includes(view))
+        const destinationGroup = groupId === undefined ? views[to].tabGroupId : groupId
+        const order = tabMoveOrder(from, to, moving, preserveGroup ? undefined : destinationGroup)
+        if (!preserveGroup) for (const view of moving) view.tabGroupId = destinationGroup
+        applyTabOrder(order, stripPositions)
     }
 
     Controls.Menu {
@@ -5000,7 +5117,7 @@ Kirigami.ApplicationWindow {
     Shortcut { sequence: "Shift+F11"; onActivated: root.toggleToolbarAutoHide() }
     Shortcut {
         sequence: "Escape"
-        enabled: root.selectedTabViews.length > 0 || root.toolbarAutoHidden
+        enabled: root.selectedTabViews.length > 0 || root.toolbarAutoHidden || root.webFullscreen
         onActivated: {
             if (root.selectedTabViews.length) root.selectedTabViews = []
             else if (root.webFullscreen) root.toggleWebFullscreen()

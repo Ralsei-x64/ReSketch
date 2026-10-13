@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 pkgname=resketch-git
-pkgver=r25.ca26dac
+pkgver=0.2.0.r33.c0843f5
 pkgrel=1
 pkgdesc='Open-source Figma client for Linux!'
 arch=('x86_64')
@@ -35,7 +35,9 @@ sha256sums=('SKIP')
 
 pkgver() {
     cd "$srcdir/resketch"
-    printf 'r%s.%s\n' "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+    local version
+    version=$(sed -n 's/^project(ReSketch VERSION \([^ ]*\) .*/\1/p' CMakeLists.txt)
+    printf '%s.r%s.%s\n' "$version" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
 }
 
 build() {
