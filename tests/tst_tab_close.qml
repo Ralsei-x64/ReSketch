@@ -3013,6 +3013,17 @@ Item {
             const point = card.mapToItem(flick, 0, 0)
             verify(point.y + card.height <= flick.height - app.overviewMargin + 1,
                    "Keyboard navigation scrolls the highlighted card into view")
+            keyClick(Qt.Key_Left, Qt.ShiftModifier)
+            compare(app.overviewNavigationTarget, app.views[data.columns - 2],
+                    "Left from the row's first card selects the previous row's last card")
+            verify(app.selectedTabViews.includes(app.views[data.columns - 1]))
+            verify(app.selectedTabViews.includes(app.views[data.columns - 2]),
+                   "Shift selection continues across row boundaries")
+            keyClick(Qt.Key_Right)
+            compare(app.overviewNavigationTarget, app.views[data.columns - 1],
+                    "Right from the row's last card selects the next row's first card")
+            compare(app.selectedTabViews, [app.views[data.columns - 1]],
+                    "Plain arrows replace selection when wrapping between rows")
             keyClick(Qt.Key_Up)
             compare(app.overviewNavigationTarget, app.homeView)
             compare(findChild(overviewCard(app.homeView), "overviewCardBorder").color, app.selectionTint,
@@ -3034,6 +3045,21 @@ Item {
             compare(app.overviewNavigationTarget, app.views[0])
             compare(app.activeView, app.homeView, "Arrow navigation does not switch the live tab")
             compare(app.selectedTabViews, [app.views[0]])
+            const ordered = app.overviewNavigationCards()
+            for (let index = 2; index < ordered.length; ++index) {
+                keyClick(Qt.Key_Right)
+                compare(app.overviewNavigationTarget, ordered[index].target)
+            }
+            keyClick(Qt.Key_Right)
+            compare(app.overviewNavigationTarget, ordered[ordered.length - 1].target,
+                    "Right stops at the last card, including an incomplete final row")
+            for (let index = ordered.length - 2; index >= 0; --index) {
+                keyClick(Qt.Key_Left)
+                compare(app.overviewNavigationTarget, ordered[index].target)
+            }
+            keyClick(Qt.Key_Left)
+            compare(app.overviewNavigationTarget, app.homeView, "Left stops at the very first card")
+            keyClick(Qt.Key_Right)
             keyClick(Qt.Key_Return)
             tryCompare(app, "overviewVisible", false)
             compare(app.activeView, app.views[0])

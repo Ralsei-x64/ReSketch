@@ -3449,13 +3449,18 @@ Kirigami.ApplicationWindow {
         }
         if (current) {
             const direction = event.key === Qt.Key_Left || event.key === Qt.Key_Up ? -1 : 1
-            let nearest = Infinity
-            for (const card of cards) {
-                const along = horizontal ? card.x - current.x : card.y - current.y
-                const across = horizontal ? card.y - current.y : card.x - current.x
-                if (direction * along <= 1 || horizontal && Math.abs(across) > 1) continue
-                const distance = Math.abs(along) * (horizontal ? 1 : browserArea.width) + Math.abs(across)
-                if (distance < nearest) { nearest = distance; next = card }
+            if (horizontal) {
+                const index = Math.max(0, Math.min(cards.length - 1, cards.indexOf(current) + direction))
+                next = cards[index]
+            } else {
+                let nearest = Infinity
+                for (const card of cards) {
+                    const along = card.y - current.y
+                    const across = card.x - current.x
+                    if (direction * along <= 1) continue
+                    const distance = Math.abs(along) * browserArea.width + Math.abs(across)
+                    if (distance < nearest) { nearest = distance; next = card }
+                }
             }
         }
         const currentViews = typeof current?.target === "string"
