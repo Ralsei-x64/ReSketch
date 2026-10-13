@@ -175,7 +175,62 @@ var sidebarMaskSource = `function sidebarMask(bounds, panels) {
         : 'polygon(evenodd, ' + points.join(', ') + ')';
 }`
 
-var sidebarSource = `function sidebarAppearance(options, stylesheet) {
+// Figma's canvas has its own native layout: CSS cannot resize its render buffer
+// or pointer coordinates. Scope the collapsed-panel flags to that layout call,
+// restoring them synchronously before React observes any UI changes.
+var sidebarLayoutSource = `function floatingCanvasLayout() {
+    const runtime = window.__resketchAppearance?.runtime;
+    const factory = window._fullscreen_?._getTsApisForWasm?.().FigmaAppUi;
+    if (!runtime || !factory) return null;
+    try {
+        let engine, caller = '';
+        for (const id of Object.keys(runtime.m)) {
+            const source = runtime.m[id].toString();
+            if (source.includes('__getProperty_leftPanelCollapsed'))
+                engine = Object.values(runtime(id)).find(value => value && typeof value === 'object'
+                    && typeof value.uiState === 'function' && typeof value.editorPreferences === 'function');
+            if (source.includes('updateLayoutForMinimizeUI') && (!caller || source.length < caller.length)) caller = source;
+        }
+        let api;
+        for (const match of caller.matchAll(/\\((\\d+)\\)/g)) {
+            if (!runtime.m[match[1]]) continue;
+            api = Object.values(runtime(match[1])).find(value => value
+                && typeof value.updateLayoutForMinimizeUI === 'function');
+            if (api) break;
+        }
+        const proto = Object.getPrototypeOf(factory());
+        const state = engine?.uiState();
+        if (!api || typeof proto.getLeftRailWidth !== 'function'
+                || !state?.leftPanelCollapsed?.set || !state?.showPropertiesPanel?.set) return null;
+        const original = api.updateLayoutForMinimizeUI, originalRail = proto.getLeftRailWidth;
+        const noRail = () => 0;
+        let updating = false;
+        function update(...args) {
+            if (updating) return original.apply(this, args);
+            updating = true;
+            const ui = engine.uiState();
+            const left = ui.leftPanelCollapsed.getCopy(), right = ui.showPropertiesPanel.getCopy();
+            try {
+                ui.leftPanelCollapsed.set(true);
+                ui.showPropertiesPanel.set(false);
+                return original.apply(this, args);
+            } finally {
+                ui.leftPanelCollapsed.set(left);
+                ui.showPropertiesPanel.set(right);
+                updating = false;
+            }
+        }
+        proto.getLeftRailWidth = noRail;
+        api.updateLayoutForMinimizeUI = update;
+        return {update: () => update.call(api), dispose() {
+            if (api.updateLayoutForMinimizeUI === update) api.updateLayoutForMinimizeUI = original;
+            if (proto.getLeftRailWidth === noRail) proto.getLeftRailWidth = originalRail;
+            original.call(api);
+        }};
+    } catch (_) { return null; }
+}`
+
+var sidebarSource = sidebarLayoutSource + `;function sidebarAppearance(options, stylesheet) {
     let controller = window.__resketchSidebars;
     if (!options.floatingSidebars && (!options.translucentSidebars || options.opacity >= 100)) {
         controller?.dispose();
@@ -190,6 +245,7 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
     }
     const selector = '[data-testid="navigation-bar"], [data-onboarding-key="unified-design-onboarding-left-panel"], [data-testid="properties-panel"], [class*="sidebar--navDefault--"], .fb-sidebar';
     let panels = [], ancestors = new Set(), canvases = [], frame = 0;
+    let layout = null;
     const authoredSizes = new WeakMap();
     const authoredSize = panel => panel.style.width + ':' + panel.style.height;
     const underlay = document.createElement('div');
@@ -201,11 +257,13 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
         + '[data-resketch-floating-sidebar] { box-sizing:border-box !important;'
         + 'width:var(--resketch-sidebar-width) !important; min-width:0 !important; max-width:none !important;'
         + 'height:var(--resketch-sidebar-height) !important; min-height:0 !important;'
+        + 'border:1px solid var(--color-border) !important;'
         + 'margin:8px var(--resketch-sidebar-gap-right) 8px var(--resketch-sidebar-gap-left) !important; border-radius:var(--resketch-sidebar-radius) !important; overflow:hidden !important; }'
-        + '[data-resketch-sidebar-join="start"] { border-radius:var(--resketch-sidebar-radius) 0 0 var(--resketch-sidebar-radius) !important; }'
-        + '[data-resketch-sidebar-join="end"] { border-radius:0 var(--resketch-sidebar-radius) var(--resketch-sidebar-radius) 0 !important; }'
+        + '[data-resketch-sidebar-join="start"] { border-right:0 !important; border-radius:var(--resketch-sidebar-radius) 0 0 var(--resketch-sidebar-radius) !important; }'
+        + '[data-resketch-sidebar-join="end"] { border-left:0 !important; border-radius:0 var(--resketch-sidebar-radius) var(--resketch-sidebar-radius) 0 !important; }'
         + '[data-resketch-floating-sidebar] :is([class*="left_panel_container--panel--"],[class*="properties_panel--panelPosition--"]) '
-        + '{ box-sizing:border-box !important; width:100% !important; height:100% !important; }'
+        + '{ box-sizing:border-box !important; width:100% !important; height:100% !important; border:0 !important; }'
+        + '[data-resketch-floating-sidebar] [class*="properties_panel--panelContainer--"] { border-left:0 !important; }'
         + '[data-resketch-floating-sidebar][class*="sidebar--navDefault--"] > *, '
         + '[data-resketch-floating-sidebar][class*="sidebar--navDefault--"] .fb-sidebar { box-sizing:border-box !important; width:100% !important; }'
         + '[data-resketch-floating-sidebar][data-onboarding-key="unified-design-onboarding-left-panel"] { position:relative !important; }'
@@ -244,6 +302,13 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
     function update() {
         frame = 0;
         clear();
+        if (!controller.options.floatingSidebars && layout) { layout.dispose(); layout = null; }
+        const canvasView = document.querySelector('.gpu-view-content');
+        if (controller.options.floatingSidebars && canvasView) {
+            layout ||= floatingCanvasLayout();
+            const bounds = canvasView.getBoundingClientRect();
+            if (bounds.left > 1 || Math.abs(bounds.width - innerWidth) > 1) layout?.update();
+        }
         const found = Array.from(document.querySelectorAll(selector));
         const next = found.filter(panel => !found.some(other => other !== panel && other.contains(panel)));
         for (const panel of panels) if (!next.includes(panel)) resize.unobserve(panel);
@@ -321,6 +386,7 @@ var sidebarSource = `function sidebarAppearance(options, stylesheet) {
             observer.disconnect();
             window.removeEventListener('resize', schedule);
             clear();
+            layout?.dispose();
             underlay.remove();
         }
     };

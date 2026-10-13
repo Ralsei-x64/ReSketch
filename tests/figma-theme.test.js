@@ -85,6 +85,45 @@ assert.match(app.context.sidebarMask(viewport, floating), /^path\(evenodd,/)
 assert.match(app.context.sidebarMask(viewport, floating), /M30 8 H170 A22 22/,
              'rounded holes follow the actual floating surface, leaving the surrounding canvas opaque')
 assert.equal(app.context.sidebarMask({left:200, top:0, width:600, height:700}, floating), 'none')
+
+// The native render buffer and coordinate system must expand together. Native
+// layout flags are temporary; the actual panel state and stored widths stay intact.
+const flags = {left: false, right: true}
+const observable = key => ({getCopy: () => flags[key], set: value => { flags[key] = value }})
+const uiState = {leftPanelCollapsed: observable('left'), showPropertiesPanel: observable('right')}
+class NativeUi { getLeftRailWidth() { return 49 } }
+const widths = []
+let failLayout = false
+const layoutApi = {updateLayoutForMinimizeUI() {
+    if (failLayout) throw Error('Renderer unavailable')
+    widths.push(1280 - (flags.left ? 0 : 280) - (flags.right ? 241 : 0) - new NativeUi().getLeftRailWidth())
+}}
+const originalLayout = layoutApi.updateLayoutForMinimizeUI, originalRail = NativeUi.prototype.getLeftRailWidth
+const engine = {uiState: () => uiState, editorPreferences: () => ({})}
+const runtime = id => id === '17' ? {engine} : {layoutApi}
+runtime.m = {
+    17: function() { return '__getProperty_leftPanelCollapsed' },
+    23: function(e, exports, require) { const module = require(29); module.layoutApi.updateLayoutForMinimizeUI() },
+    29: function() {}
+}
+const layoutContext = vm.createContext({window: {__resketchAppearance: {runtime},
+    _fullscreen_: {_getTsApisForWasm: () => ({FigmaAppUi: () => new NativeUi()})}}})
+vm.runInContext(app.context.sidebarLayoutSource, layoutContext)
+const overlay = vm.runInContext('floatingCanvasLayout()', layoutContext)
+assert.ok(overlay)
+overlay.update()
+layoutApi.updateLayoutForMinimizeUI()
+assert.deepEqual(widths, [1280, 1280], 'both the initial layout and later native updates use the entire canvas')
+assert.deepEqual(flags, {left: false, right: true}, 'panels stay visible without changing their actual state')
+failLayout = true
+assert.throws(() => overlay.update(), /Renderer unavailable/)
+assert.deepEqual(flags, {left: false, right: true}, 'layout failures still restore UI flags')
+failLayout = false
+flags.left = true
+overlay.dispose()
+assert.equal(widths.at(-1), 990, 'disabling floating mode restores normal insets, including current user choices')
+assert.equal(layoutApi.updateLayoutForMinimizeUI, originalLayout)
+assert.equal(NativeUi.prototype.getLeftRailWidth, originalRail)
 app.run({dark: true})
 assert.equal(app.body.theme, 'dark')
 assert.equal(app.nested.theme, 'dark', 'Figma state must update nested text/theme scopes')

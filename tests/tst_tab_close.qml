@@ -1866,14 +1866,15 @@ Item {
 
         function test_floating_sidebars_keep_backdrops_and_restore_layout() {
             const view = app.activeView
-            const fixture = '<style>body{margin:0;--color-bg:#eee}'
+            const fixture = '<style>body{margin:0;--color-bg:#eee;--color-border:#8899aa}'
                 + '.gpu-view-content{position:absolute;inset:0;background:#444}'
                 + '#home{position:absolute;left:0;top:0;width:200px;height:400px;background:white}'
                 + '#home>div,.fb-sidebar{width:200px;height:400px}'
                 + '[data-testid=properties-panel]{position:absolute;right:0;top:0;width:200px;height:400px;background:white}'
-                + '.properties_panel--panelPosition--fixture{position:absolute;inset:0;width:200px;height:400px;background:var(--color-bg)}</style>'
+                + '.properties_panel--panelPosition--fixture{position:absolute;inset:0;width:200px;height:400px;background:var(--color-bg)}'
+                + '.properties_panel--panelContainer--fixture{border-left:1px solid #8899aa}</style>'
                 + '<div class="gpu-view-content"></div><nav id="home" class="sidebar--navDefault--fixture"><div><div class="fb-sidebar"></div></div></nav>'
-                + '<aside data-testid="properties-panel"><div class="properties_panel--panelPosition--fixture"></div></aside>'
+                + '<aside data-testid="properties-panel"><div class="properties_panel--panelPosition--fixture"><div class="properties_panel--panelContainer--fixture"></div></div></aside>'
             let result = null
             view.runJavaScript('document.body.innerHTML=' + JSON.stringify(fixture), () => result = true)
             tryVerify(() => result === true)
@@ -1891,6 +1892,8 @@ Item {
                     + 'return {x:r.x,y:r.y,width:r.width,height:r.height,radius:s.borderRadius,overflow:s.overflow,bg:s.backgroundColor,'
                     + 'rightWidth:right.getBoundingClientRect().width,childWidth:child.getBoundingClientRect().width,'
                     + 'homeChildWidth:document.querySelector(".fb-sidebar").getBoundingClientRect().width,'
+                    + 'borders:[s.borderTopWidth,s.borderRightWidth,s.borderBottomWidth,s.borderLeftWidth],'
+                    + 'innerBorder:getComputedStyle(document.querySelector("[class*=properties_panel--panelContainer--]")).borderLeftWidth,'
                     + 'underlayBg:document.getElementById("resketch-sidebar-underlay")?getComputedStyle(document.getElementById("resketch-sidebar-underlay")).backgroundColor:"",'
                     + 'clip:getComputedStyle(document.querySelector(".gpu-view-content")).clipPath,'
                     + 'floating:p.hasAttribute("data-resketch-floating-sidebar"),marked:p.hasAttribute("data-resketch-sidebar")}})()',
@@ -1901,8 +1904,10 @@ Item {
             compare(result.x, 8); compare(result.y, 8)
             compare(result.width, 184); compare(result.height, 384)
             compare(result.radius, "22px"); compare(result.overflow, "hidden")
-            compare(result.childWidth, result.rightWidth, "Inner file panels fit inside the floating card")
-            compare(result.homeChildWidth, result.width, "Home's nested sidebar also fits its floating card")
+            compare(result.childWidth, result.rightWidth - 2, "Inner file panels fit inside the floating card's border")
+            compare(result.homeChildWidth, result.width - 2, "Home's nested sidebar also fits its floating card's border")
+            compare(result.borders, ["1px", "1px", "1px", "1px"], "The outline surrounds the whole sidebar")
+            compare(result.innerBorder, "0px", "The old side border does not double the new outline")
             compare(result.bg, "rgba(0, 0, 0, 0)")
             verify(result.clip.startsWith("path(evenodd,"), "Transparency follows the rounded sidebar shape")
             verify(/H\s*170\b/.test(result.clip), "The mask uses the inset sidebar's bounds and 22 px corners")
@@ -1927,9 +1932,10 @@ Item {
             compare(result.width, 260); compare(result.height, 400)
             compare(result.x, 0); compare(result.y, 0)
             compare(result.radius, "0px"); compare(result.clip, "none")
+            compare(result.innerBorder, "1px", "Disabling floating mode restores the original Figma border")
 
             // In files, the navigation rail and layer panel form one floating card.
-            const joinedFixture = '<style>body{margin:0;--color-bg:#eee}'
+            const joinedFixture = '<style>body{margin:0;--color-bg:#eee;--color-border:#8899aa}'
                 + '.gpu-view-content{position:absolute;inset:0;background:#444}'
                 + '#rail{position:absolute;left:0;top:0;width:49px;height:400px}'
                 + '#positioner{position:absolute;left:49px;top:0}'
@@ -1951,11 +1957,15 @@ Item {
                     + 'return {railRight:rail.getBoundingClientRect().right,left:layers.getBoundingClientRect().left,'
                     + 'start:rail.getAttribute("data-resketch-sidebar-join"),end:layers.getAttribute("data-resketch-sidebar-join"),'
                     + 'railInner:getComputedStyle(rail).borderTopRightRadius,layerInner:getComputedStyle(layers).borderTopLeftRadius,'
+                    + 'railBorder:getComputedStyle(rail).borderTopWidth,layerBorder:getComputedStyle(layers).borderBottomWidth,'
+                    + 'railSeam:getComputedStyle(rail).borderRightWidth,layerSeam:getComputedStyle(layers).borderLeftWidth,'
                     + 'mask:document.getElementById("resketch-sidebar-underlay").style.clipPath}})()', value => result = value)
                 return result && result.start === "start" && result.end === "end"
             })
             compare(result.railRight, result.left, "There is no gap between the two sections")
             compare(result.railInner, "0px"); compare(result.layerInner, "0px")
+            compare(result.railBorder, "1px"); compare(result.layerBorder, "1px")
+            compare(result.railSeam, "0px"); compare(result.layerSeam, "0px")
             compare((result.mask.match(/M/g) || []).length, 3, "One outer path and exactly two floating sidebar holes")
 
             app.openSettings()
