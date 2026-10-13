@@ -75,6 +75,7 @@ Kirigami.ApplicationWindow {
     property var rangeSelectionAnchor: null
     property var rangeSelectionBase: []
     onSelectedTabViewsChanged: {
+        if (!selectedTabViews.length) overviewRangeAnchor = null
         if (rangeSelectionAnchor && !selectedTabViews.includes(rangeSelectionAnchor)) {
             rangeSelectionAnchor = null
             rangeSelectionBase = []
@@ -150,6 +151,7 @@ Kirigami.ApplicationWindow {
     readonly property bool overviewGroupAnimationRunning: tabGroups.some(group => overviewGroupContainer(group.id)?.transitioning)
     property var overviewSelectedView: null
     property var overviewNavigationTarget: null
+    property var overviewRangeAnchor: null
     property var overviewDraggedView: null
     property int overviewDropIndex: -1
     property string overviewDropGroupId: ""
@@ -1358,6 +1360,7 @@ Kirigami.ApplicationWindow {
                             overviewFlickable.cancelFlick()
                             root.rangeSelectionAnchor = null
                             root.rangeSelectionBase = []
+                            root.overviewRangeAnchor = null
                             initialSelection = (mouse.modifiers & Qt.ShiftModifier) ? root.selectedTabViews.slice() : []
                             root.selectedTabViews = initialSelection
                             startPoint = Qt.point(mouse.x, mouse.y)
@@ -2286,7 +2289,10 @@ Kirigami.ApplicationWindow {
         if (overviewVisible) Qt.callLater(root.syncOverviewNavigation)
     }
     onTabGroupsChanged: if (overviewVisible) Qt.callLater(root.syncOverviewNavigation)
-    onOverviewVisibleChanged: if (!overviewVisible) overviewNavigationTarget = null
+    onOverviewVisibleChanged: if (!overviewVisible) {
+        overviewNavigationTarget = null
+        overviewRangeAnchor = null
+    }
     onHomeViewChanged: syncOverviewModel()
 
     DropArea {
@@ -3463,13 +3469,19 @@ Kirigami.ApplicationWindow {
                 }
             }
         }
-        const currentViews = typeof current?.target === "string"
-            ? views.filter(view => view.tabGroupId === current.target) : [current?.target]
-        const nextViews = typeof next.target === "string"
-            ? views.filter(view => view.tabGroupId === next.target) : [next.target]
-        const candidates = event.modifiers & Qt.ShiftModifier
-            ? selectedTabViews.concat(currentViews.filter(view => view !== homeView), nextViews)
-            : nextViews
+        let selectionCards = [next]
+        if (event.modifiers & Qt.ShiftModifier) {
+            let anchor = cards.findIndex(card => card.target === overviewRangeAnchor)
+            if (anchor < 0) {
+                overviewRangeAnchor = current?.target ?? next.target
+                anchor = current ? cards.indexOf(current) : cards.indexOf(next)
+            }
+            const end = cards.indexOf(next)
+            selectionCards = cards.slice(Math.min(anchor, end), Math.max(anchor, end) + 1)
+        } else overviewRangeAnchor = null
+        const candidates = selectionCards.reduce((result, card) => result.concat(typeof card.target === "string"
+            ? views.filter(view => view.tabGroupId === card.target)
+            : card.target === homeView && next.target !== homeView ? [] : [card.target]), [])
         rangeSelectionAnchor = null
         rangeSelectionBase = []
         selectedTabViews = Array.from(new Set(candidates)).filter(view => view &&
@@ -4108,6 +4120,7 @@ Kirigami.ApplicationWindow {
     }
 
     function selectFileTabs(view, modifiers, inOverview) {
+        overviewRangeAnchor = null
         if (!view || (view !== homeView && !views.includes(view))) return
         if (view !== homeView && (pendingCloseViews.includes(view) || closingViews.includes(view)
                                  || readyCloseViews.includes(view) || view.overviewClosingCard)) return

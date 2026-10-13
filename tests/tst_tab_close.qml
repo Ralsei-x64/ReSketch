@@ -3066,7 +3066,7 @@ Item {
             compare(app.overviewNavigationTarget, null)
         }
 
-        function test_overview_shift_arrows_accumulate_selection() {
+        function test_overview_shift_arrows_extend_and_shrink_selection() {
             appSettings.reduceMotion = true
             app.width = 1600
             app.activateTab(0)
@@ -3085,13 +3085,22 @@ Item {
             keyClick(Qt.Key_Right, Qt.ShiftModifier)
             compare(app.selectedTabViews, app.views.slice(0, 3))
             keyClick(Qt.Key_Left, Qt.ShiftModifier)
-            compare(app.selectedTabViews, app.views.slice(0, 3), "Reversing keeps previously selected cards")
+            compare(app.selectedTabViews, app.views.slice(0, 2), "Reversing removes the card beyond the range")
+            compare(findChild(overviewCard(app.views[2]), "overviewCardBorder").color.a, 0)
+            keyClick(Qt.Key_Left, Qt.ShiftModifier)
+            compare(app.selectedTabViews, [app.views[0]], "Returning to the anchor leaves only that card selected")
+            keyClick(Qt.Key_Right, Qt.ShiftModifier)
+            compare(app.selectedTabViews, app.views.slice(0, 2), "The range can be extended again")
             keyClick(Qt.Key_Right)
             compare(app.overviewNavigationTarget, app.views[2])
             compare(app.selectedTabViews, [app.views[2]], "Plain arrows replace the previous selection")
             compare(findChild(overviewCard(app.views[2]), "overviewCardBorder").border.width, 1)
             compare(findChild(overviewCard(app.views[2]), "overviewCardBorder").color, app.selectionTint)
             compare(app.activeView, app.views[0])
+            keyClick(Qt.Key_Left, Qt.ShiftModifier)
+            compare(app.selectedTabViews, app.views.slice(1, 3), "A new Shift range starts at the plain-arrow destination")
+            keyClick(Qt.Key_Right, Qt.ShiftModifier)
+            compare(app.selectedTabViews, [app.views[2]], "Reversing a leftward range also shrinks it")
             keyClick(Qt.Key_Escape)
             compare(app.selectedTabViews, [])
             compare(findChild(overviewCard(app.views[2]), "overviewCardBorder").color.a, 0,
