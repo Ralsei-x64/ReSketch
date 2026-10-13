@@ -5143,6 +5143,24 @@ Kirigami.ApplicationWindow {
         }
     }
 
+    Instantiator {
+        model: ["Left", "Right", "Up", "Down", "Shift+Left", "Shift+Right", "Shift+Up", "Shift+Down", "Return", "Enter"]
+        delegate: Shortcut {
+            required property string modelData
+            objectName: "overviewKey" + modelData
+            sequence: modelData
+            context: Qt.WindowShortcut
+            enabled: root.overviewVisible && !root.Controls.Overlay.overlay.children.some(item => item.visible && item.activeFocus)
+            onActivated: {
+                const keys = {Left: Qt.Key_Left, Right: Qt.Key_Right, Up: Qt.Key_Up,
+                              Down: Qt.Key_Down, Return: Qt.Key_Return, Enter: Qt.Key_Enter}
+                root.handleOverviewKey({key: keys[modelData.split("+").pop()],
+                    modifiers: modelData.startsWith("Shift+") ? Qt.ShiftModifier : Qt.NoModifier,
+                    accepted: false})
+            }
+        }
+    }
+
     Shortcut { sequence: "Ctrl+T"; onActivated: root.openTab(root.newTabUrl) }
     Shortcut { sequence: "Ctrl+W"; onActivated: root.closeTab(root.activeIndex) }
     Shortcut { sequence: "F11"; onActivated: root.toggleWebFullscreen() }

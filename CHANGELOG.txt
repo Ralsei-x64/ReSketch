@@ -3,6 +3,7 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch; Arch Git packages also include the commit count and hash.
 
 0.2.0 - Unreleased
+Kept overview arrow selection and Enter working after Tab moves keyboard focus, while preserving popup menu navigation.
 Made Shift+Arrow overview selection shrink when reversing direction, using the visible card order.
 Made overview Left and Right navigation continue across row boundaries while preserving selection behavior.
 Made Shift+Arrow selections accumulate; plain arrows replace the selection, and mouse clicks or Escape clear its tint.

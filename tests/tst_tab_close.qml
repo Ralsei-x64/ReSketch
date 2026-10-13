@@ -3123,6 +3123,41 @@ Item {
             compare(groupHighlight.color, app.selectionTint, "Explicit selection still tints the focused group")
         }
 
+        function test_overview_navigation_survives_tab_focus_changes() {
+            appSettings.reduceMotion = true
+            app.activateHome()
+            app.toggleOverview()
+            app.requestActivate()
+            tryVerify(() => app.active)
+            findChild(app, "overviewSearch").forceActiveFocus()
+            waitForRendering(app.contentItem)
+            keyClick(Qt.Key_Right)
+            compare(app.overviewNavigationTarget === app.views[0], true)
+            keyClick(Qt.Key_Tab)
+            keyClick(Qt.Key_Right)
+            compare(app.overviewNavigationTarget === app.views[1], true, "Arrows work after Tab changes focus")
+            keyClick(Qt.Key_Tab, Qt.ShiftModifier)
+            keyClick(Qt.Key_Left, Qt.ShiftModifier)
+            compare(app.overviewNavigationTarget === app.views[0], true, "Shift arrows work after backward focus traversal")
+            compare(app.selectedTabViews, app.views.slice(0, 2))
+            const options = findChild(overviewCard(app.views[0]), "overviewTabOptions")
+            options.forceActiveFocus()
+            keyClick(Qt.Key_Right)
+            compare(app.overviewNavigationTarget === app.views[1], true, "Focused card controls do not capture overview arrows")
+            const menu = findChild(overviewCard(app.views[0]), "overviewTabMenu")
+            menu.popup(options, 0, options.height)
+            tryCompare(menu, "visible", true)
+            const target = app.overviewNavigationTarget
+            keyClick(Qt.Key_Down)
+            compare(app.overviewNavigationTarget === target, true, "An open context menu keeps its own arrow navigation")
+            menu.close()
+            tryCompare(menu, "visible", false)
+            keyClick(Qt.Key_Tab)
+            keyClick(Qt.Key_Return)
+            compare(app.overviewVisible, false, "Enter still opens the card after focus traversal")
+            compare(app.activeView, app.views[1])
+        }
+
         function test_overview_keyboard_navigation_search_and_no_results() {
             appSettings.reduceMotion = true
             const first = app.views[0], third = app.views[2]
