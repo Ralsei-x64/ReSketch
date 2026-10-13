@@ -3015,8 +3015,9 @@ Item {
                    "Keyboard navigation scrolls the highlighted card into view")
             keyClick(Qt.Key_Up)
             compare(app.overviewNavigationTarget, app.homeView)
-            compare(findChild(overviewCard(app.homeView), "overviewCardBorder").color.a, 0,
-                    "Returning the keyboard cursor to the focused card does not tint it")
+            compare(findChild(overviewCard(app.homeView), "overviewCardBorder").color, app.selectionTint,
+                    "Returning with an arrow explicitly selects and tints the focused card")
+            compare(app.selectedTabViews, [app.homeView])
             keyClick(Qt.Key_Left)
             compare(app.overviewNavigationTarget, app.homeView, "Navigation stops at grid edges")
             keyClick(Qt.Key_Right)
@@ -3032,14 +3033,14 @@ Item {
             keyClick(Qt.Key_Left)
             compare(app.overviewNavigationTarget, app.views[0])
             compare(app.activeView, app.homeView, "Arrow navigation does not switch the live tab")
-            compare(app.selectedTabViews, [])
+            compare(app.selectedTabViews, [app.views[0]])
             keyClick(Qt.Key_Return)
             tryCompare(app, "overviewVisible", false)
             compare(app.activeView, app.views[0])
             compare(app.overviewNavigationTarget, null)
         }
 
-        function test_overview_shift_arrows_select_ranges() {
+        function test_overview_shift_arrows_accumulate_selection() {
             appSettings.reduceMotion = true
             app.width = 1600
             app.activateTab(0)
@@ -3058,15 +3059,23 @@ Item {
             keyClick(Qt.Key_Right, Qt.ShiftModifier)
             compare(app.selectedTabViews, app.views.slice(0, 3))
             keyClick(Qt.Key_Left, Qt.ShiftModifier)
-            compare(app.selectedTabViews, app.views.slice(0, 2), "Reversing shrinks the range")
+            compare(app.selectedTabViews, app.views.slice(0, 3), "Reversing keeps previously selected cards")
             keyClick(Qt.Key_Right)
             compare(app.overviewNavigationTarget, app.views[2])
-            compare(app.selectedTabViews, app.views.slice(0, 2), "Navigation keeps the existing selection")
+            compare(app.selectedTabViews, [app.views[2]], "Plain arrows replace the previous selection")
             compare(findChild(overviewCard(app.views[2]), "overviewCardBorder").border.width, 1)
             compare(findChild(overviewCard(app.views[2]), "overviewCardBorder").color, app.selectionTint)
             compare(app.activeView, app.views[0])
             keyClick(Qt.Key_Escape)
             compare(app.selectedTabViews, [])
+            compare(findChild(overviewCard(app.views[2]), "overviewCardBorder").color.a, 0,
+                    "Escape clears the tint without moving the keyboard cursor")
+            keyClick(Qt.Key_Left)
+            compare(app.selectedTabViews, [app.views[1]])
+            mouseClick(findChild(app, "overviewSearch"), 80, 15)
+            compare(app.selectedTabViews, [])
+            compare(findChild(overviewCard(app.views[1]), "overviewCardBorder").color.a, 0,
+                    "A mouse click clears the keyboard selection tint")
             app.overviewNavigationTarget = app.views[0]
             compare(findChild(overviewCard(app.views[0]), "overviewCardBorder").color.a, 0)
             const id = app.createTabGroup(app.views[0], "Focused group")
@@ -3131,6 +3140,7 @@ Item {
             compare(highlight.border.width, 0)
             keyClick(Qt.Key_Escape)
             compare(app.selectedTabViews, [])
+            compare(highlight.color.a, 0, "Escape also clears a group selection tint")
             keyClick(Qt.Key_Return)
             compare(app.groupFor(first).overviewCollapsed, false)
             compare(app.overviewVisible, true)

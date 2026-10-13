@@ -1527,8 +1527,6 @@ Kirigami.ApplicationWindow {
                                     z: 3
                                     radius: groupContainer.radius
                                     color: groupContainer.members.some(view => root.selectedTabViews.includes(view))
-                                           || root.overviewNavigationTarget === groupContainer.group?.id
-                                              && !groupContainer.members.includes(root.activeView)
                                            ? root.selectionTint : "transparent"
                                     border.width: groupContainer.group?.overviewCollapsed
                                                   && groupContainer.members.includes(root.activeView) ? 2 : 0
@@ -1691,9 +1689,11 @@ Kirigami.ApplicationWindow {
                                 MouseArea {
                                     anchors.fill: parent
                                     onClicked: {
-                                        if (!groupOverviewDrag.active && !groupContainer.settling)
+                                        if (!groupOverviewDrag.active && !groupContainer.settling) {
+                                            root.selectedTabViews = []
                                             root.updateTabGroup(groupContainer.group.id,
                                                 {overviewCollapsed: !groupContainer.group.overviewCollapsed && !groupContainer.collapsing})
+                                        }
                                     }
                                 }
                                 TapHandler {
@@ -1942,8 +1942,6 @@ Kirigami.ApplicationWindow {
                                     z: 3
                                     radius: overviewCard.cornerRadius
                                     color: root.selectedTabViews.includes(overviewCard.previewView)
-                                           || root.overviewNavigationTarget === overviewCard.previewView
-                                              && overviewCard.previewView !== root.activeView
                                            ? root.selectionTint : "transparent"
                                     border.width: 1
                                     border.color: overviewCard.group ? overviewCard.group.color
@@ -2282,7 +2280,7 @@ Kirigami.ApplicationWindow {
     ListModel { id: tabModel }
     ListModel { id: overviewModel }
     onViewsChanged: {
-        selectedTabViews = selectedTabViews.filter(view => views.includes(view))
+        selectedTabViews = selectedTabViews.filter(view => view === homeView || views.includes(view))
         tabGroups = tabGroups.filter(group => views.some(view => view.tabGroupId === group.id))
         syncOverviewModel()
         if (overviewVisible) Qt.callLater(root.syncOverviewNavigation)
@@ -3460,20 +3458,18 @@ Kirigami.ApplicationWindow {
                 if (distance < nearest) { nearest = distance; next = card }
             }
         }
-        if (event.modifiers & Qt.ShiftModifier) {
-            const currentViews = typeof current?.target === "string"
-                ? views.filter(view => view.tabGroupId === current.target) : [current?.target]
-            const nextViews = typeof next.target === "string"
-                ? views.filter(view => view.tabGroupId === next.target) : [next.target]
-            if (!rangeSelectionAnchor) {
-                const anchor = currentViews.find(view => view && view !== homeView)
-                if (anchor) selectFileTabs(anchor, Qt.ShiftModifier, true)
-            }
-            for (const view of nextViews) selectFileTabs(view, Qt.ShiftModifier, true)
-        } else {
-            rangeSelectionAnchor = null
-            rangeSelectionBase = []
-        }
+        const currentViews = typeof current?.target === "string"
+            ? views.filter(view => view.tabGroupId === current.target) : [current?.target]
+        const nextViews = typeof next.target === "string"
+            ? views.filter(view => view.tabGroupId === next.target) : [next.target]
+        const candidates = event.modifiers & Qt.ShiftModifier
+            ? selectedTabViews.concat(currentViews.filter(view => view !== homeView), nextViews)
+            : nextViews
+        rangeSelectionAnchor = null
+        rangeSelectionBase = []
+        selectedTabViews = Array.from(new Set(candidates)).filter(view => view &&
+            (view === homeView || views.includes(view) && !pendingCloseViews.includes(view)
+             && !closingViews.includes(view) && !readyCloseViews.includes(view) && !view.overviewClosingCard))
         overviewNavigationTarget = next.target
         overviewFlickable.cancelFlick()
         const position = overviewWheelScroll.running ? overviewFlickable.wheelTargetY : overviewFlickable.contentY
