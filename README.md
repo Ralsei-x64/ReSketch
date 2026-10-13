@@ -1,4 +1,5 @@
-<img width="460" height="166" alt="ReSketch" src="https://github.com/user-attachments/assets/5975be6e-a445-4476-857a-f715c030b083" />
+<img width="1920" height="1080" alt="Resketch (1)" src="https://github.com/user-attachments/assets/0d0f533b-29ff-486e-9d8b-93ffc1d0581a" />
+
 
 A client for Figma which seeks to replace Figma-linux or using the webapp in your browser. It uses QT and kirigami for the UI and uses chromium to display Figma.
 
