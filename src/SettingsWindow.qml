@@ -491,11 +491,19 @@ Kirigami.ApplicationWindow {
 
                                     Controls.CheckBox {
                                         objectName: "hideFloatingScrollbarsToggle"
-                                        Kirigami.FormData.label: "Scrollbars:"
-                                        text: "Hide scrollbars in floating mode"
+                                        Kirigami.FormData.label: "Canvas scrollbars:"
+                                        text: "Hide Figma canvas scrollbars in floating mode"
                                         enabled: appSettings.floatingSidebars
                                         checked: appSettings.hideFloatingScrollbars
                                         onToggled: appSettings.hideFloatingScrollbars = checked
+                                    }
+
+                                    Controls.Label {
+                                        Layout.fillWidth: true
+                                        Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
+                                        text: "Reload the file after changing canvas scrollbar visibility or floating mode."
+                                        opacity: 0.72
+                                        wrapMode: Text.WordWrap
                                     }
 
                                     Controls.CheckBox {

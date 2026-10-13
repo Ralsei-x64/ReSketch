@@ -195,3 +195,39 @@ assert.ok(app.elements.has('resketch-loading-background'), 'loading transparency
 app.run({opacity: 100})
 assert.equal(app.elements.has('resketch-loading-background'), false, 'opaque setting restores original loading backgrounds')
 console.log('Figma theme synchronization and appearance checks passed')
+
+// The canvas renderer captures its capabilities while the app module initializes.
+// Cover webpack's retained parent push: interception must neither recurse nor
+// change unrelated capabilities, and disabled/Home/auth pages remain untouched.
+function canvasStartup(hidden, hostname = 'www.figma.com', pathname = '/design/Test/File') {
+    const context = vm.createContext({window: {}, location: {hostname, pathname}})
+    vm.runInContext(fs.readFileSync('src/FigmaTheme.js', 'utf8'), context)
+    vm.runInContext(context.canvasScrollbarsScript(hidden), context)
+    const chunks = context.window.rspackChunk_figma_web_bundler = []
+    const parentPush = chunks.push.bind(chunks)
+    let nativeScrollbarCapability, sceneCapability
+    chunks.push = function(entry) {
+        const module = {exports: {}}
+        entry[1].common(module, module.exports, () => {})
+        const common = new module.exports.CommonApp()
+        nativeScrollbarCapability = common.appCanRenderScrollbars.bind(common)
+        sceneCapability = common.appCanRenderSceneGraphUI()
+        return parentPush(entry)
+    }
+    const factory = function(module) {
+        module.exports.CommonApp = class {
+            appCanRenderScrollbars() { return true }
+            appCanRenderSceneGraphUI() { return true }
+        }
+    }
+    chunks.push([[1], {common: factory}])
+    assert.equal(chunks.length, 1)
+    assert.equal(sceneCapability, true)
+    return nativeScrollbarCapability()
+}
+assert.equal(canvasStartup(true), false, 'Hide Figma canvas bars before the renderer initializes')
+assert.equal(canvasStartup(false), true, 'Restoring the option restores native canvas bars on reload')
+assert.equal(canvasStartup(true, 'www.figma.com', '/files/recent'), true)
+assert.equal(canvasStartup(true, 'www.figma.com', '/desktop_new_tab'), true)
+assert.equal(canvasStartup(true, 'accounts.google.com', '/design/Test/File'), true)
+console.log('Native Figma canvas scrollbar initialization checks passed')

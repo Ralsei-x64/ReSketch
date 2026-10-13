@@ -73,7 +73,6 @@ Kirigami.ApplicationWindow {
         floatingSidebars: appSettings.floatingSidebars,
         sidebarCornerRadius: appSettings.sidebarCornerRadius,
         sidebarMargin: appSettings.sidebarMargin,
-        hideFloatingScrollbars: appSettings.hideFloatingScrollbars,
         sidebarBackdrop: appSettings.sidebarBackdrop,
         opacity: appSettings.toolbarOpacity
     }, FigmaMenu.storeSource)
@@ -2870,6 +2869,12 @@ Kirigami.ApplicationWindow {
             settings.scrollAnimatorEnabled: !appSettings.reduceMotion
             backgroundColor: appSettings.toolbarOpacity < 100 && !googleSignIn ? "transparent" : "white"
             userScripts.collection: [{
+                name: "resketch-canvas-scrollbars",
+                sourceCode: FigmaTheme.canvasScrollbarsScript(appSettings.floatingSidebars && appSettings.hideFloatingScrollbars),
+                injectionPoint: WebEngineScript.DocumentCreation,
+                worldId: WebEngineScript.MainWorld,
+                runsOnSubFrames: false
+            }, {
                 name: "resketch-appearance",
                 sourceCode: webView.ownerWindow.figmaAppearanceScript,
                 injectionPoint: WebEngineScript.DocumentReady,

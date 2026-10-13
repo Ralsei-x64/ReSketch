@@ -1914,7 +1914,7 @@ Item {
             }
             apply()
             tryVerify(() => { inspect(); return result && result.floating })
-            compare(result.scrollbarWidth, "none")
+            compare(result.scrollbarWidth, "auto", "Canvas scrollbar hiding leaves sidebar scrollbars alone")
             view.runJavaScript('document.getElementById("sidebarScroll").scrollTop=100')
             tryVerify(() => { inspect(); return result.scrollTop === 100 })
             options.hideFloatingScrollbars = false
@@ -1923,7 +1923,7 @@ Item {
             compare(result.scrollTop, 100, "Restoring scrollbars retains scroll position")
             options.hideFloatingScrollbars = true
             apply()
-            tryVerify(() => { inspect(); return result.scrollbarWidth === "none" })
+            tryVerify(() => { inspect(); return result.scrollbarWidth === "auto" })
             compare(result.x, 8); compare(result.y, 8)
             compare(result.width, 184); compare(result.height, 384)
             compare(result.radius, "22px"); compare(result.overflow, "hidden")
