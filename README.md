@@ -47,4 +47,4 @@ for the full license text.
 
 ## Disclosure
 
-This project contains AI-generated code and started as a personal project.
+THIS PROJECT USES AI-GENERATED CODE!! That is not an indicator of my opinion in the use of AI generated code in projects. But, this is a personal project for my personal use that I decided to publish to the internet for the sake of archival reasons. This project exists because I wanted a better Figma client for myself because other options available for Linux aren't what I'm looking for.
