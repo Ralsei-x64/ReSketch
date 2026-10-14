@@ -6,7 +6,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls as Controls
 import Qt.labs.platform as Platform
-import QtWebEngine
+import ReSketch.Cef
 import "FigmaMenu.js" as FigmaMenu
 import "Policy.js" as Policy
 
@@ -61,7 +61,7 @@ QtObject {
     property Timer poll: Timer {
         interval: controller.retryDelay
         running: controller.integrationEnabled && !!controller.page && !controller.page.loading
-                 && controller.page.lifecycleState === WebEngineView.LifecycleState.Active
+                 && controller.page.lifecycleState === CefView.LifecycleState.Active
         repeat: true
         onTriggered: controller.refresh()
     }
@@ -76,12 +76,12 @@ QtObject {
     }
     property Connections pageState: Connections {
         target: controller.page
-        function onLoadingChanged() {
+        function onLoadStateChanged() {
             if (controller.page.loading) controller.reset()
             else controller.refresh()
         }
         function onLifecycleStateChanged() {
-            if (controller.page.lifecycleState !== WebEngineView.LifecycleState.Active)
+            if (controller.page.lifecycleState !== CefView.LifecycleState.Active)
                 controller.reset()
             else controller.refresh()
         }
@@ -156,7 +156,7 @@ QtObject {
         if (!integrationEnabled || pending || inFlightViews.includes(view)) return
         if (!view || view.loading
                 || !/^https:\/\/www\.figma\.com\//.test(String(view.url))
-                || view.lifecycleState !== WebEngineView.LifecycleState.Active) {
+                || view.lifecycleState !== CefView.LifecycleState.Active) {
             showFallback()
             return
         }
@@ -366,7 +366,7 @@ QtObject {
             return
         }
         const view = page
-        if (!integrationEnabled || !view || view.loading || view.lifecycleState !== WebEngineView.LifecycleState.Active) return
+        if (!integrationEnabled || !view || view.loading || view.lifecycleState !== CefView.LifecycleState.Active) return
         if (!command.startsWith("home/") && !fileMenuAvailable) return
         if (command.startsWith("home/") && !homePage) return
         const token = generation

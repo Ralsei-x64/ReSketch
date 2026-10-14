@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 pkgname=resketch-git
-pkgver=0.3.7.r48.196e179
+pkgver=1.0.0.r48.196e179
 pkgrel=1
 pkgdesc='Open-source Figma client for Linux!'
 arch=('x86_64')
@@ -12,9 +12,27 @@ license=('GPL-3.0-only')
 depends=(
     'glibc'
     'gcc-libs'
+    'gtk3'
     'qt6-base>=6.8'
     'qt6-declarative>=6.8'
-    'qt6-webengine>=6.8'
+    'alsa-lib'
+    'at-spi2-core'
+    'cairo'
+    'cups'
+    'dbus'
+    'expat'
+    'libdrm'
+    'libx11'
+    'libxcomposite'
+    'libxdamage'
+    'libxfixes'
+    'libxi'
+    'libxrandr'
+    'libxrender'
+    'libxkbcommon'
+    'mesa'
+    'nspr'
+    'nss'
     'kirigami'
     'kdeclarative'
     'kiconthemes'
@@ -31,7 +49,7 @@ optdepends=(
 )
 provides=("resketch=$pkgver")
 conflicts=('resketch')
-source=('resketch::git+https://github.com/Ralsei-x64/ReSketch.git#branch=main')
+source=('resketch::git+https://github.com/Ralsei-x64/ReSketch.git#branch=cef-engine')
 sha256sums=('SKIP')
 
 pkgver() {

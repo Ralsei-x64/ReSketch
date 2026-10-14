@@ -20,8 +20,6 @@
 #include <QPointingDevice>
 #include <QQuickItem>
 #include <QSGNode>
-#include <QWebEnginePage>
-#include <QWebEngineProfile>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <cassert>
@@ -59,10 +57,11 @@ protected:
 int main(int argc, char **argv)
 {
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
-    QtWebEngineQuick::initialize();
+    qputenv("RESKETCH_CEF_FLAGS", "--disable-gpu --no-sandbox");
     QApplication app(argc, argv);
     QTemporaryDir temporary;
     assert(temporary.isValid());
+    qputenv("RESKETCH_CEF_CACHE_ROOT", (temporary.path()+"/cef").toUtf8());
     QSettings::setPath(QSettings::NativeFormat, QSettings::UserScope, temporary.path());
     assert(requestedSafeMode({QStringLiteral("resketch"), QStringLiteral("--safe-mode")}));
     {
@@ -228,54 +227,13 @@ int main(int argc, char **argv)
     }
     puts("Fullscreen and resized window blur hints, toolbar bounds, sidebar coverage and disable checks passed");
     {
-        // Exercise the service-worker path used by Figma, not just new Notification().
-        QTcpServer server;
-        assert(server.listen(QHostAddress::LocalHost));
-        QObject::connect(&server, &QTcpServer::newConnection, [&] {
-            while (auto *socket = server.nextPendingConnection()) {
-                QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
-                QObject::connect(socket, &QTcpSocket::readyRead, socket, [socket] {
-                    const auto request = socket->property("request").toByteArray() + socket->readAll();
-                    socket->setProperty("request", request);
-                    if (!request.contains("\r\n\r\n")) return;
-                    const bool worker = request.startsWith("GET /worker.js ");
-                    const QByteArray body = worker
-                        ? "self.addEventListener('install',e=>e.waitUntil(self.skipWaiting()));"
-                          "self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));"
-                        : "<html><body>Worker notification test</body></html>";
-                    socket->write("HTTP/1.1 200 OK\r\nContent-Type: " + QByteArray(worker ? "text/javascript" : "text/html")
-                                  + "\r\nContent-Length: " + QByteArray::number(body.size())
-                                  + "\r\nConnection: close\r\n\r\n" + body);
-                    socket->disconnectFromHost();
-                });
-            }
-        });
-        QWebEngineProfile profile(QStringLiteral("resketch-worker-test"));
-        profile.setPersistentStoragePath(temporary.path() + QStringLiteral("/worker-profile"));
-        profile.setCachePath(temporary.path() + QStringLiteral("/worker-cache"));
-        profile.setPushServiceEnabled(true);
-        assert(profile.isPushServiceEnabled());
-        bool delivered = false;
-        QEventLoop loop;
-        profile.setNotificationPresenter([&](std::unique_ptr<QWebEngineNotification> web) {
-            delivered = web->title() == QStringLiteral("Home worker") && web->message() == QStringLiteral("Figma push path");
-            web->close();
-            loop.quit();
-        });
-        QWebEnginePage page(&profile);
-        QObject::connect(&page, &QWebEnginePage::permissionRequested, [](QWebEnginePermission permission) { permission.grant(); });
-        QObject::connect(&page, &QWebEnginePage::loadFinished, [&] {
-            page.runJavaScript("Notification.requestPermission().then(()=>navigator.serviceWorker.register('/worker.js'))"
-                               ".then(()=>navigator.serviceWorker.ready).then(r=>r.showNotification('Home worker',{body:'Figma push path'}))");
-        });
-        page.load(QUrl(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort())));
-        QTimer::singleShot(15000, &loop, &QEventLoop::quit);
-        loop.exec();
-        assert(delivered);
-        profile.setPushServiceEnabled(false);
-        assert(!profile.isPushServiceEnabled());
+        CefPermission permission(QUrl("https://www.figma.com"), CefPermission::PermissionType::LocalFontsAccess);
+        permission.grant();assert(permission.accepted);permission.deny();assert(!permission.accepted);
+        auto *notification=new CefNotification("Untrusted", "Must be rejected", QUrl("http://127.0.0.1"), "1", nullptr);
+        bool closed=false;QObject::connect(notification,&CefNotification::closed,[&]{closed=true;});
+        settings.showDesktopNotification(notification,nullptr);assert(closed);
     }
-    puts("Persistent-profile service-worker notification delivery and push-service toggle checks passed");
+    puts("CEF permission control and untrusted native notification rejection checks passed");
     {
         FontHelper helper(nullptr, 0);
         assert(helper.port());
@@ -430,9 +388,10 @@ int main(int argc, char **argv)
     settings.setMenuIntegration(false);
     settings.setReduceMotion(true);
     QQmlApplicationEngine engine;
+    engine.addImportPath(QDir::current().absoluteFilePath("build-cef/qml"));
     engine.rootContext()->setContextProperty("appSettings", &settings);
     QQmlComponent profile(&engine);
-    profile.setData("import QtWebEngine; WebEngineProfile { offTheRecord: true }", QUrl());
+    profile.setData("import ReSketch.Cef; CefProfile { offTheRecord: true }", QUrl());
     QObject *sharedProfile = profile.create();
     assert(sharedProfile);
     sharedProfile->setParent(&engine);
@@ -468,7 +427,7 @@ int main(int argc, char **argv)
     evaluate("destination.views.slice().reverse().forEach(view => destination.closeTab(destination.views.indexOf(view)));");
     for (int i = 0; i < 10 && evaluate("destination.views.length").toInt(); ++i) render();
     assert(evaluate("destination.views.length").toInt() == 0);
-    puts("Native memory controller unloads real QML WebEngine tabs and selection restores them");
+    puts("Native memory controller unloads real QML CEF tabs and selection restores them");
     evaluate("destination.homeView.stop(); destination.openTab('https://www.figma.com/design/Live_A/Live-File', null, true); destination.views[0].stop();");
     settings.setRememberOpenedTabs(true);
     settings.saveOpenedTabs(destination);

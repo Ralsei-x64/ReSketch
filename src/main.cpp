@@ -44,7 +44,9 @@
 #include "FontHelper.h"
 #include <KWindowEffects>
 #include <KNotification>
-#include <QWebEngineNotification>
+#include "CefView.h"
+#include "CefApp.h"
+#include <QProcess>
 #include <algorithm>
 #include <cstdio>
 #include <memory>
@@ -55,7 +57,6 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 #endif
-#include <QtWebEngineQuick/qtwebenginequickglobal.h>
 #if QT_CONFIG(vulkan)
 #include <QVulkanFunctions>
 #include <QVulkanInstance>
@@ -343,7 +344,7 @@ public:
     }
     Q_INVOKABLE void showDesktopNotification(QObject *object, QObject *owner)
     {
-        auto *web = qobject_cast<QWebEngineNotification *>(object);
+        auto *web = qobject_cast<CefNotification *>(object);
         if (!web) return;
         const auto host = web->origin().host();
         if (!desktopNotifications() || web->origin().scheme() != QStringLiteral("https")
@@ -354,8 +355,8 @@ public:
         auto *notice = createFigmaNotification(web->title(), web->message());
         web->setParent(notice);
         QQmlEngine::setObjectOwnership(web, QQmlEngine::CppOwnership);
-        connect(web, &QWebEngineNotification::closed, notice, &KNotification::close);
-        connect(notice, &KNotification::closed, web, &QWebEngineNotification::close);
+        connect(web, &CefNotification::closed, notice, &KNotification::close);
+        connect(notice, &KNotification::closed, web, &CefNotification::close);
         connect(notice->addDefaultAction(tr("Open ReSketch")), &KNotificationAction::activated, web,
                 [web, window = QPointer<QWindow>(qobject_cast<QWindow *>(owner))] {
             if (window) {
@@ -546,7 +547,7 @@ public:
     QString profileStoragePath() const
     {
         return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
-               + QStringLiteral("/ReSketch/QtWebEngine/resketch");
+               + QStringLiteral("/ReSketch/CEF/resketch");
     }
     Q_INVOKABLE void copyToClipboard(const QString &text) const { QGuiApplication::clipboard()->setText(text); }
     bool nativeTabDragSupported() const
@@ -635,7 +636,7 @@ public:
         dialog.winId();
         if (window)
             dialog.windowHandle()->setTransientParent(window);
-        // Qt Quick rejects requests after downloadRequested returns without accept().
+        // CEF cancels requests after downloadRequested returns without accept().
         // Keep the native picker synchronous so no download starts before choosing.
         if (dialog.exec() != QDialog::Accepted || dialog.selectedFiles().isEmpty())
             return {};
@@ -651,7 +652,7 @@ public:
             return;
         const auto repaint = [view] {
             if (!view || !view->isVisible()) return;
-            // WebEngine paints through a child item, including inside overview layers.
+            // Repaint browser textures and their overview layers.
             const auto update = [](const auto &self, QQuickItem *item) -> void {
                 if (item->flags().testFlag(QQuickItem::ItemHasContents)) item->update();
                 for (auto *child : item->childItems()) self(self, child);
@@ -793,7 +794,7 @@ public:
                 if (checked) return;
                 checked = true;
                 const bool accelerated = hasGraphicsAcceleration(quickWindow);
-                const QStringList flags = qEnvironmentVariable("QTWEBENGINE_CHROMIUM_FLAGS").split(' ', Qt::SkipEmptyParts);
+                const QStringList flags = qEnvironmentVariable("RESKETCH_CEF_FLAGS").split(' ', Qt::SkipEmptyParts);
                 const bool webGpuDisabled = flags.contains(QStringLiteral("--disable-gpu"))
                     || flags.contains(QStringLiteral("--use-angle=swiftshader"))
                     || flags.contains(QStringLiteral("--use-gl=swiftshader"));
@@ -1119,6 +1120,9 @@ int main(int argc, char *argv[])
         return 0;
     }
 #endif
+    // Qt owns dispatch; CEF is pumped explicitly. Sharing GLib dispatch also
+    // runs Chromium/GIO callbacks outside CEF's message-pump lifetime.
+    qputenv("QT_NO_GLIB", "1");
     bool safeMode = arguments.contains(QStringLiteral("--safe-mode")) || heldAltKey().value_or(false);
     if (safeMode) {
         qputenv("QT_QUICK_BACKEND", "software");
@@ -1127,6 +1131,10 @@ int main(int argc, char *argv[])
     // This attribute provides the same context sharing as initialize(), without
     // starting Chromium before the launch-time modifier check.
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
+    if (!safeMode) {
+        QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
+        qputenv("QT_XCB_GL_INTEGRATION", "xcb_egl");
+    }
     QQuickWindow::setDefaultAlphaBuffer(true);
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("ReSketch"));
@@ -1140,7 +1148,7 @@ int main(int argc, char *argv[])
     if (safeMode) {
         // Ignore both saved and environment Chromium switches during recovery.
         fprintf(stderr, "ReSketch: safe mode (software rendering, settings only)\n");
-        qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --disable-gpu-compositing --disable-gpu-rasterization --disable-zero-copy --disable-features=Vulkan --use-vulkan=none");
+        qputenv("RESKETCH_CEF_FLAGS", "--disable-gpu --disable-gpu-compositing --disable-gpu-rasterization --disable-zero-copy --disable-features=Vulkan --use-vulkan=none");
         qputenv("QT_QUICK_BACKEND", "software");
         QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
     }
@@ -1162,13 +1170,13 @@ int main(int argc, char *argv[])
         if (startupSettings.value(QStringLiteral("useVulkan"), false).toBool())
             chromiumFlags += QByteArrayLiteral(" --use-gl=angle --enable-features=Vulkan --use-vulkan=native");
         // External and custom switches stay last so they can override these toggles.
-        const QByteArray environmentFlags = qgetenv("QTWEBENGINE_CHROMIUM_FLAGS").trimmed();
+        const QByteArray environmentFlags = qgetenv("RESKETCH_CEF_FLAGS").trimmed();
         if (!environmentFlags.isEmpty())
             chromiumFlags += ' ' + environmentFlags;
         const QByteArray userFlags = startupSettings.value(QStringLiteral("chromiumFlags")).toString().toUtf8().trimmed();
         if (!userFlags.isEmpty())
             chromiumFlags += ' ' + userFlags;
-        qputenv("QTWEBENGINE_CHROMIUM_FLAGS", chromiumFlags);
+        qputenv("RESKETCH_CEF_FLAGS", chromiumFlags);
     }
     QQuickStyle::setStyle(QStringLiteral("org.kde.desktop"));
 
@@ -1198,17 +1206,22 @@ int main(int argc, char *argv[])
     AppSettings appSettings(&app, safeMode);
     std::unique_ptr<FontHelper> fontHelper;
     if (!safeMode) fontHelper = std::make_unique<FontHelper>();
-    QQmlApplicationEngine engine;
-    engine.rootContext()->setContextProperty(QStringLiteral("appSettings"), &appSettings);
-    // Recovery deliberately loads only Settings: no WebEngine profile, page,
+    if (!safeMode) ReSketchCef::initialize(QProcess::splitCommand(qEnvironmentVariable("RESKETCH_CEF_FLAGS")));
+    auto engine = std::make_unique<QQmlApplicationEngine>();
+    engine->addImportPath(QDir(QCoreApplication::applicationDirPath()).filePath("../lib/qt6/qml"));
+#ifdef RESKETCH_QML_IMPORT_PATH
+    engine->addImportPath(QStringLiteral(RESKETCH_QML_IMPORT_PATH));
+#endif
+    engine->rootContext()->setContextProperty(QStringLiteral("appSettings"), &appSettings);
+    // Recovery deliberately loads only Settings: no CEF profile, page,
     // custom CSS, overview effects, animations, or native menu integration.
-    engine.loadFromModule("org.aether64.resketch", safeMode ? "SettingsWindow" : "Main");
-    if (engine.rootObjects().isEmpty()) {
+    engine->loadFromModule("org.aether64.resketch", safeMode ? "SettingsWindow" : "Main");
+    if (engine->rootObjects().isEmpty()) {
         fprintf(stderr, "ReSketch: QML window could not be loaded\n");
         return 1;
     }
 
-    QObject *window = engine.rootObjects().first();
+    QObject *window = engine->rootObjects().first();
     if (safeMode) {
         auto *recoveryWindow = qobject_cast<QWindow *>(window);
         recoveryWindow->show();
@@ -1243,7 +1256,10 @@ int main(int argc, char *argv[])
     });
     if (!incomingUrl.isEmpty())
         deliverUrl(incomingUrl);
-    return app.exec();
+    const int result = app.exec();
+    engine.reset();
+    ReSketchCef::shutdown();
+    return result;
 }
 
 #include "main.moc"

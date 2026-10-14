@@ -3,7 +3,7 @@
 
 import QtQuick
 import QtTest
-import QtWebEngine
+import ReSketch.Cef
 import "../src" as App
 import "../src/FigmaTheme.js" as FigmaTheme
 
@@ -124,10 +124,10 @@ Item {
         }
     }
 
-    WebEngineProfile { id: testProfile; offTheRecord: true; persistentPermissionsPolicy: WebEngineProfile.StoreInMemory }
+    CefProfile { id: testProfile; offTheRecord: true }
     Component {
         id: notificationProbe
-        WebEngineView {
+        CefView {
             profile: testProfile
             onPermissionRequested: permission => permission.grant()
         }
@@ -1587,7 +1587,7 @@ Item {
             appSettings.desktopNotifications = true
             appSettings.changed()
             fixture.notificationCount = 0
-            const permission = testProfile.queryPermission("https://www.figma.com", WebEnginePermission.PermissionType.Notifications)
+            const permission = testProfile.queryPermission("https://www.figma.com", CefPermission.PermissionType.Notifications)
             permission.grant()
             const home = notificationProbe.createObject(fixture, {"userScripts.collection": app.homeView.userScripts.collection})
             home.loadHtml("<html><body>Home</body></html>", "https://www.figma.com/")
@@ -1614,7 +1614,7 @@ Item {
             appSettings.keepHomeAwake = false
             appSettings.maximumLoadedTabs = 1
             app.updateTabLifecycle()
-            compare(app.homeView.lifecycleState, WebEngineView.LifecycleState.Active)
+            compare(app.homeView.lifecycleState, CefView.LifecycleState.Active)
         }
 
         function test_remembered_files_restore_behind_home_and_update_session_urls_data() {
@@ -2361,19 +2361,19 @@ Item {
             app.toggleOverview()
             app.syncOverviewFrames()
             compare(first.visible, false, "Overview must not interrupt a pending memory unload")
-            tryCompare(first, "lifecycleState", WebEngineView.LifecycleState.Discarded)
+            tryCompare(first, "lifecycleState", CefView.LifecycleState.Discarded)
             verify(first.memoryUnloaded)
             if (data.previews) verify(first.sleepPreview)
             app.updateTabLifecycle()
-            compare(first.lifecycleState, WebEngineView.LifecycleState.Discarded,
+            compare(first.lifecycleState, CefView.LifecycleState.Discarded,
                     "The minimum loaded count must not undo memory unloading")
-            compare(first.lifecycleState, WebEngineView.LifecycleState.Discarded,
+            compare(first.lifecycleState, CefView.LifecycleState.Discarded,
                     "Opening overview must not reload a memory-unloaded tab")
             compare(app.activeView, selected)
             verify(!app.memoryTabCandidates.some(tab => tab.view === first))
             app.selectOverviewView(first)
             compare(app.activeView, first)
-            compare(first.lifecycleState, WebEngineView.LifecycleState.Active)
+            compare(first.lifecycleState, CefView.LifecycleState.Active)
             compare(first.memoryUnloaded, false)
         }
 
@@ -2387,23 +2387,23 @@ Item {
                 app.views[i].lastUsedAt = Date.now() - (4 - i) * 500
             const selected = app.activeView
             app.updateTabLifecycle()
-            tryCompare(app.views[0], "lifecycleState", WebEngineView.LifecycleState.Frozen)
-            tryCompare(app.views[1], "lifecycleState", WebEngineView.LifecycleState.Frozen)
-            compare(selected.lifecycleState, WebEngineView.LifecycleState.Active)
-            compare(app.views[3].lifecycleState, WebEngineView.LifecycleState.Active)
-            compare(app.homeView.lifecycleState, WebEngineView.LifecycleState.Frozen)
+            tryCompare(app.views[0], "lifecycleState", CefView.LifecycleState.Frozen)
+            tryCompare(app.views[1], "lifecycleState", CefView.LifecycleState.Frozen)
+            compare(selected.lifecycleState, CefView.LifecycleState.Active)
+            compare(app.views[3].lifecycleState, CefView.LifecycleState.Active)
+            compare(app.homeView.lifecycleState, CefView.LifecycleState.Frozen)
             appSettings.sleepingTabPreviews = true
             app.toggleOverview()
             wait(100)
             const awake = [app.homeView].concat(app.views).filter(view =>
-                view.lifecycleState === WebEngineView.LifecycleState.Active)
+                view.lifecycleState === CefView.LifecycleState.Active)
             compare(awake.length, 2)
             compare(findChild(app.views[0].frameContainer.parent, "sleepingTabIcon").visible, true)
             compare(app.activeView, selected)
             appSettings.maximumLoadedTabs = 1
             appSettings.changed()
-            tryCompare(app.views[3], "lifecycleState", WebEngineView.LifecycleState.Frozen)
-            compare(selected.lifecycleState, WebEngineView.LifecycleState.Active)
+            tryCompare(app.views[3], "lifecycleState", CefView.LifecycleState.Frozen)
+            compare(selected.lifecycleState, CefView.LifecycleState.Active)
         }
 
         function test_home_stays_awake_until_toggle_is_disabled() {
@@ -2415,20 +2415,20 @@ Item {
             const home = app.homeView
             home.lastUsedAt = Date.now() - 120000
             app.updateTabLifecycle()
-            compare(home.lifecycleState, WebEngineView.LifecycleState.Active)
-            app.sleepTab(home, WebEngineView.LifecycleState.Discarded)
-            compare(home.lifecycleState, WebEngineView.LifecycleState.Active)
+            compare(home.lifecycleState, CefView.LifecycleState.Active)
+            app.sleepTab(home, CefView.LifecycleState.Discarded)
+            compare(home.lifecycleState, CefView.LifecycleState.Active)
             app.freezeAllTabs()
-            compare(home.lifecycleState, WebEngineView.LifecycleState.Active)
-            tryCompare(app.activeView, "lifecycleState", WebEngineView.LifecycleState.Frozen)
+            compare(home.lifecycleState, CefView.LifecycleState.Active)
+            tryCompare(app.activeView, "lifecycleState", CefView.LifecycleState.Frozen)
             app.wakeCurrentTab()
 
             appSettings.keepHomeAwake = false
             appSettings.changed()
-            tryCompare(home, "lifecycleState", WebEngineView.LifecycleState.Frozen)
+            tryCompare(home, "lifecycleState", CefView.LifecycleState.Frozen)
             appSettings.keepHomeAwake = true
             appSettings.changed()
-            compare(home.lifecycleState, WebEngineView.LifecycleState.Active)
+            compare(home.lifecycleState, CefView.LifecycleState.Active)
             app.toggleOverview()
             compare(home.visible, true)
             compare(findChild(home.frameContainer.parent, "sleepingTabIcon").visible, false)
@@ -2461,8 +2461,8 @@ Item {
         }
 
         function test_sleeping_tab_keeps_blurred_snapshot_in_overview_data() {
-            return [{tag: "frozen", state: WebEngineView.LifecycleState.Frozen},
-                    {tag: "unloaded", state: WebEngineView.LifecycleState.Discarded}]
+            return [{tag: "frozen", state: CefView.LifecycleState.Frozen},
+                    {tag: "unloaded", state: CefView.LifecycleState.Discarded}]
         }
 
         function test_sleeping_tab_keeps_blurred_snapshot_in_overview(data) {
@@ -2482,10 +2482,10 @@ Item {
             app.activateTab(2, false)
             view.lastUsedAt = Date.now() - 120000
             app.updateTabLifecycle()
-            tryCompare(view, "lifecycleState", WebEngineView.LifecycleState.Frozen)
+            tryCompare(view, "lifecycleState", CefView.LifecycleState.Frozen)
             verify(view.sleepPreview)
             verify(view.sleepPreview.url)
-            if (data.state === WebEngineView.LifecycleState.Discarded) {
+            if (data.state === CefView.LifecycleState.Discarded) {
                 app.sleepTab(view, data.state)
                 compare(view.hasLoadedFrame, false)
             }
@@ -2508,7 +2508,7 @@ Item {
             compare(transferLoads.count, 0, "Opening overview must not reload sleeping tabs")
             app.selectOverviewView(view)
             compare(app.activeView, view)
-            compare(view.lifecycleState, WebEngineView.LifecycleState.Active)
+            compare(view.lifecycleState, CefView.LifecycleState.Active)
             compare(view.sleepPreview, null)
             compare(snapshot.visible, false)
             compare(sleepIcon.visible, false)
@@ -2519,40 +2519,40 @@ Item {
             appSettings.maximumLoadedTabs = 1
             const view = app.views[0]
             view.hasLoadedFrame = true
-            app.sleepTab(view, WebEngineView.LifecycleState.Discarded)
-            compare(view.lifecycleState, WebEngineView.LifecycleState.Discarded)
+            app.sleepTab(view, CefView.LifecycleState.Discarded)
+            compare(view.lifecycleState, CefView.LifecycleState.Discarded)
             compare(view.sleepCapturePending, false)
             compare(view.sleepPreview, null)
             app.toggleOverview()
-            compare(view.lifecycleState, WebEngineView.LifecycleState.Active)
+            compare(view.lifecycleState, CefView.LifecycleState.Active)
             compare(findChild(view.frameContainer, "sleepingTabPreview").visible, false)
             for (const page of [app.homeView].concat(app.views)) {
-                compare(page.lifecycleState, WebEngineView.LifecycleState.Active)
+                compare(page.lifecycleState, CefView.LifecycleState.Active)
                 compare(page.visible, true)
                 compare(findChild(page.frameContainer.parent, "sleepingTabIcon").visible, false)
             }
             appSettings.sleepingTabPreviews = true
             appSettings.changed()
-            tryCompare(view, "lifecycleState", WebEngineView.LifecycleState.Frozen)
+            tryCompare(view, "lifecycleState", CefView.LifecycleState.Frozen)
             appSettings.sleepingTabPreviews = false
             appSettings.changed()
-            compare(view.lifecycleState, WebEngineView.LifecycleState.Active)
+            compare(view.lifecycleState, CefView.LifecycleState.Active)
             compare(view.visible, true)
             compare(findChild(view.frameContainer.parent, "sleepingTabIcon").visible, false)
             app.dismissOverview()
-            tryCompare(view, "lifecycleState", WebEngineView.LifecycleState.Frozen)
+            tryCompare(view, "lifecycleState", CefView.LifecycleState.Frozen)
         }
 
         function test_pending_sleep_does_not_unload_reselected_tab() {
             appSettings.sleepingTabPreviews = true
             const view = app.views[0]
             view.hasLoadedFrame = true
-            app.sleepTab(view, WebEngineView.LifecycleState.Discarded)
+            app.sleepTab(view, CefView.LifecycleState.Discarded)
             verify(view.sleepCapturePending)
             app.activateTab(0, false)
             tryCompare(view, "sleepCapturePending", false)
             compare(app.activeView, view)
-            compare(view.lifecycleState, WebEngineView.LifecycleState.Active)
+            compare(view.lifecycleState, CefView.LifecycleState.Active)
             compare(view.sleepPreview, null)
         }
 
@@ -2651,7 +2651,7 @@ Item {
             compare(request.downloadDirectory, appSettings.exportFolderResult)
             compare(request.accepted, true)
             request.view.title = "A different file — Figma"
-            request.state = WebEngineDownloadRequest.DownloadCompleted
+            request.state = CefDownload.DownloadCompleted
             request.downloadFileName = "Frame.png"
             app.completeDownload(request)
             compare(appSettings.recordedOrigin, "Source file")
@@ -2668,11 +2668,11 @@ Item {
 
         function test_only_completed_exports_enter_history() {
             appSettings.recordedExport = ""
-            const request = {state: WebEngineDownloadRequest.DownloadCancelled,
+            const request = {state: CefDownload.DownloadCancelled,
                              downloadDirectory: "/tmp", downloadFileName: "Frame.png"}
             app.completeDownload(request)
             compare(appSettings.recordedExport, "")
-            request.state = WebEngineDownloadRequest.DownloadCompleted
+            request.state = CefDownload.DownloadCompleted
             app.completeDownload(request)
             compare(appSettings.recordedExport, "/tmp/Frame.png")
             app.openExportHistory()
@@ -3946,7 +3946,7 @@ Item {
             appSettings.toolbarOpacity = 100
         }
 
-        SignalSpy { id: transferLoads; signalName: "loadingChanged" }
+        SignalSpy { id: transferLoads; signalName: "loadStateChanged" }
 
         function test_transfer_preserves_page_and_survives_source_window() {
             const view = app.activeView

@@ -4,7 +4,7 @@
 import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
-import QtWebEngine
+import ReSketch.Cef
 import org.kde.kirigami as Kirigami
 
 Kirigami.ApplicationWindow {
@@ -32,8 +32,8 @@ Kirigami.ApplicationWindow {
         tasks = (ownerWindow?.chromiumPages || []).map(page => {
             const resource = resources.find(task => task.pid === page.pid)
             const view = page.view
-            const unloaded = !!String(view.deferredRestoreUrl) || view.lifecycleState === WebEngineView.LifecycleState.Discarded
-            const sleeping = view.lifecycleState === WebEngineView.LifecycleState.Frozen
+            const unloaded = !!String(view.deferredRestoreUrl) || view.lifecycleState === CefView.LifecycleState.Discarded
+            const sleeping = view.lifecycleState === CefView.LifecycleState.Frozen
             return {view: view, home: page.home, title: page.title, pid: resource ? page.pid : 0,
                     cpu: resource?.cpu, memory: resource?.memory,
                     state: unloaded ? qsTr("Unloaded") : sleeping ? qsTr("Sleeping") : view.loading ? qsTr("Loading") : qsTr("Running")}
@@ -54,7 +54,7 @@ Kirigami.ApplicationWindow {
         Loader {
             anchors.fill: parent
             active: tools.mode === "devtools"
-            sourceComponent: WebEngineView {
+            sourceComponent: CefView {
                 objectName: "chromiumDeveloperTools"
                 inspectedView: tools.inspectedView
                 backgroundColor: Kirigami.Theme.backgroundColor

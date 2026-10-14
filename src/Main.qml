@@ -8,7 +8,7 @@ import QtQuick.Controls as Controls
 import QtQuick.Effects
 import QtQuick.Layouts
 import Qt.labs.platform as Platform
-import QtWebEngine
+import ReSketch.Cef
 import org.kde.kirigami as Kirigami
 import org.kde.iconthemes as IconThemes
 import "Policy.js" as Policy
@@ -262,7 +262,7 @@ Kirigami.ApplicationWindow {
             }
             Platform.MenuSeparator { }
             Platform.MenuItem { text: qsTr("Quit"); onTriggered: Qt.quit() }
-            Platform.MenuItem { text: qsTr("Reload page"); visible: !figmaMenus.usingHomeMenu; onTriggered: root.triggerPageAction(WebEngineView.Reload) }
+            Platform.MenuItem { text: qsTr("Reload page"); visible: !figmaMenus.usingHomeMenu; onTriggered: root.triggerPageAction(CefView.Reload) }
             Platform.MenuItem { text: qsTr("About ReSketch…"); visible: !figmaMenus.usingHomeMenu; onTriggered: root.openAbout() }
         }
         Platform.Menu {
@@ -1109,7 +1109,7 @@ Kirigami.ApplicationWindow {
                             }
                             Controls.MenuSeparator { }
                             Controls.MenuItem { text: qsTr("Quit"); onTriggered: Qt.quit() }
-                            Controls.MenuItem { text: qsTr("Reload page"); visible: !figmaMenus.usingHomeMenu; onTriggered: root.triggerPageAction(WebEngineView.Reload) }
+                            Controls.MenuItem { text: qsTr("Reload page"); visible: !figmaMenus.usingHomeMenu; onTriggered: root.triggerPageAction(CefView.Reload) }
                             Controls.MenuItem { text: qsTr("About ReSketch…"); visible: !figmaMenus.usingHomeMenu; onTriggered: root.openAbout() }
                         }
                         Controls.Menu {
@@ -1718,7 +1718,7 @@ Kirigami.ApplicationWindow {
                                                     width: root.tabIconSize; height: width
                                                     source: "system-suspend"
                                                     visible: !!groupPreviewCell.previewView && appSettings.sleepingTabPreviews
-                                                             && groupPreviewCell.previewView.lifecycleState !== WebEngineView.LifecycleState.Active
+                                                             && groupPreviewCell.previewView.lifecycleState !== CefView.LifecycleState.Active
                                                 }
                                                 Controls.Label {
                                                     objectName: "overviewGroupOverflow"
@@ -1904,7 +1904,7 @@ Kirigami.ApplicationWindow {
                                 property real dragOriginY: 0
                                 readonly property bool closing: !!previewView && previewView.overviewClosingCard
                                 readonly property bool sleeping: appSettings.sleepingTabPreviews && !!previewView
-                                                                && previewView.lifecycleState !== WebEngineView.LifecycleState.Active
+                                                                && previewView.lifecycleState !== CefView.LifecycleState.Active
                                 readonly property bool zooming: previewView === root.overviewSelectedView
                                 readonly property int gridSlot: root.overviewPreviewSlot(tabIndex)
                                 readonly property real entrance: zooming && !closing
@@ -2153,7 +2153,7 @@ Kirigami.ApplicationWindow {
                                     color: Kirigami.Theme.backgroundColor
                                     visible: !overviewCard.previewView
                                              || ((!overviewCard.previewView.hasLoadedFrame
-                                                  || overviewCard.previewView.lifecycleState !== WebEngineView.LifecycleState.Active)
+                                                  || overviewCard.previewView.lifecycleState !== CefView.LifecycleState.Active)
                                                  && !overviewCard.previewView.showingSleepPreview)
 
                                     Controls.BusyIndicator {
@@ -2616,10 +2616,10 @@ Kirigami.ApplicationWindow {
         }
     }
 
-    WebEngineProfile {
+    CefProfile {
         id: figmaProfile
         // Home's feed supplies notifications without depending on Chromium's
-        // legacy GCM registration endpoint, which rejects Qt's push registration.
+        // push registration endpoint; only Home receives native notifications.
         storageName: root.sharedProfile ? "" : "resketch"
         persistentStoragePath: root.sharedProfile ? "" : appSettings.profileStoragePath
         offTheRecord: !!root.sharedProfile
@@ -2746,7 +2746,7 @@ Kirigami.ApplicationWindow {
     Component {
         id: webViewComponent
 
-        WebEngineView {
+        CefView {
             id: webView
             property real slideX: 0
             property int slideZ: 0
@@ -2765,7 +2765,7 @@ Kirigami.ApplicationWindow {
                                                        && appSettings.desktopNotifications
             function syncNotifications() {
                 if (notificationSource && Policy.isFigmaUrl(url))
-                    profile.queryPermission(url, WebEnginePermission.PermissionType.Notifications).grant()
+                    profile.queryPermission(url, CefPermission.PermissionType.Notifications).grant()
                 if (!loading && Policy.isFigmaUrl(url))
                     runJavaScript(NotificationPolicy.script(notificationSource))
                 if (notificationSource && !loading) ownerWindow.pollHomeNotifications()
@@ -2793,10 +2793,10 @@ Kirigami.ApplicationWindow {
             property bool sleepCapturePending: false
             property int sleepCaptureSerial: 0
             property bool memoryUnloaded: false
-            property int requestedSleepState: WebEngineView.LifecycleState.Active
+            property int requestedSleepState: CefView.LifecycleState.Active
             readonly property bool showingSleepPreview: appSettings.sleepingTabPreviews
                                                         && !!sleepPreview
-                                                        && lifecycleState !== WebEngineView.LifecycleState.Active
+                                                        && lifecycleState !== CefView.LifecycleState.Active
             Timer {
                 interval: 500
                 running: webView.sleepCapturePending
@@ -2871,27 +2871,27 @@ Kirigami.ApplicationWindow {
             userScripts.collection: [{
                 name: "resketch-canvas-scrollbars",
                 sourceCode: FigmaTheme.canvasScrollbarsScript(appSettings.floatingSidebars && appSettings.hideFloatingScrollbars),
-                injectionPoint: WebEngineScript.DocumentCreation,
-                worldId: WebEngineScript.MainWorld,
+                injectionPoint: CefScript.DocumentCreation,
+                worldId: CefScript.MainWorld,
                 runsOnSubFrames: false
             }, {
                 name: "resketch-appearance",
                 sourceCode: webView.ownerWindow.figmaAppearanceScript,
-                injectionPoint: WebEngineScript.DocumentReady,
-                worldId: WebEngineScript.MainWorld,
+                injectionPoint: CefScript.DocumentReady,
+                worldId: CefScript.MainWorld,
                 runsOnSubFrames: false
             }, {
                 name: "resketch-notification-policy",
                 sourceCode: NotificationPolicy.script(webView.notificationSource),
-                injectionPoint: WebEngineScript.DocumentCreation,
-                worldId: WebEngineScript.MainWorld,
+                injectionPoint: CefScript.DocumentCreation,
+                worldId: CefScript.MainWorld,
                 runsOnSubFrames: true
             }]
             transform: Translate { x: webView.frameContainer ? 0 : webView.slideX }
 
-            onLoadingChanged: function(loadInfo) {
+            onLoadStateChanged: function(loadInfo) {
                 if (!loading) {
-                    if (lifecycleState !== WebEngineView.LifecycleState.Discarded
+                    if (lifecycleState !== CefView.LifecycleState.Discarded
                             && String(url) && String(url) !== "about:blank")
                         hasLoadedFrame = true
                     if (hasLoadedFrame) sleepPreview = null
@@ -2899,9 +2899,9 @@ Kirigami.ApplicationWindow {
                 }
                 webView.ownerWindow.syncTabLoading(webView)
                 if (webView.ownerWindow.allFrozen && !loading)
-                    webView.ownerWindow.sleepTab(webView, WebEngineView.LifecycleState.Frozen)
+                    webView.ownerWindow.sleepTab(webView, CefView.LifecycleState.Frozen)
                 Qt.callLater(webView.ownerWindow.updateTabLifecycle)
-                if (pendingPopup && loadInfo.status === WebEngineView.LoadSucceededStatus
+                if (pendingPopup && loadInfo.status === CefView.LoadSucceededStatus
                         && Policy.isFigmaUrl(url))
                     Qt.callLater(() => webView.ownerWindow.commitPendingPopup(webView))
             }
@@ -2912,14 +2912,14 @@ Kirigami.ApplicationWindow {
 
             onTitleChanged: webView.ownerWindow.syncTab(webView)
             onVisibleChanged: {
-                if (visible && hasLoadedFrame && lifecycleState === WebEngineView.LifecycleState.Active)
+                if (visible && hasLoadedFrame && lifecycleState === CefView.LifecycleState.Active)
                     appSettings.repaintWebView(webView)
             }
             onLifecycleStateChanged: {
-                if (lifecycleState === WebEngineView.LifecycleState.Active) {
+                if (lifecycleState === CefView.LifecycleState.Active) {
                     sleepPreview = null
                     webView.ownerWindow.syncFigmaTheme(webView)
-                } else if (lifecycleState === WebEngineView.LifecycleState.Discarded)
+                } else if (lifecycleState === CefView.LifecycleState.Discarded)
                     hasLoadedFrame = false
                 if (webView.ownerWindow.overviewVisible)
                     webView.ownerWindow.attachOverviewFrame(webView)
@@ -2972,7 +2972,7 @@ Kirigami.ApplicationWindow {
                 else if (Policy.isFileUrl(address) || Policy.isFileBrowserUrl(address)
                          || Policy.isNewFileTabUrl(address))
                     webView.ownerWindow.openTab("", request,
-                                 request.destination === WebEngineNewWindowRequest.InNewBackgroundTab,
+                                 request.destination === CefNewWindowRequest.InNewBackgroundTab,
                                  webView)
                 else if (Policy.isFigmaUrl(address))
                     webView.ownerWindow.openPendingPopup(request, webView)
@@ -3012,14 +3012,15 @@ Kirigami.ApplicationWindow {
             }
 
             onPermissionRequested: function(permission) {
-                if (permission.permissionType === WebEnginePermission.PermissionType.Notifications) {
+                if (permission.permissionType === CefPermission.PermissionType.Notifications) {
                     if (webView.notificationSource && Policy.isFigmaUrl(permission.origin)) permission.grant()
                     else permission.deny()
                     return
                 }
                 if (Policy.isFigmaUrl(permission.origin)
-                        && (permission.permissionType === WebEnginePermission.PermissionType.ClipboardReadWrite
-                            || permission.permissionType === WebEnginePermission.PermissionType.LocalFontsAccess))
+                        && (permission.permissionType === CefPermission.PermissionType.ClipboardReadWrite
+                            || permission.permissionType === CefPermission.PermissionType.LocalFontsAccess
+                            || permission.permissionType === CefPermission.PermissionType.LocalNetworkAccess))
                     permission.grant()
                 else
                     permission.deny()
@@ -3120,7 +3121,7 @@ Kirigami.ApplicationWindow {
         if (!view) return
         view.pendingPopup = true
         view.popupSource = sourceView
-        view.popupBackground = request.destination === WebEngineNewWindowRequest.InNewBackgroundTab
+        view.popupBackground = request.destination === CefNewWindowRequest.InNewBackgroundTab
         pendingPopups = pendingPopups.concat(view)
         view.acceptAsNewWindow(request)
     }
@@ -3167,7 +3168,7 @@ Kirigami.ApplicationWindow {
     }
 
     function syncFigmaTheme(view) {
-        if (!view || view.loading || view.lifecycleState !== WebEngineView.LifecycleState.Active
+        if (!view || view.loading || view.lifecycleState !== CefView.LifecycleState.Active
                 || !Policy.isFigmaUrl(view.url))
             return
         view.runJavaScript(root.figmaAppearanceScript, () => {
@@ -3221,7 +3222,7 @@ Kirigami.ApplicationWindow {
     function completeDownload(download) {
         const origin = exportOrigins[download.id] || {name: qsTr("Unknown origin"), url: ""}
         delete exportOrigins[download.id]
-        if (download.state === WebEngineDownloadRequest.DownloadCompleted)
+        if (download.state === CefDownload.DownloadCompleted)
             appSettings.recordExport(download.downloadDirectory, download.downloadFileName, origin.name, origin.url)
     }
 
@@ -3259,7 +3260,7 @@ Kirigami.ApplicationWindow {
             view.visible = !allFrozen
                            && !String(view.deferredRestoreUrl)
                            && !view.memoryUnloaded
-                           && (overviewVisible ? view.lifecycleState === WebEngineView.LifecycleState.Active
+                           && (overviewVisible ? view.lifecycleState === CefView.LifecycleState.Active
                                                 && !!view.frameContainer
                                                 && !!view.frameContainer.previewCard
                                                : view === activeView)
@@ -3304,7 +3305,7 @@ Kirigami.ApplicationWindow {
             view.frameContainer.parent = target
         }
         view.visible = !view.memoryUnloaded && !String(view.deferredRestoreUrl)
-            && view.lifecycleState === WebEngineView.LifecycleState.Active
+            && view.lifecycleState === CefView.LifecycleState.Active
         return true
     }
 
@@ -3679,8 +3680,8 @@ Kirigami.ApplicationWindow {
         }
         pendingOverviewSelection = null
         target.memoryUnloaded = false
-        target.requestedSleepState = WebEngineView.LifecycleState.Active
-        target.lifecycleState = WebEngineView.LifecycleState.Active
+        target.requestedSleepState = CefView.LifecycleState.Active
+        target.lifecycleState = CefView.LifecycleState.Active
         target.lastUsedAt = Date.now()
         loadRestoredTab(target)
         for (const view of [homeView].concat(views))
@@ -3765,9 +3766,9 @@ Kirigami.ApplicationWindow {
         const protectedHome = homeMustStayAwake ? homeView : null
         if (protectedHome) {
             protectedHome.memoryUnloaded = false
-            protectedHome.requestedSleepState = WebEngineView.LifecycleState.Active
-            if (protectedHome.lifecycleState !== WebEngineView.LifecycleState.Active)
-                protectedHome.lifecycleState = WebEngineView.LifecycleState.Active
+            protectedHome.requestedSleepState = CefView.LifecycleState.Active
+            if (protectedHome.lifecycleState !== CefView.LifecycleState.Active)
+                protectedHome.lifecycleState = CefView.LifecycleState.Active
             if (protectedHome.reloadAfterFreeze) {
                 protectedHome.reloadAfterFreeze = false
                 protectedHome.reload()
@@ -3790,18 +3791,18 @@ Kirigami.ApplicationWindow {
         for (const view of background) {
             if (String(view.deferredRestoreUrl) || view.memoryUnloaded) continue
             if (overviewVisible && appSettings.sleepingTabPreviews
-                    && view.lifecycleState !== WebEngineView.LifecycleState.Active)
+                    && view.lifecycleState !== CefView.LifecycleState.Active)
                 continue
             const recent = now - view.lastUsedAt < appSettings.sleepMinutes * 60 * 1000
-            const discarded = view.lifecycleState === WebEngineView.LifecycleState.Discarded
+            const discarded = view.lifecycleState === CefView.LifecycleState.Discarded
             const fillMinimum = awake < minimumBackground
             const keepAwake = liveOverview || (awake < maxBackground
                               && (view.loading || fillMinimum || overviewVisible || (!discarded && recent)))
             if (keepAwake) {
                 ++awake
-                view.requestedSleepState = WebEngineView.LifecycleState.Active
-                if (view.lifecycleState !== WebEngineView.LifecycleState.Active)
-                    view.lifecycleState = WebEngineView.LifecycleState.Active
+                view.requestedSleepState = CefView.LifecycleState.Active
+                if (view.lifecycleState !== CefView.LifecycleState.Active)
+                    view.lifecycleState = CefView.LifecycleState.Active
                 if (view.reloadAfterFreeze) {
                     view.reloadAfterFreeze = false
                     view.reload()
@@ -3815,8 +3816,8 @@ Kirigami.ApplicationWindow {
                     view.reloadAfterFreeze = true
                     view.stop()
                 }
-                if (view.lifecycleState === WebEngineView.LifecycleState.Active)
-                    sleepTab(view, WebEngineView.LifecycleState.Frozen)
+                if (view.lifecycleState === CefView.LifecycleState.Active)
+                    sleepTab(view, CefView.LifecycleState.Frozen)
             }
         }
     }
@@ -3826,7 +3827,7 @@ Kirigami.ApplicationWindow {
             && view !== activeView && view !== outgoingView && view !== overviewSelectedView
             && !dragViews.includes(view) && view !== dragView && view !== tabDragSession?.view && !view.devToolsView
             && !view.memoryUnloaded && !String(view.deferredRestoreUrl)
-            && view.lifecycleState !== WebEngineView.LifecycleState.Discarded
+            && view.lifecycleState !== CefView.LifecycleState.Discarded
             && !view.overviewClosingCard && !pendingCloseViews.includes(view) && !closingViews.includes(view)
     }
 
@@ -3836,19 +3837,19 @@ Kirigami.ApplicationWindow {
         view.visible = false
         view.reloadAfterFreeze = false
         if (view.loading) view.stop()
-        sleepTab(view, WebEngineView.LifecycleState.Discarded)
+        sleepTab(view, CefView.LifecycleState.Discarded)
         return true
     }
 
     function sleepTab(view, state) {
         if (view === homeView && homeMustStayAwake) {
-            view.requestedSleepState = WebEngineView.LifecycleState.Active
+            view.requestedSleepState = CefView.LifecycleState.Active
             return
         }
         view.requestedSleepState = state
         if (view.sleepCapturePending) return
         if (!appSettings.sleepingTabPreviews || !view.hasLoadedFrame
-                || view.lifecycleState !== WebEngineView.LifecycleState.Active) {
+                || view.lifecycleState !== CefView.LifecycleState.Active) {
             view.lifecycleState = state
             return
         }
@@ -3870,7 +3871,7 @@ Kirigami.ApplicationWindow {
                 || (view === homeView && homeMustStayAwake)
                 || String(view.url) !== address || view.loading
                 || (!allFrozen && (view.visible || view === activeView || view === outgoingView))
-                || view.requestedSleepState === WebEngineView.LifecycleState.Active) {
+                || view.requestedSleepState === CefView.LifecycleState.Active) {
             view.memoryUnloaded = false
             return
         }
@@ -3894,7 +3895,7 @@ Kirigami.ApplicationWindow {
                 view.stop()
             }
             if (!view.loading)
-                sleepTab(view, WebEngineView.LifecycleState.Frozen)
+                sleepTab(view, CefView.LifecycleState.Frozen)
         }
     }
 
@@ -3915,7 +3916,7 @@ Kirigami.ApplicationWindow {
         switch (id) {
         case "new-tab": openTab(newTabUrl); break
         case "overview": toggleOverview(); break
-        case "refresh": triggerPageAction(WebEngineView.Reload); break
+        case "refresh": triggerPageAction(CefView.Reload); break
         case "menu": appMenu.popup(button, button.width - appMenu.width, button.height); break
         case "export-history": openExportHistory(); break
         case "settings": openSettings(); break
@@ -3959,7 +3960,7 @@ Kirigami.ApplicationWindow {
 
     function triggerHomeMenuAction(command) {
         if (command === "reload") {
-            if (!allFrozen) triggerPageAction(WebEngineView.Reload)
+            if (!allFrozen) triggerPageAction(CefView.Reload)
         } else if (command === "overview") {
             toggleOverview()
         } else if (command === "about") {
@@ -3987,13 +3988,13 @@ Kirigami.ApplicationWindow {
             return
         const view = views[index]
         view.memoryUnloaded = false
-        view.requestedSleepState = WebEngineView.LifecycleState.Active
+        view.requestedSleepState = CefView.LifecycleState.Active
         if (String(view.deferredRestoreUrl)) {
             loadRestoredTab(view)
             return
         }
-        const discarded = view.lifecycleState === WebEngineView.LifecycleState.Discarded
-        view.lifecycleState = WebEngineView.LifecycleState.Active
+        const discarded = view.lifecycleState === CefView.LifecycleState.Discarded
+        view.lifecycleState = CefView.LifecycleState.Active
         if (!discarded)
             view.reload()
     }
@@ -4079,7 +4080,7 @@ Kirigami.ApplicationWindow {
         view.tabGroupId = ""
         view.sleepCapturePending = false
         view.memoryUnloaded = false
-        view.requestedSleepState = WebEngineView.LifecycleState.Active
+        view.requestedSleepState = CefView.LifecycleState.Active
         view.tabOpening = false
         views = views.concat(view)
         tabModel.append({tabView: view, title: Policy.pageLabel(view.tabUrl, view.title),
@@ -4091,7 +4092,7 @@ Kirigami.ApplicationWindow {
             activeView = view
             overviewSelectedView = view
             tabBar.currentIndex = activeIndex
-            view.lifecycleState = WebEngineView.LifecycleState.Active
+            view.lifecycleState = CefView.LifecycleState.Active
             view.visible = attachOverviewFrame(view)
             Qt.callLater(root.syncOverviewFrames)
             updateTabLifecycle()
@@ -4469,8 +4470,8 @@ Kirigami.ApplicationWindow {
         allFrozen = false
         next.lastUsedAt = Date.now()
         next.memoryUnloaded = false
-        next.requestedSleepState = WebEngineView.LifecycleState.Active
-        next.lifecycleState = WebEngineView.LifecycleState.Active
+        next.requestedSleepState = CefView.LifecycleState.Active
+        next.lifecycleState = CefView.LifecycleState.Active
         loadRestoredTab(next)
         if (next.reloadAfterFreeze) {
             next.reloadAfterFreeze = false
@@ -4530,7 +4531,7 @@ Kirigami.ApplicationWindow {
         const frame = webFrameComponent.createObject(browserArea, {ownerWindow: owner})
         if (!frame)
             return null
-        const view = webViewComponent.createObject(frame, {ownerWindow: owner}) as WebEngineView
+        const view = webViewComponent.createObject(frame, {ownerWindow: owner}) as CefView
         if (!view) {
             frame.destroy()
             return null
@@ -4723,7 +4724,7 @@ Kirigami.ApplicationWindow {
     function loadRestoredTab(view) {
         const address = String(view.deferredRestoreUrl)
         if (!address) return
-        view.lifecycleState = WebEngineView.LifecycleState.Active
+        view.lifecycleState = CefView.LifecycleState.Active
         view.url = address
         view.deferredRestoreUrl = ""
     }
@@ -4761,7 +4762,7 @@ Kirigami.ApplicationWindow {
         if (!background && !keepOverview)
             activateTab(insertIndex)
         if (keepOverview) {
-            view.lifecycleState = WebEngineView.LifecycleState.Active
+            view.lifecycleState = CefView.LifecycleState.Active
             view.visible = attachOverviewFrame(view)
             Qt.callLater(root.syncOverviewFrames)
             if (!appSettings.reduceMotion)
@@ -4891,7 +4892,7 @@ Kirigami.ApplicationWindow {
         view.stopOverviewClose()
         view.visible = false
         view.enabled = false
-        view.lifecycleState = WebEngineView.LifecycleState.Discarded
+        view.lifecycleState = CefView.LifecycleState.Discarded
         detachOverviewFrame(view)
         const oldPositions = captureTabStripPositions()
         animatingCloseGap = !appSettings.reduceMotion
