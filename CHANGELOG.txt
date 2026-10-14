@@ -3,6 +3,9 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
 About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
+1.0.2 - 2026-10-13
+Kept Home loaded while opening files in bursts, connected the embedded DevTools frontend, discarded cancelled exports without leaving a pending download, matched Slides sidebars to Design, and smoothed browser/UI scrolling.
+
 1.0.1 - 2026-10-13
 Restored the custom tab task manager and removed the Chromium native task-manager prototype.
 

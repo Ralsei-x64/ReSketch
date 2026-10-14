@@ -296,7 +296,7 @@ function sidebarAppearance(options, stylesheet) {
         controller.schedule();
         return;
     }
-    const selector = '[data-testid="navigation-bar"], [data-onboarding-key="unified-design-onboarding-left-panel"], [data-testid="properties-panel"], [class*="sidebar--navDefault--"], .fb-sidebar';
+    const selector = '[data-testid="navigation-bar"], [data-onboarding-key="unified-design-onboarding-left-panel"], [data-testid="properties-panel"], [class*="left_panel_container--sizeContainer--"]:not(:has([data-onboarding-key="unified-design-onboarding-left-panel"])), [class*="sidebar--navDefault--"], .fb-sidebar';
     let panels = [], ancestors = new Set(), canvases = [], frame = 0;
     let layout = null;
     const authoredSizes = new WeakMap();
@@ -323,7 +323,7 @@ function sidebarAppearance(options, stylesheet) {
         + '[data-resketch-floating-sidebar] [class*="comments_sidebar--container--"] { width:100% !important; min-width:0 !important; }'
         + '[data-resketch-floating-sidebar][class*="sidebar--navDefault--"] > *, '
         + '[data-resketch-floating-sidebar][class*="sidebar--navDefault--"] .fb-sidebar { box-sizing:border-box !important; width:100% !important; }'
-        + '[data-resketch-floating-sidebar][data-onboarding-key="unified-design-onboarding-left-panel"] { position:relative !important; }'
+        + '[data-resketch-floating-sidebar]:is([data-onboarding-key="unified-design-onboarding-left-panel"],[class*="left_panel_container--sizeContainer--"]) { position:relative !important; }'
         + '[data-resketch-floating-sidebar] > .data-fullscreen-prevent-event-capture { top:0 !important; height:100% !important; left:auto !important; right:0 !important; }'
         + '[data-resketch-floating-sidebar][data-testid="properties-panel"] > .data-fullscreen-prevent-event-capture { left:0 !important; right:auto !important; }'
         // Figma forces its TreeGrid action fade to alpha 1, turning transparent

@@ -56,6 +56,8 @@ void ReSketchCefApp::OnBeforeCommandLineProcessing(const CefString &type, CefRef
     line->AppendSwitchWithValue("gtk-version", "3");
     line->AppendSwitch("disable-setuid-sandbox");
     line->AppendSwitchWithValue("remote-debugging-address", "127.0.0.1");
+    line->AppendSwitchWithValue("remote-allow-origins", "devtools://devtools");
+    // Enable Chromium's native wheel/keyboard scroll animator on Linux.
     line->AppendSwitch("enable-smooth-scrolling");
     // Figma opens authentication and file popups asynchronously. The app's
     // navigation policy decides which destinations may become windows/tabs.

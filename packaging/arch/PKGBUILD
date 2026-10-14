@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 pkgname=resketch-git
-pkgver=1.0.1.r48.196e179
+pkgver=1.0.2.r48.196e179
 pkgrel=1
 pkgdesc='Open-source Figma client for Linux!'
 arch=('x86_64')
@@ -49,7 +49,7 @@ optdepends=(
 )
 provides=("resketch=$pkgver")
 conflicts=('resketch')
-source=('resketch::git+https://github.com/Ralsei-x64/ReSketch.git#branch=cef-engine')
+source=('resketch::git+https://github.com/Ralsei-x64/ReSketch.git#branch=fix/cef-home-devtools')
 sha256sums=('SKIP')
 
 pkgver() {

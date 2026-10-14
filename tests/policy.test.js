@@ -58,3 +58,29 @@ assert.equal(policy.tabTitle('123456789012345678901'), '1234567890123456789…')
 assert.equal(policy.deepLink('figma://file/abc/name'), 'https://www.figma.com/file/abc/name')
 assert.equal(policy.deepLink('https://evil.test/'), '')
 assert.equal(policy.redeemSecret('figma://app_auth/redeem?g_secret=abc_123&locale=en'), 'abc_123')
+
+// Bursts of file opens are diverted before Home's document or route changes.
+let homeNavigation, listeners = 0
+const opens = []
+const home = vm.createContext({
+    window: {}, navigation: {addEventListener(type, listener) {
+        assert.equal(type, 'navigate'); ++listeners; homeNavigation = listener
+    }}, __resketchNative(kind, address) { assert.equal(kind, 'home-file'); opens.push(address) }
+})
+home.window.navigation = home.navigation
+vm.runInContext(policy.homeNavigationScript(true), home)
+vm.runInContext(policy.homeNavigationScript(true), home)
+assert.equal(listeners, 1)
+for (let i = 0; i < 20; ++i) {
+    let prevented = false
+    const url = `https://www.figma.com/design/Burst_${i}/File`
+    homeNavigation({destination: {url}, cancelable: true, preventDefault() { prevented = true }})
+    assert.equal(prevented, true)
+    assert.equal(opens[i], url)
+}
+for (const url of ['https://www.figma.com/files/recent', 'https://accounts.google.com/signin',
+                   'https://figma.com.evil.test/design/abc', 'https://www.figma.com:444/design/abc'])
+    homeNavigation({destination: {url}, cancelable: true, preventDefault() { assert.fail(url) }})
+assert.equal(opens.length, 20)
+assert.equal(policy.homeNavigationScript(false), '')
+console.log('Home file navigation burst checks passed')

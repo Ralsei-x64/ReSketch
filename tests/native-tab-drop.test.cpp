@@ -606,8 +606,17 @@ int main(int argc, char **argv)
     assert(qAbs(position(overview, "contentY") - 180) < 1);
     wheel(overview, {}, {}, Qt::ScrollEnd);
     settings.setReduceMotion(false);
+    const double wheelStart = position(overview, "contentY");
     wheel(overview, {}, QPoint(0, -120), Qt::NoScrollPhase, false, QPointingDevice::primaryPointingDevice());
     assert(overview->property("smoothWheel").toBool()); // Mouse wheel retains its easing.
+    const double wheelTarget = position(overview, "wheelTargetY");
+    assert(wheelTarget > wheelStart);
+    assert(qAbs(position(overview, "contentY") - wheelStart) < 1);
+    render();
+    assert(position(overview, "contentY") > wheelStart && position(overview, "contentY") < wheelTarget);
+    // Reversing a wheel burst responds immediately and keeps an eased target.
+    wheel(overview, {}, QPoint(0, 120), Qt::NoScrollPhase, false, QPointingDevice::primaryPointingDevice());
+    assert(qAbs(position(overview, "wheelTargetY") - wheelStart) < 1);
     wheel(overview, {}, {}, Qt::ScrollBegin);
     assert(!overview->property("smoothWheel").toBool()); // A new gesture stops old mouse-wheel easing.
     puts("Native trackpad axes, pixels, momentum, natural scrolling, and mouse-wheel easing checks passed");

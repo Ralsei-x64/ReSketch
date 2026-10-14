@@ -5,6 +5,19 @@ function isFigmaUrl(address) {
     return /^https:\/\/(?:[a-z0-9-]+\.)*figma\.com(?::443)?(?:[/?#]|$)/i.test(String(address))
 }
 
+function homeNavigationScript(enabled) {
+    if (!enabled) return ""
+    return String.raw`(()=>{
+        if (!window.navigation || window.__resketchHomeNavigation) return;
+        window.__resketchHomeNavigation = true;
+        navigation.addEventListener('navigate', event => {
+            if (!event.cancelable || !/^https:\/\/(?:[a-z0-9-]+\.)*figma\.com(?::443)?\/(?:file|design|board|proto|slides|deck|site|buzz|make)\/[^/?#]+/i.test(event.destination.url)) return;
+            event.preventDefault();
+            __resketchNative('home-file', event.destination.url);
+        });
+    })()`
+}
+
 function isFileUrl(address) {
     return /^https:\/\/(?:[a-z0-9-]+\.)*figma\.com(?::443)?\/(?:file|design|board|proto|slides|deck|site|buzz|make)\/[^/?#]+/i.test(String(address))
 }

@@ -166,6 +166,7 @@ class CefDownload : public QObject {
     QUrl url;
     QString suggestedFileName, downloadFileName, downloadDirectory;
     State state = DownloadRequested;
+    bool cancelRequested = false;
     CefRefPtr<CefBeforeDownloadCallback> start;
     CefRefPtr<CefDownloadItemCallback> progress;
   signals:
@@ -184,6 +185,7 @@ class CefProfile : public QObject {
     CefRefPtr<CefRequestContext> context();
     Q_INVOKABLE CefPermission *queryPermission(const QUrl &origin, CefPermission::PermissionType type);
     QMap<int, QPointer<CefDownload>> downloads;
+    QMap<int, CefRefPtr<CefDownloadItemCallback>> pendingDownloadCallbacks;
   signals:
     void downloadRequested(CefDownload *download);
     void downloadFinished(CefDownload *download);
@@ -242,6 +244,7 @@ class CefQuickView : public QQuickItem {
     Q_INVOKABLE void runJavaScript(const QString &source, QJSValue callback = {});
     Q_INVOKABLE void triggerWebAction(WebAction action);
     Q_INVOKABLE void reload();
+    Q_INVOKABLE void restoreHistoryUrl(const QUrl &url);
     Q_INVOKABLE void stop();
     Q_INVOKABLE void goBack();
     Q_INVOKABLE void goForward();

@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-project(ReSketch VERSION 1.0.1 LANGUAGES C CXX)
+project(ReSketch VERSION 1.0.2 LANGUAGES C CXX)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Network Quick QuickControls2 OpenGL Widgets)
 find_package(KF6WindowSystem REQUIRED)
@@ -102,7 +102,7 @@ install(TARGETS resketch RUNTIME DESTINATION bin)
 option(RESKETCH_BUILD_TESTS "Build CEF integration checks" OFF)
 if(RESKETCH_BUILD_TESTS)
     qt_add_executable(cef-engine-test tests/cef-engine.test.cpp)
-    target_link_libraries(cef-engine-test PRIVATE resketch_cef Qt6::Widgets)
+    target_link_libraries(cef-engine-test PRIVATE resketch_cef Qt6::Widgets Qt6::Network)
     target_compile_definitions(cef-engine-test PRIVATE RESKETCH_TEST_IMPORTS="${CMAKE_BINARY_DIR}/qml")
     set_target_properties(cef-engine-test PROPERTIES BUILD_RPATH "${RESKETCH_CEF_RUNTIME}")
 endif()

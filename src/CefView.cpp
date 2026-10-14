@@ -30,6 +30,7 @@
 #include <QSGTexture>
 #include <QScreen>
 #include <QStandardPaths>
+#include <QStyleHints>
 #include <QTcpServer>
 #include <QTimer>
 #include <QWheelEvent>
@@ -610,6 +611,7 @@ class CefQuickClient final : public CefClient,
         download->suggestedFileName = QFileInfo(text(name)).fileName();
         download->downloadFileName = download->suggestedFileName;
         download->start = callback;
+        download->progress = profile->pendingDownloadCallbacks.take(download->id);
         profile->downloads[download->id] = download;
         emit profile->downloadRequested(download);
         if (download->state == CefDownload::DownloadRequested)
@@ -622,15 +624,28 @@ class CefQuickClient final : public CefClient,
             return;
         auto *profile = view->profile();
         auto *download = profile->downloads.value(item->GetId()).data();
-        if (!download)
+        if (!download) {
+            if (item->IsInProgress())
+                profile->pendingDownloadCallbacks[item->GetId()] = callback;
+            else
+                profile->pendingDownloadCallbacks.remove(item->GetId());
             return;
+        }
         download->progress = callback;
+        // Cancelling the picker must also cancel Chromium's download item.
+        // Progress may arrive before the picker exists or after it is closed.
+        if (download->cancelRequested && item->IsInProgress()) {
+            callback->Cancel();
+            return;
+        }
         const QFileInfo file(text(item->GetFullPath()));
         if (!file.fileName().isEmpty()) {
             download->downloadDirectory = file.absolutePath();
             download->downloadFileName = file.fileName();
         }
-        if (item->IsComplete())
+        if (download->cancelRequested)
+            download->state = CefDownload::DownloadCancelled;
+        else if (item->IsComplete())
             download->state = CefDownload::DownloadCompleted;
         else if (item->IsCanceled())
             download->state = CefDownload::DownloadCancelled;
@@ -751,7 +766,7 @@ class CefQuickClient final : public CefClient,
                 callback.call({engine->toScriptValue(result)});
         });
     }
-    bool OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>, CefProcessId,
+    bool OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefProcessId,
                                   CefRefPtr<CefProcessMessage> message) override {
         if (!current(browser))
             return false;
@@ -763,6 +778,16 @@ class CefQuickClient final : public CefClient,
         }
         if (message->GetName() != "resketch.bridge")
             return false;
+        if (args->GetString(0) == "home-file") {
+            const QUrl address(text(args->GetString(1)));
+            const auto host = address.host();
+            if (view->property("dedicatedHome").toBool() && frame->IsMain() && address.scheme() == "https" &&
+                (host == "figma.com" || host.endsWith(".figma.com"))) {
+                CefNavigationRequest navigation(address, true);
+                emit view->navigationRequested(&navigation);
+            }
+            return true;
+        }
         const auto origin = QUrl(text(args->GetString(2)));
         const auto host = origin.host();
         if (!view->property("notificationSource").toBool() || origin.scheme() != "https" ||
@@ -825,6 +850,7 @@ void CefDownload::accept() {
     emit changed();
 }
 void CefDownload::cancel() {
+    cancelRequested = true;
     if (progress)
         progress->Cancel();
     start = nullptr;
@@ -885,6 +911,9 @@ void CefQuickView::setUrl(const QUrl &value) {
     m_url = value;
     m_htmlAddress.clear();
     emit urlChanged();
+    // A navigation handler can redirect this assignment while urlChanged runs.
+    if (m_url != value)
+        return;
     if (m_lifecycle != LifecycleState::Discarded) {
         ensureBrowser();
         if (m_browser)
@@ -892,6 +921,16 @@ void CefQuickView::setUrl(const QUrl &value) {
         else if (m_creating)
             m_pendingAddress = m_url.toString();
     }
+}
+void CefQuickView::restoreHistoryUrl(const QUrl &value) {
+    m_url = value;
+    emit urlChanged();
+    const QString quoted =
+        QString::fromUtf8(QJsonDocument(QJsonArray{value.toString()}).toJson(QJsonDocument::Compact))
+            .mid(1)
+            .chopped(1);
+    runJavaScript("history.replaceState(history.state,''," + quoted +
+                  ");window.dispatchEvent(new PopStateEvent('popstate',{state:history.state}))");
 }
 void CefQuickView::setProfile(CefProfile *value) {
     if (m_profile == value)
@@ -1219,8 +1258,13 @@ void CefQuickView::wheelEvent(QWheelEvent *event) {
         QPoint delta = event->pixelDelta();
         if (!delta.isNull())
             value.modifiers |= EVENTFLAG_PRECISION_SCROLLING_DELTA;
-        else
-            delta = event->angleDelta() / 3;
+        else {
+            // CEF expects pixel distances: one notch is the configured number
+            // of lines, at Chromium's usual 40 pixels per line.
+            delta = event->angleDelta() * QGuiApplication::styleHints()->wheelScrollLines() / 3;
+            if (event->phase() != Qt::NoScrollPhase)
+                value.modifiers |= EVENTFLAG_PRECISION_SCROLLING_DELTA;
+        }
         m_browser->GetHost()->SendMouseWheelEvent(value, delta.x(), delta.y());
     }
     event->accept();

@@ -11,8 +11,11 @@
 #include <QQmlEngine>
 #include <QQuickItemGrabResult>
 #include <QQuickWindow>
+#include <QStyleHints>
+#include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QThread>
+#include <QUrlQuery>
 #include <QWheelEvent>
 #include <cstdio>
 #include <cstdlib>
@@ -95,6 +98,34 @@ CefView {
         };
         require(js("Boolean(seenCreation && ready)").toBool(), "script injection ordering");
         require(js("document.title").toString() == "CEF fixture", "JavaScript result");
+        view->setProperty("dedicatedHome", true);
+        int fileOpens = 0, homeLoads = 0;
+        auto navigation =
+            QObject::connect(view, &CefQuickView::navigationRequested, [&](CefNavigationRequest *request) {
+                if (request->url.host() == "www.figma.com" && request->url.path().startsWith("/design/")) {
+                    ++fileOpens;
+                    request->reject();
+                }
+            });
+        auto loads = QObject::connect(view, &CefQuickView::loadStateChanged, [&](QVariantMap info) {
+            if (info.value("status").toInt() == CefQuickView::LoadStartedStatus)
+                ++homeLoads;
+        });
+        js("for(let "
+           "i=0;i<20;i++)__resketchNative('home-file','https://www.figma.com/design/Burst_'+i+'/File')");
+        until([&] { return fileOpens == 20; }, "Home file-open burst delivered");
+        require(homeLoads == 0 && js("seenCreation").toBool(), "Home document survives file-open bursts");
+        auto redirect = QObject::connect(view, &CefQuickView::urlChanged, [&] {
+            if (view->url().host() == "www.figma.com")
+                view->restoreHistoryUrl(QUrl("about:blank"));
+        });
+        view->setUrl(QUrl("https://www.figma.com/design/Reentrant/File"));
+        require(js("seenCreation").toBool() && homeLoads == 0,
+                "URL handler restoration does not reload Home");
+        QObject::disconnect(redirect);
+        QObject::disconnect(navigation);
+        QObject::disconnect(loads);
+        view->setProperty("dedicatedHome", false);
         until([&] { return view->renderingBackend() != "Waiting for frame"; }, "rendered frame");
         auto capture = view->grabToImage();
         bool captured = false;
@@ -121,6 +152,24 @@ CefView {
                           Qt::NoModifier, Qt::ScrollUpdate, false);
         QCoreApplication::sendEvent(view, &wheel);
         until([&] { return js("scrollY").toInt() > 0; }, "trackpad pixel scrolling");
+        QElapsedTimer gestureEnd;
+        gestureEnd.start();
+        while (gestureEnd.elapsed() < 350) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+            QThread::msleep(1);
+        }
+        js("scrollTo(0,0);window.scrollSamples=[];addEventListener('scroll',()=>scrollSamples.push(scrollY)"
+           ")");
+        until([&] { return js("scrollY").toInt() == 0; }, "reset scroll position");
+        QWheelEvent mouseWheel(QPointF(200, 200), QPointF(200, 200), QPoint(), QPoint(0, -120), Qt::NoButton,
+                               Qt::NoModifier, Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(view, &mouseWheel);
+        const int wheelDistance = 40 * QGuiApplication::styleHints()->wheelScrollLines();
+        until([&] { return js("scrollY").toInt() >= wheelDistance; }, "mouse wheel scrolling");
+        const auto samples =
+            js(QString("scrollSamples.filter(y=>y>0 && y<%1).length").arg(wheelDistance)).toInt();
+        fprintf(stderr, "Wheel animation intermediate samples: %d\n", samples);
+        require(samples >= 2, "Chromium mouse wheel scrolling animates through intermediate positions");
         std::unique_ptr<QObject> popupObject(component.create());
         auto *popup = qobject_cast<CefQuickView *>(popupObject.get());
         popup->setParentItem(window.contentItem());
@@ -142,11 +191,12 @@ CefView {
         popup->setParentItem(nullptr);
         popupObject.reset();
         bool downloaded = false;
-        QObject::connect(view->profile(), &CefProfile::downloadRequested, [&](CefDownload *download) {
-            download->downloadDirectory = directory.path();
-            download->downloadFileName = "export.txt";
-            download->accept();
-        });
+        auto acceptDownload =
+            QObject::connect(view->profile(), &CefProfile::downloadRequested, [&](CefDownload *download) {
+                download->downloadDirectory = directory.path();
+                download->downloadFileName = "export.txt";
+                download->accept();
+            });
         QObject::connect(view->profile(), &CefProfile::downloadFinished, [&](CefDownload *download) {
             downloaded = download->state == CefDownload::DownloadCompleted;
         });
@@ -155,11 +205,45 @@ CefView {
         until([&] { return downloaded; }, "download completion");
         QFile file(directory.filePath("export.txt"));
         require(file.open(QIODevice::ReadOnly) && file.readAll() == "CEF export", "download contents");
+        QObject::disconnect(acceptDownload);
+        bool cancelled = false;
+        auto cancelDownload = QObject::connect(view->profile(), &CefProfile::downloadRequested,
+                                               [&](CefDownload *download) { download->cancel(); });
+        auto cancellation =
+            QObject::connect(view->profile(), &CefProfile::downloadFinished, [&](CefDownload *download) {
+                cancelled = download->state == CefDownload::DownloadCancelled;
+            });
+        view->browser()->GetHost()->StartDownload(
+            js("URL.createObjectURL(new Blob(['discard me']))").toString().toStdString());
+        until([&] { return cancelled; }, "cancelled export reaches Chromium's terminal state");
+        require(view->profile()->downloads.isEmpty() && !QFile::exists(directory.filePath("cancelled.txt")),
+                "cancelled export is discarded");
+        QObject::disconnect(cancelDownload);
+        QObject::disconnect(cancellation);
         std::unique_ptr<QObject> toolsObject(component.create());
         auto *tools = qobject_cast<CefQuickView *>(toolsObject.get());
         tools->setParentItem(window.contentItem());
         tools->setInspectedView(view);
         until([&] { return tools->browser() && !tools->title().isEmpty(); }, "embedded Developer Tools");
+        const QUrl endpoint("ws://" + QUrlQuery(tools->url()).queryItemValue("ws"));
+        QTcpSocket socket;
+        socket.connectToHost(endpoint.host(), endpoint.port());
+        until([&] { return socket.state() == QAbstractSocket::ConnectedState; },
+              "DevTools endpoint connection");
+        const QByteArray handshake =
+            "GET " + endpoint.path().toUtf8() + " HTTP/1.1\r\nHost: " + endpoint.authority().toUtf8() +
+            "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: "
+            "dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nOrigin: devtools://devtools\r\n\r\n";
+        socket.write(handshake);
+        QByteArray response;
+        until(
+            [&] {
+                response += socket.readAll();
+                return response.contains("\r\n\r\n");
+            },
+            "DevTools WebSocket response");
+        require(response.startsWith("HTTP/1.1 101"), "internal DevTools origin is accepted");
+        socket.abort();
         tools->setInspectedView(nullptr);
         tools->setParentItem(nullptr);
         toolsObject.reset();

@@ -2031,6 +2031,41 @@ Item {
             compare(result.railSeam, "1px"); compare(result.layerSeam, "0px")
             compare((result.mask.match(/M/g) || []).length, 3, "One outer path and exactly two floating sidebar holes")
 
+            // Slides uses a size container instead of Design's onboarding panel.
+            const slidesFixture = '<style>body{margin:0;--color-bg:#eee;--color-border:#8899aa}'
+                + '.gpu-view-content{position:absolute;inset:0;background:#444}'
+                + '.left_panel_container--positionContainer--fixture{position:absolute;left:0;top:0;width:240px;height:400px}'
+                + '.left_panel_container--sizeContainer--fixture{width:240px;height:400px}'
+                + '.left_panel_container--panel--fixture{position:absolute;inset:0;width:241px;height:400px;background:var(--color-bg);border-right:1px solid #8899aa}'
+                + '#slidesRight{position:absolute;right:0;top:0;width:240px;height:400px}</style>'
+                + '<div class="gpu-view-content"></div><div class="left_panel_container--positionContainer--fixture">'
+                + '<div id="slidesLeft" class="left_panel_container--sizeContainer--fixture"><div class="left_panel_container--panel--fixture">'
+                + '<div id="slidePreview" style="width:100px;height:60px;background:white"></div></div></div></div>'
+                + '<aside id="slidesRight" data-testid="properties-panel"></aside>'
+            result = null
+            view.runJavaScript('window.__resketchSidebars.dispose();delete window.__resketchSidebars;document.body.innerHTML=' + JSON.stringify(slidesFixture), () => result = true)
+            tryVerify(() => result === true)
+            fixturePath = "/slides/Test/Presentation"
+            apply()
+            tryVerify(() => {
+                view.runJavaScript('(()=>{const p=document.getElementById("slidesLeft"),r=p.getBoundingClientRect(),s=getComputedStyle(p);'
+                    + 'return {floating:p.hasAttribute("data-resketch-floating-sidebar"),x:r.x,y:r.y,width:r.width,height:r.height,'
+                    + 'radius:s.borderRadius,bg:s.backgroundColor,borders:[s.borderTopWidth,s.borderRightWidth,s.borderBottomWidth,s.borderLeftWidth],'
+                    + 'childWidth:p.firstElementChild.getBoundingClientRect().width,childBorder:getComputedStyle(p.firstElementChild).borderRightWidth,'
+                    + 'previewBg:getComputedStyle(document.getElementById("slidePreview")).backgroundColor,'
+                    + 'mask:document.getElementById("resketch-sidebar-underlay").style.clipPath}})()', value => result = value)
+                return result && result.floating
+            })
+            compare(result.x, 8); compare(result.y, 8)
+            compare(result.width, 224); compare(result.height, 384)
+            compare(result.radius, "22px"); compare(result.bg, "rgba(0, 0, 0, 0)")
+            compare(result.borders, ["1px", "1px", "1px", "1px"])
+            compare(result.childWidth, 222); compare(result.childBorder, "0px")
+            compare(result.previewBg, "rgb(255, 255, 255)", "The slide artwork keeps its original colors")
+            compare((result.mask.match(/M/g) || []).length, 3, "Both Slides sidebars have transparency holes")
+            options.floatingSidebars = false
+            apply()
+
             app.openSettings()
             const window = findChild(app, "settingsWindow")
             const toggle = findChild(window, "floatingSidebarsToggle")

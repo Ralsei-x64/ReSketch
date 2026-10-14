@@ -440,8 +440,9 @@ Kirigami.ApplicationWindow {
                         SmoothedAnimation {
                             id: wheelScroll
                             velocity: -1
-                            duration: 130
-                            maximumEasingTime: 75
+                            duration: 200
+                            maximumEasingTime: 120
+                            reversingMode: SmoothedAnimation.Immediate
                             onRunningChanged: {
                                 if (!running)
                                     tabsViewport.smoothWheel = false
@@ -1372,8 +1373,9 @@ Kirigami.ApplicationWindow {
                         SmoothedAnimation {
                             id: overviewWheelScroll
                             velocity: -1
-                            duration: 130
-                            maximumEasingTime: 75
+                            duration: 200
+                            maximumEasingTime: 120
+                            reversingMode: SmoothedAnimation.Immediate
                             onRunningChanged: {
                                 if (!running)
                                     overviewFlickable.smoothWheel = false
@@ -2869,6 +2871,12 @@ Kirigami.ApplicationWindow {
             settings.scrollAnimatorEnabled: !appSettings.reduceMotion
             backgroundColor: appSettings.toolbarOpacity < 100 && !googleSignIn ? "transparent" : "white"
             userScripts.collection: [{
+                name: "resketch-home-navigation",
+                sourceCode: Policy.homeNavigationScript(webView.dedicatedHome),
+                injectionPoint: CefScript.DocumentCreation,
+                worldId: CefScript.MainWorld,
+                runsOnSubFrames: false
+            }, {
                 name: "resketch-canvas-scrollbars",
                 sourceCode: FigmaTheme.canvasScrollbarsScript(appSettings.floatingSidebars && appSettings.hideFloatingScrollbars),
                 injectionPoint: CefScript.DocumentCreation,
@@ -2937,7 +2945,7 @@ Kirigami.ApplicationWindow {
                 sleepPreview = null
                 const address = String(url)
                 if (dedicatedHome && Policy.isFileUrl(address)) {
-                    url = lastHomeUrl
+                    restoreHistoryUrl(lastHomeUrl)
                     webView.ownerWindow.openTab(address, null, false, webView)
                     return
                 }
