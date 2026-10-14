@@ -23,6 +23,7 @@
 #include <QMouseEvent>
 #include <QOpenGLContext>
 #include <QProcess>
+#include <QPixmap>
 #include <QQmlEngine>
 #include <QQuickWindow>
 #include <QSGSimpleRectNode>
@@ -544,9 +545,21 @@ class CefQuickClient final : public CefClient,
         }
     }
     bool OnCursorChange(CefRefPtr<CefBrowser> browser, CefCursorHandle, cef_cursor_type_t type,
-                        const CefCursorInfo &) override {
+                        const CefCursorInfo &info) override {
         if (!current(browser))
             return false;
+        if (type == CT_CUSTOM && info.buffer && info.size.width > 0 && info.size.height > 0) {
+            // The cursor's BGRA buffer belongs to CEF and expires after this callback.
+            auto image = QImage(static_cast<const uchar *>(info.buffer), info.size.width, info.size.height,
+                                QImage::Format_ARGB32_Premultiplied).copy();
+            const qreal scale = std::isfinite(info.image_scale_factor) && info.image_scale_factor > 0
+                ? info.image_scale_factor : 1;
+            image.setDevicePixelRatio(scale);
+            view->m_webCursor = QCursor(QPixmap::fromImage(image), qRound(info.hotspot.x / scale),
+                                      qRound(info.hotspot.y / scale));
+            view->syncCursor();
+            return true;
+        }
         Qt::CursorShape cursor = Qt::ArrowCursor;
         if (type == CT_HAND)
             cursor = Qt::PointingHandCursor;
@@ -562,7 +575,8 @@ class CefQuickClient final : public CefClient,
             cursor = Qt::SizeVerCursor;
         else if (type == CT_NONE)
             cursor = Qt::BlankCursor;
-        view->setCursor(cursor);
+        view->m_webCursor = QCursor(cursor);
+        view->syncCursor();
         return true;
     }
     void OnImeCompositionRangeChanged(CefRefPtr<CefBrowser> browser, const CefRange &,
@@ -1091,6 +1105,18 @@ void CefQuickView::syncVisibility() {
         if (isVisible() && m_lifecycle == LifecycleState::Active)
             syncScreen();
     }
+}
+void CefQuickView::setUseSystemCursor(bool value) {
+    if (m_useSystemCursor == value)
+        return;
+    m_useSystemCursor = value;
+    syncCursor();
+    emit useSystemCursorChanged();
+}
+void CefQuickView::syncCursor() {
+    const auto shape = m_webCursor.shape();
+    setCursor(m_useSystemCursor && (shape == Qt::BitmapCursor || shape == Qt::BlankCursor)
+                  ? QCursor(Qt::ArrowCursor) : m_webCursor);
 }
 void CefQuickView::setOverviewPreview(bool value) {
     if (m_overviewPreview == value)

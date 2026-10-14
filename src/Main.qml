@@ -2873,6 +2873,7 @@ Kirigami.ApplicationWindow {
                          : overviewEntrance
                        : 0
             profile: webView.ownerWindow.browserProfile
+            useSystemCursor: appSettings.useSystemCursor
             settings.scrollAnimatorEnabled: !appSettings.reduceMotion
             backgroundColor: appSettings.toolbarOpacity < 100 && !googleSignIn ? "transparent" : "white"
             userScripts.collection: [{

@@ -79,6 +79,7 @@ Item {
         property bool gpuRasterization: true
         property bool zeroCopyRasterization: true
         property bool experimentalCanvasFeatures: false
+        property bool useSystemCursor: false
         property bool useVulkan: false
         property string chromiumFlags: ""
         property string profileStoragePath: ""
@@ -198,6 +199,15 @@ Item {
             wait(300)
             app.activateTab(2)
             wait(350)
+        }
+
+        function test_cursor_preference_applies_to_existing_views() {
+            const views = [app.homeView].concat(app.views)
+            for (const view of views) compare(view.useSystemCursor, false)
+            appSettings.useSystemCursor = true
+            for (const view of views) compare(view.useSystemCursor, true)
+            appSettings.useSystemCursor = false
+            for (const view of views) compare(view.useSystemCursor, false)
         }
 
         function test_overview_keeps_canvas_density_and_layout_data() {
@@ -1946,6 +1956,7 @@ Item {
             appSettings.keepHomeAwake = true
             appSettings.translucentSidebars = false
             appSettings.floatingSidebars = false
+            appSettings.useSystemCursor = false
             appSettings.sidebarCornerRadius = 12
             appSettings.sidebarMargin = 8
             appSettings.hideFloatingScrollbars = true
@@ -1973,15 +1984,20 @@ Item {
             app.show()
         }
 
-        function test_floating_sidebars_clip_comment_pins() {
+        function test_floating_sidebars_clip_comment_pins_data() {
+            return [{tag:"comments", className:"comments_view--outerAnchorContainer--fixture"},
+                    {tag:"collaborator-cursors", className:"multiplayer_cursors--root--fixture"}]
+        }
+
+        function test_floating_sidebars_clip_comment_pins(data) {
             const view = app.activeView
             const fixture = '<style>body{margin:0;--color-bg:#eee;--color-border:#8899aa}'
                 + '.gpu-view-content{position:absolute;inset:0;background:#444}'
-                + 'aside{position:absolute;right:0;top:0;width:200px;height:400px}'
-                + '#pins{position:absolute;inset:0;z-index:999;pointer-events:none}'
-                + '#pin{position:absolute;right:80px;top:80px;width:30px;height:30px;background:red;pointer-events:auto}'
-                + '</style><div class="gpu-view-content"></div><aside data-testid="properties-panel"></aside>'
-                + '<div id="pins" class="comments_view--outerAnchorContainer--fixture"><div id="pin"></div></div>'
+                + 'aside,nav{position:absolute;top:0;width:200px;height:400px}aside{right:0}nav{left:0}'
+                + '#pins{position:absolute;left:220px;right:220px;top:0;bottom:0;z-index:999;pointer-events:none}'
+                + '#pin,#leftPin{position:absolute;top:80px;width:30px;height:30px;background:red;pointer-events:auto}#pin{right:-120px}#leftPin{left:-120px}'
+                + '</style><div class="gpu-view-content"></div><nav data-onboarding-key="unified-design-onboarding-left-panel"></nav><aside data-testid="properties-panel"></aside>'
+                + '<div id="pins" class="' + data.className + '"><div id="pin"></div><div id="leftPin"></div></div>'
             let ready = false, result = null
             view.runJavaScript('document.body.innerHTML=' + JSON.stringify(fixture), () => ready = true)
             tryVerify(() => ready)
@@ -1996,11 +2012,17 @@ Item {
             }
             function inspect() {
                 view.runJavaScript('(()=>{const pin=document.getElementById("pin"),r=pin.getBoundingClientRect();'
-                    + 'return {clip:getComputedStyle(document.getElementById("pins")).clipPath,'
+                    + 'const left=document.getElementById("leftPin"),l=left.getBoundingClientRect();'
+                    + 'return {clip:getComputedStyle(document.getElementById("pins")).clipPath,leftVisible:document.elementFromPoint(l.x+15,l.y+15)===left,'
                     + 'pinVisible:document.elementFromPoint(r.x+15,r.y+15)===pin}})()', value => result = value)
             }
             apply()
             tryVerify(() => { inspect(); return result?.clip.startsWith("path(evenodd,") && !result.pinVisible })
+            compare(result.leftVisible, false, "Pins overflowing an inset layer stay behind the left sidebar")
+            options.sidebarCornerRadius = 0
+            apply()
+            tryVerify(() => { inspect(); return result?.clip.startsWith("polygon(evenodd,") && !result.pinVisible && !result.leftVisible })
+            options.sidebarCornerRadius = 22
             // Mask comment pins for both backdrop modes, including opaque panels.
             options.sidebarBackdrop = "canvas"
             options.opacity = 100
@@ -2008,9 +2030,11 @@ Item {
             tryVerify(() => { inspect(); return result?.clip.startsWith("path(evenodd,") && !result.pinVisible })
             view.runJavaScript('document.getElementById("pin").style.right="300px"')
             tryVerify(() => { inspect(); return result?.pinVisible })
+            view.runJavaScript('document.getElementById("leftPin").style.left="80px"')
+            tryVerify(() => { inspect(); return result?.leftVisible })
             // Resized/replaced comment overlays must keep the cutout aligned.
             const originalClip = result.clip
-            view.runJavaScript('document.getElementById("pins").style.left="40px";document.getElementById("pin").style.right="80px"')
+            view.runJavaScript('document.getElementById("pins").style.left="40px";document.getElementById("pin").style.right="-120px"')
             tryVerify(() => { inspect(); return result?.clip.startsWith("path(evenodd,") && result.clip !== originalClip && !result.pinVisible })
             options.floatingSidebars = false
             apply()

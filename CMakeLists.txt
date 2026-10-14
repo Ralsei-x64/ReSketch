@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-project(ReSketch VERSION 1.0.5 LANGUAGES C CXX)
+project(ReSketch VERSION 1.0.6 LANGUAGES C CXX)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Network Quick QuickControls2 OpenGL Widgets)
 find_package(KF6WindowSystem REQUIRED)

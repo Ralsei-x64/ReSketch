@@ -24,6 +24,7 @@
 - **Figma menus:** Optionally expose Figma actions through native menus and Plasma AppMenu, with a hamburger menu fallback.
 - **Chromium tools:** Open Developer Tools and a tab task manager with renderer CPU and memory usage from the menu without keyboard shortcuts.
 - **App themes:** Choose light, dark, or automatic system-following appearance.
+- **Canvas cursors:** Show Figma’s custom cursors by default, with an option to use the system cursor.
 - **KDE colors:** Optionally apply the system color palette to Figma's web interface.
 - **Custom CSS:** Optionally customize Figma's interface with your own CSS.
 - **Transparency and blur:** Adjust background opacity and optional translucent or floating Figma sidebars with desktop or canvas backdrops and configurable corner radius.

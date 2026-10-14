@@ -152,6 +152,31 @@ CefView {
         previewCapture.reset();
         view->setOverviewPreview(false);
         require(js("devicePixelRatio").toDouble() == 1, "interactive pixel density stays unchanged");
+        const auto movePointer = [&] {
+            CefMouseEvent pointer;
+            pointer.x = 200;
+            pointer.y = 100;
+            view->browser()->GetHost()->SendMouseMoveEvent(pointer, false);
+        };
+        js("document.body.style.cursor=\"url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%3E%3Crect%20width%3D%2216%22%20height%3D%2216%22%20fill%3D%22%23ff0000%22%2F%3E%3C%2Fsvg%3E') 3 5, auto\"");
+        movePointer();
+        until([&] { return view->cursor().shape() == Qt::BitmapCursor; }, "custom web cursor");
+        require(!view->useSystemCursor(), "Figma custom cursors enabled by default");
+        require(view->cursor().hotSpot() == QPoint(3, 5), "custom cursor hotspot");
+        require(view->cursor().pixmap().toImage().pixelColor(8, 8) == QColor(Qt::red), "custom cursor BGRA pixels");
+        view->setUseSystemCursor(true);
+        require(view->cursor().shape() == Qt::ArrowCursor, "system cursor toggle applies immediately");
+        view->setUseSystemCursor(false);
+        require(view->cursor().shape() == Qt::BitmapCursor, "custom cursor is restored without reloading");
+        js("document.body.style.cursor='none'");
+        movePointer();
+        until([&] { return view->cursor().shape() == Qt::BlankCursor; }, "hidden web cursor");
+        view->setUseSystemCursor(true);
+        require(view->cursor().shape() == Qt::ArrowCursor, "system preference supplies a visible cursor");
+        view->setUseSystemCursor(false);
+        js("document.body.style.cursor='auto'");
+        movePointer();
+        until([&] { return view->cursor().shape() == Qt::ArrowCursor; }, "standard cursor restored");
         QMouseEvent press(QEvent::MouseButtonPress, QPointF(40, 35), QPointF(40, 35), Qt::LeftButton,
                           Qt::LeftButton, Qt::NoModifier);
         QMouseEvent release(QEvent::MouseButtonRelease, QPointF(40, 35), QPointF(40, 35), Qt::LeftButton,

@@ -219,6 +219,7 @@ class AppSettings : public QObject
     Q_PROPERTY(QString figmaCustomCss READ figmaCustomCss WRITE setFigmaCustomCss NOTIFY changed)
     Q_PROPERTY(QVariantMap figmaPalette READ figmaPalette NOTIFY effectiveThemeChanged)
     Q_PROPERTY(bool translucentSidebars READ translucentSidebars WRITE setTranslucentSidebars NOTIFY changed)
+    Q_PROPERTY(bool useSystemCursor READ useSystemCursor WRITE setUseSystemCursor NOTIFY changed)
     Q_PROPERTY(bool floatingSidebars READ floatingSidebars WRITE setFloatingSidebars NOTIFY changed)
     Q_PROPERTY(int sidebarCornerRadius READ sidebarCornerRadius WRITE setSidebarCornerRadius NOTIFY changed)
     Q_PROPERTY(int sidebarMargin READ sidebarMargin WRITE setSidebarMargin NOTIFY changed)
@@ -459,6 +460,7 @@ public:
     bool figmaCustomCssEnabled() const { return store.value(QStringLiteral("figmaCustomCssEnabled"), false).toBool(); }
     QString figmaCustomCss() const { return store.value(QStringLiteral("figmaCustomCss")).toString(); }
     bool translucentSidebars() const { return store.value(QStringLiteral("translucentSidebars"), false).toBool(); }
+    bool useSystemCursor() const { return store.value(QStringLiteral("useSystemCursor"), false).toBool(); }
     bool floatingSidebars() const { return store.value(QStringLiteral("floatingSidebars"), false).toBool(); }
     int sidebarCornerRadius() const { return qBound(0, store.value(QStringLiteral("sidebarCornerRadius"), 12).toInt(), 40); }
     int sidebarMargin() const { return qBound(0, store.value(QStringLiteral("sidebarMargin"), 8).toInt(), 40); }
@@ -867,6 +869,12 @@ public:
         store.setValue(QStringLiteral("sidebarBackdrop"), value);
         emit changed();
         emit figmaAppearanceChanged();
+    }
+    void setUseSystemCursor(bool value)
+    {
+        if (useSystemCursor() == value) return;
+        store.setValue(QStringLiteral("useSystemCursor"), value);
+        emit changed();
     }
     void setFloatingSidebars(bool value)
     {

@@ -6,6 +6,7 @@
 #include "include/cef_render_handler.h"
 #include "include/cef_request_context.h"
 #include <QColor>
+#include <QCursor>
 #include <QImage>
 #include <QJSValue>
 #include <QJsonObject>
@@ -214,6 +215,8 @@ class CefQuickView : public QQuickItem {
     Q_PROPERTY(CefScriptCollection *userScripts READ userScripts CONSTANT)
     Q_PROPERTY(CefViewSettings *settings READ settings CONSTANT)
     Q_PROPERTY(QString renderingBackend READ renderingBackend NOTIFY renderingBackendChanged)
+    Q_PROPERTY(bool useSystemCursor READ useSystemCursor WRITE setUseSystemCursor NOTIFY
+                   useSystemCursorChanged)
     Q_PROPERTY(bool overviewPreview READ overviewPreview WRITE setOverviewPreview NOTIFY
                    overviewPreviewChanged)
   public:
@@ -232,6 +235,8 @@ class CefQuickView : public QQuickItem {
     int loadProgress() const { return m_progress; }
     LifecycleState lifecycleState() const { return m_lifecycle; }
     void setLifecycleState(LifecycleState value);
+    bool useSystemCursor() const { return m_useSystemCursor; }
+    void setUseSystemCursor(bool value);
     bool overviewPreview() const { return m_overviewPreview; }
     void setOverviewPreview(bool value);
     qint64 renderProcessPid() const { return m_pid; }
@@ -272,6 +277,7 @@ class CefQuickView : public QQuickItem {
     void backgroundColorChanged();
     void renderingBackendChanged();
     void overviewPreviewChanged();
+    void useSystemCursorChanged();
     void windowCloseRequested();
     void newWindowRequested(CefNewWindowRequest *request);
     void navigationRequested(CefNavigationRequest *request);
@@ -302,6 +308,7 @@ class CefQuickView : public QQuickItem {
     void syncScripts();
     void syncVisibility();
     void syncScreen();
+    void syncCursor();
     void sendKey(QKeyEvent *, bool release);
     int devTools(const QString &method, const QJsonObject &params = {}, QJSValue callback = {});
     QUrl m_url;
@@ -310,7 +317,8 @@ class CefQuickView : public QQuickItem {
     int m_progress = 0;
     qint64 m_pid = 0;
     LifecycleState m_lifecycle = LifecycleState::Active;
-    bool m_overviewPreview = false;
+    bool m_overviewPreview = false, m_useSystemCursor = false;
+    QCursor m_webCursor;
     QPointer<CefProfile> m_profile;
     QPointer<CefQuickView> m_inspected, m_devTools;
     QColor m_background = Qt::transparent;

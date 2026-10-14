@@ -199,14 +199,19 @@ function canvasScrollbarsScript(hidden) {
 }
 
 // Cut holes in opaque page/canvas backgrounds without changing Figma's layout.
-var sidebarMaskSource = `function sidebarMask(bounds, panels) {
+var sidebarMaskSource = `function sidebarMask(bounds, panels, viewport = bounds) {
     const rounded = panels.some(panel => panel.radius > 0);
-    const paths = ['M0 0 H' + bounds.width + ' V' + bounds.height + ' H0 Z'];
-    const points = ['0px 0px', bounds.width + 'px 0px', bounds.width + 'px ' + bounds.height + 'px', '0px ' + bounds.height + 'px', '0px 0px'];
+    const x = viewport.left - bounds.left, y = viewport.top - bounds.top;
+    const right = x + viewport.width, bottom = y + viewport.height;
+    const origin = x + 'px ' + y + 'px';
+    const paths = ['M' + x + ' ' + y + ' H' + right + ' V' + bottom + ' H' + x + ' Z'];
+    const points = [origin, right + 'px ' + y + 'px', right + 'px ' + bottom + 'px', x + 'px ' + bottom + 'px', origin];
     let holes = 0;
     for (const panel of panels) {
-        const left = Math.max(0, panel.left - bounds.left), top = Math.max(0, panel.top - bounds.top);
-        const right = Math.min(bounds.width, panel.right - bounds.left), bottom = Math.min(bounds.height, panel.bottom - bounds.top);
+        const left = Math.max(viewport.left, panel.left) - bounds.left;
+        const top = Math.max(viewport.top, panel.top) - bounds.top;
+        const right = Math.min(viewport.left + viewport.width, panel.right) - bounds.left;
+        const bottom = Math.min(viewport.top + viewport.height, panel.bottom) - bounds.top;
         if (right <= left || bottom <= top) continue;
         if (rounded) {
             const x = panel.left - bounds.left, y = panel.top - bounds.top;
@@ -218,7 +223,7 @@ var sidebarMaskSource = `function sidebarMask(bounds, panels) {
                 + ' H' + (x + r) + ' A' + r + ' ' + r + ' 0 0 1 ' + x + ' ' + (y + h - r)
                 + ' V' + (y + r) + ' A' + r + ' ' + r + ' 0 0 1 ' + (x + r) + ' ' + y + ' Z');
         }
-        points.push(left + 'px ' + top + 'px', right + 'px ' + top + 'px', right + 'px ' + bottom + 'px', left + 'px ' + bottom + 'px', left + 'px ' + top + 'px', '0px 0px');
+        points.push(left + 'px ' + top + 'px', right + 'px ' + top + 'px', right + 'px ' + bottom + 'px', left + 'px ' + bottom + 'px', left + 'px ' + top + 'px', origin);
         ++holes;
     }
     return !holes ? 'none' : rounded ? 'path(evenodd, "' + paths.join(' ') + '")'
@@ -297,9 +302,8 @@ function sidebarAppearance(options, stylesheet) {
         return;
     }
     const selector = '[data-testid="navigation-bar"], [data-onboarding-key="unified-design-onboarding-left-panel"], [data-testid="properties-panel"], [class*="left_panel_container--sizeContainer--"]:not(:has([data-onboarding-key="unified-design-onboarding-left-panel"])), [class*="sidebar--navDefault--"], .fb-sidebar';
-    // Comment pins are DOM overlays, separate from the WebGL canvas. Mask them
-    // too so they cannot appear through the floating panels' transparent surface.
-    const commentSelector = '[class*="comments_view--outerAnchorContainer--"]';
+    // Comments and collaborator cursors are separate from the WebGL canvas.
+    const commentSelector = '[class*="comments_view--outerAnchorContainer--"], [class*="multiplayer_cursors--root--"]';
     let panels = [], ancestors = new Set(), canvases = [], comments = [], frame = 0;
     let layout = null;
     const authoredSizes = new WeakMap();
@@ -436,7 +440,11 @@ function sidebarAppearance(options, stylesheet) {
         underlay.style.clipPath = options.sidebarBackdrop === 'desktop'
             ? sidebarMask({left:0, top:0, width:innerWidth, height:innerHeight}, rects) : 'none';
         for (const canvas of (options.sidebarBackdrop === 'desktop' ? canvases : []).concat(comments)) {
-            canvas.style.setProperty('--resketch-sidebar-clip', sidebarMask(canvas.getBoundingClientRect(), rects));
+            // Figma keeps some overlay bounds inset even after the canvas fills
+            // the window. Pins can overflow those bounds, so clip the viewport.
+            const viewport = comments.includes(canvas)
+                ? {left:0, top:0, width:innerWidth, height:innerHeight} : undefined;
+            canvas.style.setProperty('--resketch-sidebar-clip', sidebarMask(canvas.getBoundingClientRect(), rects, viewport));
             canvas.setAttribute('data-resketch-sidebar-canvas', '');
         }
     }

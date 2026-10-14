@@ -43,7 +43,7 @@ Kirigami.ApplicationWindow {
             ? Object.assign({}, item, {enabled: checked}) : item)
     }
     readonly property var sections: [
-        {title: "Appearance", icon: "preferences-desktop-theme", keywords: "theme colors CSS transparency opacity blur floating sidebars corners radius window controls decorations motion"},
+        {title: "Appearance", icon: "preferences-desktop-theme", keywords: "theme colors CSS transparency opacity blur floating sidebars corners radius cursor window controls decorations motion"},
         {title: "Tabs", icon: "tab-duplicate", keywords: "sleep remember restore loaded Home"},
         {title: "Performance", icon: "preferences-system-performance", keywords: "memory preview quality menus Chromium GPU Vulkan canvas flags switches"},
         {title: "Notifications", icon: "preferences-desktop-notification", keywords: "desktop alerts enable disable Home"},
@@ -449,6 +449,16 @@ Kirigami.ApplicationWindow {
                                         model: ["Desktop", "Figma canvas"]
                                         currentIndex: appSettings.sidebarBackdrop === "canvas" ? 1 : 0
                                         onActivated: appSettings.sidebarBackdrop = currentIndex === 1 ? "canvas" : "desktop"
+                                    }
+
+                                    Controls.CheckBox {
+                                        objectName: "useSystemCursorToggle"
+                                        Kirigami.FormData.label: "Canvas cursor:"
+                                        text: "Use the system cursor instead of Figma's cursor"
+                                        checked: appSettings.useSystemCursor
+                                        onToggled: appSettings.useSystemCursor = checked
+                                        Controls.ToolTip.text: "Figma's custom canvas cursors are shown by default. Text and resize cursors still follow the current tool."
+                                        Controls.ToolTip.visible: hovered
                                     }
 
                                     Controls.CheckBox {
