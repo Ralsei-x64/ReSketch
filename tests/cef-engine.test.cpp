@@ -138,6 +138,22 @@ CefView {
         require(top.red() > 180 && top.blue() < 90 && bottom.blue() > 180 && bottom.red() < 90,
                 "frame colors and orientation");
         capture.reset();
+        view->setOverviewPreview(true);
+        view->setRenderScale(0.5);
+        until([&] { return js("devicePixelRatio").toDouble() == 0.5; }, "preview render scale");
+        require(js("innerWidth===400 && innerHeight===300").toBool(), "preview keeps the CSS viewport");
+        require(view->browser()->GetHost()->GetWindowlessFrameRate() == 30, "overview frame rate budget");
+        auto previewCapture = view->grabToImage();
+        bool previewCaptured = false;
+        QObject::connect(previewCapture.get(), &QQuickItemGrabResult::ready, [&] { previewCaptured = true; });
+        until([&] { return previewCaptured; }, "scaled preview capture");
+        const auto previewImage = previewCapture->image();
+        require(previewImage.pixelColor(100, 100).red() > 180 && previewImage.pixelColor(100, 220).blue() > 180,
+                "scaled preview pixels and orientation");
+        previewCapture.reset();
+        view->setOverviewPreview(false);
+        view->setRenderScale(1);
+        until([&] { return js("devicePixelRatio").toDouble() == 1; }, "interactive render scale restored");
         QMouseEvent press(QEvent::MouseButtonPress, QPointF(40, 35), QPointF(40, 35), Qt::LeftButton,
                           Qt::LeftButton, Qt::NoModifier);
         QMouseEvent release(QEvent::MouseButtonRelease, QPointF(40, 35), QPointF(40, 35), Qt::LeftButton,

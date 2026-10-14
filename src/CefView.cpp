@@ -364,7 +364,8 @@ class CefQuickClient final : public CefClient,
         if (!view)
             return false;
         auto *screen = view->window() ? view->window()->screen() : QGuiApplication::primaryScreen();
-        info.device_scale_factor = view->window() ? view->window()->devicePixelRatio() : 1;
+        info.device_scale_factor =
+            (view->window() ? view->window()->devicePixelRatio() : 1) * view->renderScale();
         const auto rect = screen ? screen->geometry() : QRect(0, 0, 1280, 800);
         info.rect = CefRect(rect.x(), rect.y(), rect.width(), rect.height());
         const auto available = screen ? screen->availableGeometry() : rect;
@@ -992,8 +993,8 @@ void CefQuickView::ensureBrowser() {
     info.shared_texture_enabled = cefSharedTexturesSupported();
     CefBrowserSettings settings;
     settings.background_color = CefColorSetARGB(0, 0, 0, 0);
-    settings.windowless_frame_rate =
-        window() && window()->screen() ? qBound(1, qRound(window()->screen()->refreshRate()), 240) : 60;
+    settings.windowless_frame_rate = m_overviewPreview ? 30
+        : window() && window()->screen() ? qBound(1, qRound(window()->screen()->refreshRate()), 240) : 60;
     m_client = new CefQuickClient(this);
     m_creating = true;
     m_loading = true;
@@ -1083,14 +1084,38 @@ void CefQuickView::setLifecycleState(LifecycleState value) {
         emit lifecycleStateChanged();
 }
 void CefQuickView::syncVisibility() {
-    if (m_browser)
+    if (m_browser) {
         m_browser->GetHost()->WasHidden(m_lifecycle != LifecycleState::Active || !isVisible());
+        // Showing an evicted OSR surface can leave it stalled. Screen-info
+        // notification regenerates its surface ID even when the size is unchanged.
+        // https://github.com/chromiumembedded/cef/issues/3427
+        if (isVisible() && m_lifecycle == LifecycleState::Active)
+            syncScreen();
+    }
+}
+void CefQuickView::setOverviewPreview(bool value) {
+    if (m_overviewPreview == value)
+        return;
+    m_overviewPreview = value;
+    syncScreen();
+    emit overviewPreviewChanged();
+}
+void CefQuickView::setRenderScale(qreal value) {
+    if (!std::isfinite(value))
+        return;
+    value = qBound(qreal(0.1), value, qreal(1));
+    if (qFuzzyCompare(m_renderScale, value))
+        return;
+    m_renderScale = value;
+    syncScreen();
+    emit renderScaleChanged();
 }
 void CefQuickView::syncScreen() {
     if (!m_browser)
         return;
     auto *screen = window() ? window()->screen() : QGuiApplication::primaryScreen();
-    m_browser->GetHost()->SetWindowlessFrameRate(screen ? qBound(1, qRound(screen->refreshRate()), 240) : 60);
+    const int fps = m_overviewPreview ? 30 : screen ? qBound(1, qRound(screen->refreshRate()), 240) : 60;
+    m_browser->GetHost()->SetWindowlessFrameRate(fps);
     m_browser->GetHost()->NotifyScreenInfoChanged();
     m_browser->GetHost()->WasResized();
 }

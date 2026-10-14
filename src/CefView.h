@@ -214,6 +214,9 @@ class CefQuickView : public QQuickItem {
     Q_PROPERTY(CefScriptCollection *userScripts READ userScripts CONSTANT)
     Q_PROPERTY(CefViewSettings *settings READ settings CONSTANT)
     Q_PROPERTY(QString renderingBackend READ renderingBackend NOTIFY renderingBackendChanged)
+    Q_PROPERTY(bool overviewPreview READ overviewPreview WRITE setOverviewPreview NOTIFY
+                   overviewPreviewChanged)
+    Q_PROPERTY(qreal renderScale READ renderScale WRITE setRenderScale NOTIFY renderScaleChanged)
   public:
     enum class LifecycleState { Active, Frozen, Discarded };
     Q_ENUM(LifecycleState)
@@ -230,6 +233,10 @@ class CefQuickView : public QQuickItem {
     int loadProgress() const { return m_progress; }
     LifecycleState lifecycleState() const { return m_lifecycle; }
     void setLifecycleState(LifecycleState value);
+    bool overviewPreview() const { return m_overviewPreview; }
+    void setOverviewPreview(bool value);
+    qreal renderScale() const { return m_renderScale; }
+    void setRenderScale(qreal value);
     qint64 renderProcessPid() const { return m_pid; }
     CefProfile *profile() const { return m_profile; }
     void setProfile(CefProfile *value);
@@ -267,6 +274,8 @@ class CefQuickView : public QQuickItem {
     void devToolsViewChanged();
     void backgroundColorChanged();
     void renderingBackendChanged();
+    void overviewPreviewChanged();
+    void renderScaleChanged();
     void windowCloseRequested();
     void newWindowRequested(CefNewWindowRequest *request);
     void navigationRequested(CefNavigationRequest *request);
@@ -305,6 +314,8 @@ class CefQuickView : public QQuickItem {
     int m_progress = 0;
     qint64 m_pid = 0;
     LifecycleState m_lifecycle = LifecycleState::Active;
+    bool m_overviewPreview = false;
+    qreal m_renderScale = 1;
     QPointer<CefProfile> m_profile;
     QPointer<CefQuickView> m_inspected, m_devTools;
     QColor m_background = Qt::transparent;

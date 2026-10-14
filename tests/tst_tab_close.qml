@@ -200,6 +200,69 @@ Item {
             wait(350)
         }
 
+        function test_all_visible_overview_previews_keep_animating() {
+            appSettings.reduceMotion = true
+            appSettings.maximumLoadedTabs = 100
+            appSettings.sleepMinutes = 240
+            app.width = 1360
+            app.height = 900
+            for (let i = app.views.length; i < 10; ++i) app.openTab("about:blank", null, true)
+            const views = app.views.slice()
+            for (let i = 0; i < views.length; ++i) {
+                const view = views[i]
+                app.activateTab(i, false)
+                tryVerify(() => view.renderProcessPid > 0)
+                view.runJavaScript("document.title='Live preview " + i + "';document.body.innerHTML='';"
+                    + "window.previewTicks=0;window.tick=()=>{++previewTicks;"
+                    + "document.body.style.backgroundColor=previewTicks%2?'#224488':'#448822';"
+                    + "requestAnimationFrame(tick)};requestAnimationFrame(tick);true")
+                tryCompare(view, "title", "Live preview " + i)
+                tryCompare(view, "loading", false)
+                view.hasLoadedFrame = true
+            }
+            app.toggleOverview()
+            tryCompare(app, "overviewProgress", 1)
+            function sample() {
+                const values = []
+                for (let i = 0; i < views.length; ++i)
+                    views[i].runJavaScript('previewTicks', value => values[i] = Number(value))
+                tryVerify(() => values.filter(value => Number.isFinite(value)).length === views.length)
+                return values
+            }
+            const before = sample()
+            wait(1000)
+            const after = sample()
+            for (let i = 0; i < views.length; ++i) {
+                verify(views[i].overviewPreview, "Preview " + i + " uses the overview frame budget")
+                verify(after[i] - before[i] <= 45, "Preview " + i + " is capped at 30 fps")
+                verify(views[i].renderScale < 1, "Preview " + i + " renders at card resolution")
+                verify(views[i].visible, "Preview " + i + " remains visible")
+                compare(views[i].lifecycleState, CefView.LifecycleState.Active)
+                verify(after[i] > before[i], "Preview " + i + " continues animating")
+            }
+            app.selectOverviewView(views[7])
+            tryCompare(app, "overviewVisible", false)
+            compare(views[7].overviewPreview, false)
+            compare(views[7].renderScale, 1, "Selecting a preview restores full resolution")
+            appSettings.compactPreviewTextures = false
+            for (let cycle = 0; cycle < 2; ++cycle) {
+                app.toggleOverview()
+                tryCompare(app, "overviewProgress", 1)
+                const start = sample()
+                wait(300)
+                const end = sample()
+                for (let i = 0; i < views.length; ++i) {
+                    verify(end[i] > start[i], "Preview " + i + " recovers after hiding/showing")
+                    compare(views[i].renderScale, 1)
+                }
+                app.selectOverviewView(views[cycle])
+                tryCompare(app, "overviewVisible", false)
+            }
+            appSettings.compactPreviewTextures = true
+            appSettings.maximumLoadedTabs = 5
+            appSettings.sleepMinutes = 5
+        }
+
         function verifySelection(view) {
             compare(app.activeView, view)
             compare(app.activeIndex, app.views.indexOf(view))
@@ -1866,6 +1929,50 @@ Item {
             for (const window of app.detachedWindows.slice()) window.close()
             app.dismissOverview()
             app.show()
+        }
+
+        function test_floating_sidebars_clip_comment_pins() {
+            const view = app.activeView
+            const fixture = '<style>body{margin:0;--color-bg:#eee;--color-border:#8899aa}'
+                + '.gpu-view-content{position:absolute;inset:0;background:#444}'
+                + 'aside{position:absolute;right:0;top:0;width:200px;height:400px}'
+                + '#pins{position:absolute;inset:0;z-index:999;pointer-events:none}'
+                + '#pin{position:absolute;right:80px;top:80px;width:30px;height:30px;background:red;pointer-events:auto}'
+                + '</style><div class="gpu-view-content"></div><aside data-testid="properties-panel"></aside>'
+                + '<div id="pins" class="comments_view--outerAnchorContainer--fixture"><div id="pin"></div></div>'
+            let ready = false, result = null
+            view.runJavaScript('document.body.innerHTML=' + JSON.stringify(fixture), () => ready = true)
+            tryVerify(() => ready)
+            const options = {theme:"light", floatingSidebars:true, sidebarCornerRadius:22, sidebarMargin:8,
+                             translucentSidebars:false, opacity:60, sidebarBackdrop:"desktop"}
+            function apply() {
+                view.runJavaScript('(()=>{const location={pathname:"/design/Test/File"};'
+                    + FigmaTheme.sidebarMaskSource + ';' + FigmaTheme.sidebarSource
+                    + ';sidebarAppearance(' + JSON.stringify(options) + ',(id,css)=>{'
+                    + 'let s=document.getElementById(id);if(!css){s?.remove();return}'
+                    + 'if(!s){s=document.createElement("style");s.id=id;document.head.appendChild(s)}s.textContent=css;});})()')
+            }
+            function inspect() {
+                view.runJavaScript('(()=>{const pin=document.getElementById("pin"),r=pin.getBoundingClientRect();'
+                    + 'return {clip:getComputedStyle(document.getElementById("pins")).clipPath,'
+                    + 'pinVisible:document.elementFromPoint(r.x+15,r.y+15)===pin}})()', value => result = value)
+            }
+            apply()
+            tryVerify(() => { inspect(); return result?.clip.startsWith("path(evenodd,") && !result.pinVisible })
+            // Mask comment pins for both backdrop modes, including opaque panels.
+            options.sidebarBackdrop = "canvas"
+            options.opacity = 100
+            apply()
+            tryVerify(() => { inspect(); return result?.clip.startsWith("path(evenodd,") && !result.pinVisible })
+            view.runJavaScript('document.getElementById("pin").style.right="300px"')
+            tryVerify(() => { inspect(); return result?.pinVisible })
+            // Resized/replaced comment overlays must keep the cutout aligned.
+            const originalClip = result.clip
+            view.runJavaScript('document.getElementById("pins").style.left="40px";document.getElementById("pin").style.right="80px"')
+            tryVerify(() => { inspect(); return result?.clip.startsWith("path(evenodd,") && result.clip !== originalClip && !result.pinVisible })
+            options.floatingSidebars = false
+            apply()
+            tryVerify(() => { inspect(); return result?.clip === "none" && result.pinVisible })
         }
 
         function test_floating_sidebars_keep_backdrops_and_restore_layout() {

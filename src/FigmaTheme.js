@@ -297,7 +297,10 @@ function sidebarAppearance(options, stylesheet) {
         return;
     }
     const selector = '[data-testid="navigation-bar"], [data-onboarding-key="unified-design-onboarding-left-panel"], [data-testid="properties-panel"], [class*="left_panel_container--sizeContainer--"]:not(:has([data-onboarding-key="unified-design-onboarding-left-panel"])), [class*="sidebar--navDefault--"], .fb-sidebar';
-    let panels = [], ancestors = new Set(), canvases = [], frame = 0;
+    // Comment pins are DOM overlays, separate from the WebGL canvas. Mask them
+    // too so they cannot appear through the floating panels' transparent surface.
+    const commentSelector = '[class*="comments_view--outerAnchorContainer--"]';
+    let panels = [], ancestors = new Set(), canvases = [], comments = [], frame = 0;
     let layout = null;
     const authoredSizes = new WeakMap();
     const authoredSize = panel => panel.style.width + ':' + panel.style.height;
@@ -350,7 +353,7 @@ function sidebarAppearance(options, stylesheet) {
                 panel.style.removeProperty('--resketch-sidebar-' + name);
         }
         for (const ancestor of ancestors) ancestor.removeAttribute('data-resketch-sidebar-ancestor');
-        for (const canvas of canvases) {
+        for (const canvas of canvases.concat(comments)) {
             canvas.removeAttribute('data-resketch-sidebar-canvas');
             canvas.style.removeProperty('--resketch-sidebar-clip');
         }
@@ -376,9 +379,10 @@ function sidebarAppearance(options, stylesheet) {
         observer.observe(document.body, {childList:true, subtree:true});
         for (const panel of panels) observer.observe(panel, {attributes:true, attributeFilter:['style']});
         canvases = Array.from(document.querySelectorAll('.gpu-view-content'));
+        comments = options.floatingSidebars ? Array.from(document.querySelectorAll(commentSelector)) : [];
         // Native layout can move the canvas after updating the panel flags.
         // Watch its actual layout, ignoring our mask variables to avoid a loop.
-        for (const canvas of canvases) for (let node = canvas; node && node !== document.body; node = node.parentElement) {
+        for (const canvas of canvases.concat(comments)) for (let node = canvas; node && node !== document.body; node = node.parentElement) {
             canvasSizes.set(node, canvasSize(node));
             observer.observe(node, {attributes:true, attributeFilter:['style']});
         }
@@ -431,7 +435,7 @@ function sidebarAppearance(options, stylesheet) {
         }).filter(rect => rect.right > rect.left && rect.bottom > rect.top);
         underlay.style.clipPath = options.sidebarBackdrop === 'desktop'
             ? sidebarMask({left:0, top:0, width:innerWidth, height:innerHeight}, rects) : 'none';
-        if (options.sidebarBackdrop === 'desktop') for (const canvas of canvases) {
+        for (const canvas of (options.sidebarBackdrop === 'desktop' ? canvases : []).concat(comments)) {
             canvas.style.setProperty('--resketch-sidebar-clip', sidebarMask(canvas.getBoundingClientRect(), rects));
             canvas.setAttribute('data-resketch-sidebar-canvas', '');
         }
@@ -443,7 +447,7 @@ function sidebarAppearance(options, stylesheet) {
             ? (panels.includes(record.target) && authoredSizes.get(record.target) !== authoredSize(record.target))
                 || (canvasSizes.has(record.target) && canvasSizes.get(record.target) !== canvasSize(record.target))
             : [...record.addedNodes, ...record.removedNodes].some(node =>
-            node.nodeType === 1 && (node.matches(selector + ', .gpu-view-content') || node.querySelector(selector + ', .gpu-view-content'))))) schedule();
+            node.nodeType === 1 && (node.matches(selector + ', .gpu-view-content, ' + commentSelector) || node.querySelector(selector + ', .gpu-view-content, ' + commentSelector))))) schedule();
     });
     observer.observe(document.body, {childList:true, subtree:true});
     window.addEventListener('resize', schedule);

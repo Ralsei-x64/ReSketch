@@ -704,10 +704,10 @@ Kirigami.ApplicationWindow {
                                     }
 
                                     Controls.CheckBox {
-                                        text: "Use compact sleeping-preview textures"
+                                        text: "Use compact overview textures"
                                         checked: appSettings.compactPreviewTextures
                                         onToggled: appSettings.compactPreviewTextures = checked
-                                        Controls.ToolTip.text: "Limit sleeping-preview effects to 640 × 480 pixels. Turn off for full display resolution during animations."
+                                        Controls.ToolTip.text: "Render live previews at card resolution and limit sleeping-preview effects to 640 × 480 pixels. Turn off for full resolution."
                                         Controls.ToolTip.visible: hovered
                                     }
 
