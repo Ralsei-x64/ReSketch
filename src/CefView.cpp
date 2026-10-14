@@ -364,8 +364,7 @@ class CefQuickClient final : public CefClient,
         if (!view)
             return false;
         auto *screen = view->window() ? view->window()->screen() : QGuiApplication::primaryScreen();
-        info.device_scale_factor =
-            (view->window() ? view->window()->devicePixelRatio() : 1) * view->renderScale();
+        info.device_scale_factor = view->window() ? view->window()->devicePixelRatio() : 1;
         const auto rect = screen ? screen->geometry() : QRect(0, 0, 1280, 800);
         info.rect = CefRect(rect.x(), rect.y(), rect.width(), rect.height());
         const auto available = screen ? screen->availableGeometry() : rect;
@@ -1099,16 +1098,6 @@ void CefQuickView::setOverviewPreview(bool value) {
     m_overviewPreview = value;
     syncScreen();
     emit overviewPreviewChanged();
-}
-void CefQuickView::setRenderScale(qreal value) {
-    if (!std::isfinite(value))
-        return;
-    value = qBound(qreal(0.1), value, qreal(1));
-    if (qFuzzyCompare(m_renderScale, value))
-        return;
-    m_renderScale = value;
-    syncScreen();
-    emit renderScaleChanged();
 }
 void CefQuickView::syncScreen() {
     if (!m_browser)

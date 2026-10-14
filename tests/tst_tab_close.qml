@@ -200,6 +200,51 @@ Item {
             wait(350)
         }
 
+        function test_overview_keeps_canvas_density_and_layout_data() {
+            return [{tag:"compact-full-quality", compact:true, quality:100},
+                    {tag:"compact-low-quality", compact:true, quality:25},
+                    {tag:"full-textures-low-quality", compact:false, quality:25}]
+        }
+
+        function test_overview_keeps_canvas_density_and_layout(data) {
+            appSettings.maximumLoadedTabs = 100
+            appSettings.compactPreviewTextures = data.compact
+            appSettings.overviewPreviewQuality = data.quality
+            const target = app.views[0]
+            let ready = false, result = null
+            target.runJavaScript("document.body.innerHTML='<canvas id=previewCanvas></canvas><div id=anchor></div>';"
+                + "document.body.style.margin='0';document.getElementById('anchor').style.cssText='position:absolute;left:37%;top:42%;width:20px;height:20px';"
+                + "window.canvasStates=[];window.recordCanvas=()=>{const c=document.getElementById('previewCanvas');"
+                + "c.width=Math.round(innerWidth*devicePixelRatio);c.height=Math.round(innerHeight*devicePixelRatio);"
+                + "const r=document.getElementById('anchor').getBoundingClientRect();"
+                + "const state=[devicePixelRatio,innerWidth,innerHeight,c.width,c.height,r.x,r.y];"
+                + "if(JSON.stringify(state)!==JSON.stringify(canvasStates.at(-1)))canvasStates.push(state);"
+                + "requestAnimationFrame(recordCanvas)};recordCanvas();", () => ready = true)
+            tryVerify(() => ready)
+            target.hasLoadedFrame = true
+            function inspect() {
+                result = null
+                target.runJavaScript('canvasStates', value => result = value)
+                tryVerify(() => result !== null)
+                return result
+            }
+            const original = inspect()[0]
+            app.toggleOverview()
+            tryCompare(app, "overviewProgress", 1)
+            wait(100)
+            const previewStates = inspect()
+            compare(previewStates.length, 1, "Entering overview must not change Figma's canvas density or layout")
+            compare(previewStates[0], original)
+            app.selectOverviewView(target)
+            verify(app.overviewClosing, "Exercise the animated transition to another tab")
+            tryCompare(app, "overviewVisible", false)
+            wait(150)
+            const openedStates = inspect()
+            compare(openedStates.length, 1, "Zooming into a card must not rerasterize or shift its web content")
+            compare(openedStates[0], original)
+            compare(app.activeView, target)
+        }
+
         function test_all_visible_overview_previews_keep_animating() {
             appSettings.reduceMotion = true
             appSettings.maximumLoadedTabs = 100
@@ -235,7 +280,6 @@ Item {
             for (let i = 0; i < views.length; ++i) {
                 verify(views[i].overviewPreview, "Preview " + i + " uses the overview frame budget")
                 verify(after[i] - before[i] <= 45, "Preview " + i + " is capped at 30 fps")
-                verify(views[i].renderScale < 1, "Preview " + i + " renders at card resolution")
                 verify(views[i].visible, "Preview " + i + " remains visible")
                 compare(views[i].lifecycleState, CefView.LifecycleState.Active)
                 verify(after[i] > before[i], "Preview " + i + " continues animating")
@@ -243,7 +287,6 @@ Item {
             app.selectOverviewView(views[7])
             tryCompare(app, "overviewVisible", false)
             compare(views[7].overviewPreview, false)
-            compare(views[7].renderScale, 1, "Selecting a preview restores full resolution")
             appSettings.compactPreviewTextures = false
             for (let cycle = 0; cycle < 2; ++cycle) {
                 app.toggleOverview()
@@ -253,7 +296,6 @@ Item {
                 const end = sample()
                 for (let i = 0; i < views.length; ++i) {
                     verify(end[i] > start[i], "Preview " + i + " recovers after hiding/showing")
-                    compare(views[i].renderScale, 1)
                 }
                 app.selectOverviewView(views[cycle])
                 tryCompare(app, "overviewVisible", false)

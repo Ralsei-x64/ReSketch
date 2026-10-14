@@ -139,21 +139,19 @@ CefView {
                 "frame colors and orientation");
         capture.reset();
         view->setOverviewPreview(true);
-        view->setRenderScale(0.5);
-        until([&] { return js("devicePixelRatio").toDouble() == 0.5; }, "preview render scale");
+        require(js("devicePixelRatio").toDouble() == 1, "preview keeps native pixel density");
         require(js("innerWidth===400 && innerHeight===300").toBool(), "preview keeps the CSS viewport");
         require(view->browser()->GetHost()->GetWindowlessFrameRate() == 30, "overview frame rate budget");
         auto previewCapture = view->grabToImage();
         bool previewCaptured = false;
         QObject::connect(previewCapture.get(), &QQuickItemGrabResult::ready, [&] { previewCaptured = true; });
-        until([&] { return previewCaptured; }, "scaled preview capture");
+        until([&] { return previewCaptured; }, "preview capture");
         const auto previewImage = previewCapture->image();
         require(previewImage.pixelColor(100, 100).red() > 180 && previewImage.pixelColor(100, 220).blue() > 180,
-                "scaled preview pixels and orientation");
+                "preview pixels and orientation");
         previewCapture.reset();
         view->setOverviewPreview(false);
-        view->setRenderScale(1);
-        until([&] { return js("devicePixelRatio").toDouble() == 1; }, "interactive render scale restored");
+        require(js("devicePixelRatio").toDouble() == 1, "interactive pixel density stays unchanged");
         QMouseEvent press(QEvent::MouseButtonPress, QPointF(40, 35), QPointF(40, 35), Qt::LeftButton,
                           Qt::LeftButton, Qt::NoModifier);
         QMouseEvent release(QEvent::MouseButtonRelease, QPointF(40, 35), QPointF(40, 35), Qt::LeftButton,

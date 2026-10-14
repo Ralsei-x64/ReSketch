@@ -2858,12 +2858,11 @@ Kirigami.ApplicationWindow {
             y: 0
             transformOrigin: Item.TopLeft
             scale: frameContainer ? frameContainer.width / Math.max(1, width) : 1
-            // Keep the interactive/scaling view sharp; small cards need fewer pixels and frames.
+            // Preview quality belongs to the card texture. Changing browser density
+            // makes Figma rerasterize/reposition its canvas when the card is opened.
             overviewPreview: webView.ownerWindow.overviewVisible && !!frameContainer?.previewCard
                              && (!frameContainer.previewCard.zooming
                                  || (!webView.ownerWindow.overviewClosing && webView.ownerWindow.overviewProgress >= 1))
-            renderScale: overviewPreview && appSettings.compactPreviewTextures
-                         ? Math.min(1, scale * appSettings.overviewPreviewQuality / 100) : 1
             visible: false
             enabled: !webView.ownerWindow.overviewVisible
             opacity: !hasLoadedFrame ? 0
