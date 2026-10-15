@@ -256,6 +256,16 @@ function sidebarAppearance(options, stylesheet) {
     const commentSelector = '[class*="comments_view--outerAnchorContainer--"], [class*="multiplayer_cursors--root--"], [class*="viewport_overlay--overflowContainer--"]';
     let panels = [], ancestors = new Set(), canvases = [], comments = [], frame = 0;
     let layout = null;
+    let canvasStore = null, canvasColor = '', unsubscribeCanvas = null;
+    function pageCanvasColor() {
+        try {
+            const mirror = canvasStore?.getState()?.mirror;
+            const color = mirror?.sceneGraph?.get(mirror.appModel?.currentPage)?.backgroundColor;
+            if (color && [color.r, color.g, color.b].every(Number.isFinite))
+                return 'rgb(' + [color.r, color.g, color.b].map(value => Math.round(value * 255)).join(',') + ')';
+        } catch (_) {}
+        return '';
+    }
     const authoredSizes = new WeakMap();
     const authoredSize = panel => panel.style.width + ':' + panel.style.height;
     const canvasSizes = new WeakMap();
@@ -359,8 +369,19 @@ function sidebarAppearance(options, stylesheet) {
         const railBounds = rail?.getBoundingClientRect(), leftBounds = leftPanel?.getBoundingClientRect();
         const joined = options.floatingSidebars && railBounds?.width && leftBounds?.width
             && Math.abs(railBounds.right - leftBounds.left) < 3;
+        const store = window.__resketchAppearance?.store;
+        if (store !== canvasStore) {
+            unsubscribeCanvas?.();
+            canvasStore = store;
+            unsubscribeCanvas = store?.subscribe(() => {
+                if (pageCanvasColor() !== canvasColor) schedule();
+            });
+        }
+        // The WebGL page fill can differ from .gpu-view-content's fallback gray.
+        // Use the rendered page color behind the masked native scrollbar tracks.
+        canvasColor = pageCanvasColor();
         underlay.style.backgroundColor = (options.floatingSidebars || options.sidebarBackdrop === 'canvas') && canvases.length
-            ? getComputedStyle(canvases[0]).backgroundColor : bg;
+            ? canvasColor || getComputedStyle(canvases[0]).backgroundColor : bg;
         for (const panel of panels) {
             authoredSizes.set(panel, authoredSize(panel));
             panel.style.setProperty('--resketch-sidebar-tint', tint);
@@ -423,6 +444,7 @@ function sidebarAppearance(options, stylesheet) {
             resize.disconnect();
             observer.disconnect();
             window.removeEventListener('resize', schedule);
+            unsubscribeCanvas?.();
             clear();
             layout?.dispose();
             underlay.remove();

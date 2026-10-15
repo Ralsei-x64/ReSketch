@@ -3,6 +3,9 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
 About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
+1.0.12 - 2026-10-15
+Matched hidden canvas scrollbar edges to the current Figma page background, removing gray bottom and right strips and updating the fill live.
+
 1.0.11 - 2026-10-15
 Kept Home on the file browser when opening Figma documents, preventing editor navigation and repeated file tabs.
 

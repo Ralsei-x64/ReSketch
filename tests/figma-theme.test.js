@@ -227,11 +227,22 @@ const canvas = {
 const controllerStyles = new Map();
 const frames = [];
 const body = {prepend() {}};
+let underlay;
+const subscribers = new Set();
+const mirror = {appModel: {currentPage:'first'}, sceneGraph: {get: id => pages.get(id)}};
+const pages = new Map([
+    ['first', {backgroundColor:{r:29/255, g:29/255, b:29/255}}],
+    ['second', {backgroundColor:{r:1, g:0.5, b:0}}]
+]);
+const canvasStore = {getState: () => ({mirror}), subscribe(callback) {
+    subscribers.add(callback);
+    return () => subscribers.delete(callback);
+}};
 canvas.parentElement = body;
 const sidebarContext = vm.createContext({
-    window: {addEventListener() {}, removeEventListener() {}},
+    window: {addEventListener() {}, removeEventListener() {}, __resketchAppearance:{store:canvasStore}},
     location: {pathname:'/design/Test/File'}, innerWidth:1280, innerHeight:800,
-    document: {body, createElement: () => ({style:{}, remove() {}}),
+    document: {body, createElement: () => (underlay = {style:{}, remove() {}}),
         querySelector: selector => selector === '.gpu-view-content' ? canvas : null,
         querySelectorAll: selector => selector === '.gpu-view-content' ? [canvas] : []},
     getComputedStyle: () => ({backgroundColor:'#444', getPropertyValue: () => '#222'}),
@@ -248,6 +259,22 @@ function liveSidebars(floating, hidden, backdrop = 'desktop') {
     return canvasAttributes.has('data-resketch-canvas-scrollbars-hidden');
 }
 assert.equal(liveSidebars(true, true), true);
+assert.equal(underlay.style.backgroundColor, 'rgb(29,29,29)',
+    'Hidden canvas tracks match the rendered page fill instead of the gray DOM fallback');
+mirror.appModel.currentPage = 'second';
+subscribers.forEach(callback => callback());
+while (frames.length) frames.shift()();
+assert.equal(underlay.style.backgroundColor, 'rgb(255,128,0)', 'Switching pages updates the edge fill');
+pages.get('second').backgroundColor = {r:0, g:0, b:1};
+subscribers.forEach(callback => callback());
+while (frames.length) frames.shift()();
+assert.equal(underlay.style.backgroundColor, 'rgb(0,0,255)', 'Page background edits update the edge fill');
+subscribers.forEach(callback => callback());
+assert.equal(frames.length, 0, 'Unrelated store updates do not schedule more appearance work');
+mirror.appModel.currentPage = 'unloaded';
+subscribers.forEach(callback => callback());
+while (frames.length) frames.shift()();
+assert.equal(underlay.style.backgroundColor, '#444', 'Loading pages retain the DOM background fallback');
 const controller = sidebarContext.window.__resketchSidebars;
 assert.equal(liveSidebars(true, false), false, 'Showing scrollbars clears the live mask');
 assert.equal(liveSidebars(true, true, 'canvas'), true, 'Both sidebar backdrops hide canvas bars');
@@ -260,4 +287,7 @@ const mainSource = fs.readFileSync('src/Main.qml', 'utf8');
 const syncTheme = mainSource.slice(mainSource.indexOf('function syncFigmaTheme('), mainSource.indexOf('function pollHomeNotifications('));
 assert.ok(!syncTheme.includes('.reload('), 'Appearance changes must not reload documents');
 assert.ok(app.context.script({floatingSidebars:true, hideFloatingScrollbars:true}, '').includes('"hideFloatingScrollbars":true'));
+assert.equal(subscribers.size, 1, 'Appearance updates reuse one canvas-color subscription');
+controller.dispose();
+assert.equal(subscribers.size, 0, 'Disposing floating sidebars removes the canvas-color subscription');
 console.log('Live canvas scrollbar visibility checks passed');
