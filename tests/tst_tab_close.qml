@@ -369,7 +369,9 @@ Item {
             const dialog = findChild(app, "tabGroupNameDialog")
             const editor = findChild(app, "tabGroupNameEditor")
             const picker = findChild(app, "tabGroupColorPicker")
-            verify(picker.y > editor.y + editor.height, "Color picker is below the name field")
+            verify(picker.mapToItem(dialog.contentItem, 0, 0).y
+                   > editor.mapToItem(dialog.contentItem, 0, editor.height).y,
+                   "Color picker is below the name field")
             compare(editor.text, "Tab Group 1")
             compare(app.tabGroups.length, 0)
             dialog.reject()
@@ -391,6 +393,63 @@ Item {
             dialog.accept()
             compare(app.groupFor(view).title, "Renamed work")
             compare(String(app.groupFor(view).color), "#4477aa")
+        }
+
+        function test_tab_group_dialog_keyboard_navigation() {
+            app.requestActivate()
+            tryVerify(() => app.active)
+            const view = app.views[0]
+            app.requestTabGroup(view)
+            const dialog = findChild(app, "tabGroupNameDialog")
+            const name = findChild(app, "tabGroupNameEditor")
+            const icon = findChild(app, "tabGroupIconPicker")
+            const color = findChild(app, "tabGroupColorPicker")
+            const save = findChild(app, "tabGroupAcceptButton")
+            const cancel = findChild(app, "tabGroupCancelButton")
+            tryCompare(dialog, "opened", true)
+            tryCompare(name, "activeFocus", true)
+            compare(name.selectedText, "Tab Group 1")
+            name.text = "Keyboard group"
+            compare(findChild(app, "tabGroupPreviewName").text, name.text)
+            keyClick(Qt.Key_Tab)
+            tryCompare(icon, "activeFocus", true)
+            keyClick(Qt.Key_Right)
+            tryCompare(color, "activeFocus", true)
+            keyClick(Qt.Key_Tab)
+            tryCompare(save, "activeFocus", true)
+            keyClick(Qt.Key_Tab)
+            tryCompare(cancel, "activeFocus", true)
+            keyClick(Qt.Key_Tab)
+            tryCompare(name, "activeFocus", true)
+            keyClick(Qt.Key_Backtab, Qt.ShiftModifier)
+            tryCompare(cancel, "activeFocus", true)
+            keyClick(Qt.Key_N, Qt.AltModifier)
+            tryCompare(name, "activeFocus", true)
+            name.text = "  "
+            compare(save.enabled, false)
+            keyClick(Qt.Key_Return)
+            compare(dialog.visible, true, "Blank names cannot be submitted")
+            keyClick(Qt.Key_Return, Qt.ControlModifier)
+            compare(dialog.visible, true)
+            keyClick(Qt.Key_Tab)
+            keyClick(Qt.Key_Tab)
+            keyClick(Qt.Key_Tab)
+            tryCompare(cancel, "activeFocus", true, 5000)
+            keyClick(Qt.Key_N, Qt.AltModifier)
+            name.text = "  Keyboard group  "
+            keyClick(Qt.Key_C, Qt.AltModifier)
+            compare(String(dialog.groupColor), "#e75d73")
+            tryCompare(color, "activeFocus", true)
+            keyClick(Qt.Key_Return, Qt.ControlModifier)
+            tryCompare(dialog, "visible", false)
+            compare(app.groupFor(view).title, "Keyboard group")
+            app.editTabGroup(view.tabGroupId)
+            tryCompare(dialog, "opened", true)
+            compare(save.text, "Save changes")
+            name.text = "Discard this edit"
+            keyClick(Qt.Key_Escape)
+            tryCompare(dialog, "visible", false)
+            compare(app.groupFor(view).title, "Keyboard group")
         }
 
         function test_empty_groups_are_discarded_and_closing_members_are_not_saved() {

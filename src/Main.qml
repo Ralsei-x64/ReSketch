@@ -5247,14 +5247,58 @@ Kirigami.ApplicationWindow {
         property var createViews: []
         property color groupColor: Kirigami.Theme.highlightColor
         property string groupIcon: "folder"
+        property bool choosingColor: false
+        readonly property bool validName: groupNameEditor.text.trim().length > 0
+        readonly property bool keyboardActionsEnabled: visible && !choosingColor && !groupIconPicker.item?.visible
+        readonly property int memberCount: createView ? Math.max(1, createViews.length)
+            : root.views.filter(view => view.tabGroupId === groupId).length
         title: createView ? qsTr("New tab group") : qsTr("Edit tab group")
-        width: Math.min(380, root.width - Kirigami.Units.largeSpacing * 2)
-        padding: Kirigami.Units.largeSpacing
+        width: Math.min(440, root.width - Kirigami.Units.largeSpacing * 2)
+        padding: 20
         modal: true
+        focus: true
+        closePolicy: Controls.Popup.CloseOnEscape
         anchors.centerIn: parent
-        standardButtons: Controls.Dialog.Ok | Controls.Dialog.Cancel
+        background: Rectangle {
+            radius: 12
+            color: Kirigami.Theme.backgroundColor
+            border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g,
+                                  Kirigami.Theme.textColor.b, 0.22)
+        }
+        header: ColumnLayout {
+            spacing: 0
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: groupRenameDialog.leftPadding
+                Layout.rightMargin: groupRenameDialog.rightPadding - Kirigami.Units.smallSpacing
+                Layout.topMargin: Kirigami.Units.largeSpacing
+                Kirigami.Heading {
+                    Layout.fillWidth: true
+                    text: groupRenameDialog.title
+                    level: 3
+                    font.weight: Font.DemiBold
+                    elide: Text.ElideRight
+                }
+                Controls.ToolButton {
+                    icon.name: "window-close"
+                    icon.width: root.tabIconSize
+                    icon.height: root.tabIconSize
+                    focusPolicy: Qt.NoFocus
+                    Accessible.name: qsTr("Cancel tab group changes")
+                    onClicked: groupRenameDialog.reject()
+                }
+            }
+            Controls.Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: groupRenameDialog.leftPadding
+                Layout.rightMargin: groupRenameDialog.rightPadding
+                text: qsTr("Give related tabs a name and a look.")
+                opacity: 0.72
+                wrapMode: Text.WordWrap
+            }
+        }
         onAccepted: {
-            if (groupNameEditor.text.trim()) {
+            if (validName) {
                 if (createView) {
                     const id = createTabGroup(createView, groupNameEditor.text.trim(), groupColor, groupIcon)
                     if (id) for (const view of createViews) assignTabGroup(view, id)
@@ -5267,47 +5311,180 @@ Kirigami.ApplicationWindow {
             createViews = []
         }
         contentItem: ColumnLayout {
-            spacing: Kirigami.Units.smallSpacing
-            Controls.Label { text: qsTr("Name"); font.bold: true }
-            Controls.TextField {
-                id: groupNameEditor
-                objectName: "tabGroupNameEditor"
+            spacing: Kirigami.Units.largeSpacing
+            Rectangle {
                 Layout.fillWidth: true
-                placeholderText: qsTr("Group name")
-                Accessible.name: qsTr("Group name")
-                onAccepted: if (text.trim()) groupRenameDialog.accept()
-            }
-            Controls.Button {
-                objectName: "tabGroupIconPicker"
-                Layout.fillWidth: true
-                text: qsTr("Choose icon…")
-                icon.name: groupRenameDialog.groupIcon
-                onClicked: root.chooseTabGroupIcon("")
-            }
-            Controls.Label {
-                text: qsTr("Color")
-                font.bold: true
-                Layout.topMargin: Kirigami.Units.mediumSpacing
-            }
-            Controls.Button {
-                objectName: "tabGroupColorPicker"
-                Layout.fillWidth: true
-                text: qsTr("Choose color…")
-                leftPadding: Kirigami.Units.largeSpacing + groupColorSwatch.width + Kirigami.Units.smallSpacing
-                onClicked: groupRenameDialog.groupColor = appSettings.chooseGroupColor(groupRenameDialog.groupColor, root)
-                Rectangle {
-                    id: groupColorSwatch
-                    anchors.left: parent.left
-                    anchors.leftMargin: Kirigami.Units.largeSpacing
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: root.tabIconSize
-                    height: width
-                    radius: 3
-                    color: groupRenameDialog.groupColor
-                    border.width: 1
-                    border.color: Kirigami.Theme.textColor
+                implicitHeight: 76
+                radius: 10
+                color: Qt.rgba(groupRenameDialog.groupColor.r, groupRenameDialog.groupColor.g,
+                               groupRenameDialog.groupColor.b, 0.10)
+                border.color: Qt.rgba(groupRenameDialog.groupColor.r, groupRenameDialog.groupColor.g,
+                                      groupRenameDialog.groupColor.b, 0.45)
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.margins: Kirigami.Units.largeSpacing
+                    spacing: Kirigami.Units.largeSpacing
+                    Rectangle {
+                        implicitWidth: 42
+                        implicitHeight: 42
+                        radius: 9
+                        color: groupRenameDialog.groupColor
+                        Kirigami.Icon {
+                            anchors.centerIn: parent
+                            width: 24
+                            height: width
+                            source: groupRenameDialog.groupIcon
+                            color: parent.color.hslLightness > 0.55 ? "#202020" : "#ffffff"
+                        }
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 3
+                        Controls.Label {
+                            objectName: "tabGroupPreviewName"
+                            Layout.fillWidth: true
+                            text: groupNameEditor.text.trim() || qsTr("Group name")
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                        }
+                        Controls.Label {
+                            text: groupRenameDialog.memberCount === 1 ? qsTr("1 tab")
+                                : qsTr("%1 tabs").arg(groupRenameDialog.memberCount)
+                            opacity: 0.72
+                        }
+                    }
                 }
             }
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+                Controls.Label { text: qsTr("Name"); font.weight: Font.DemiBold }
+                Controls.TextField {
+                    id: groupNameEditor
+                    objectName: "tabGroupNameEditor"
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("e.g. Design research")
+                    Accessible.name: qsTr("Group name")
+                    KeyNavigation.tab: groupIconButton
+                    KeyNavigation.backtab: groupCancelButton
+                    onAccepted: if (groupRenameDialog.validName) groupRenameDialog.accept()
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.largeSpacing
+                Controls.Button {
+                    id: groupIconButton
+                    objectName: "tabGroupIconPicker"
+                    Layout.fillWidth: true
+                    implicitHeight: 44
+                    text: qsTr("Icon…")
+                    icon.name: groupRenameDialog.groupIcon
+                    icon.width: 22
+                    icon.height: 22
+                    focusPolicy: Qt.StrongFocus
+                    Accessible.name: qsTr("Choose group icon")
+                    KeyNavigation.tab: groupColorButton
+                    KeyNavigation.backtab: groupNameEditor
+                    KeyNavigation.right: groupColorButton
+                    Controls.ToolTip.visible: hovered
+                    Controls.ToolTip.text: qsTr("Choose icon (Alt+I)")
+                    onClicked: root.chooseTabGroupIcon("")
+                }
+                Controls.Button {
+                    id: groupColorButton
+                    objectName: "tabGroupColorPicker"
+                    Layout.fillWidth: true
+                    implicitHeight: 44
+                    text: qsTr("Color…")
+                    leftPadding: Kirigami.Units.largeSpacing + groupColorSwatch.width + Kirigami.Units.smallSpacing
+                    focusPolicy: Qt.StrongFocus
+                    Accessible.name: qsTr("Choose group color")
+                    Accessible.description: qsTr("Current color: %1").arg(String(groupRenameDialog.groupColor))
+                    KeyNavigation.tab: groupAcceptButton
+                    KeyNavigation.backtab: groupIconButton
+                    KeyNavigation.left: groupIconButton
+                    Controls.ToolTip.visible: hovered
+                    Controls.ToolTip.text: qsTr("Choose color (Alt+C)")
+                    onClicked: {
+                        groupRenameDialog.choosingColor = true
+                        groupRenameDialog.groupColor = appSettings.chooseGroupColor(groupRenameDialog.groupColor, root)
+                        groupRenameDialog.choosingColor = false
+                        forceActiveFocus(Qt.PopupFocusReason)
+                    }
+                    Rectangle {
+                        id: groupColorSwatch
+                        anchors.left: parent.left
+                        anchors.leftMargin: Kirigami.Units.largeSpacing
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 18
+                        height: width
+                        radius: 5
+                        color: groupRenameDialog.groupColor
+                        border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g,
+                                              Kirigami.Theme.textColor.b, 0.3)
+                    }
+                }
+            }
+            Controls.Label {
+                Layout.fillWidth: true
+                text: qsTr("Tab to navigate · Ctrl+Enter to save · Esc to cancel")
+                font: Kirigami.Theme.smallFont
+                opacity: 0.72
+                wrapMode: Text.WordWrap
+            }
+        }
+        footer: Controls.DialogButtonBox {
+            background: null
+            leftPadding: groupRenameDialog.leftPadding
+            rightPadding: groupRenameDialog.rightPadding
+            topPadding: Kirigami.Units.smallSpacing
+            bottomPadding: groupRenameDialog.bottomPadding
+            spacing: Kirigami.Units.smallSpacing
+            onAccepted: groupRenameDialog.accept()
+            onRejected: groupRenameDialog.reject()
+            Controls.Button {
+                id: groupCancelButton
+                objectName: "tabGroupCancelButton"
+                text: qsTr("Cancel")
+                implicitHeight: 36
+                focusPolicy: Qt.StrongFocus
+                Controls.DialogButtonBox.buttonRole: Controls.DialogButtonBox.RejectRole
+                KeyNavigation.tab: groupNameEditor
+                KeyNavigation.backtab: groupAcceptButton
+            }
+            Controls.Button {
+                id: groupAcceptButton
+                objectName: "tabGroupAcceptButton"
+                text: groupRenameDialog.createView ? qsTr("Create group") : qsTr("Save changes")
+                implicitHeight: 36
+                highlighted: true
+                enabled: groupRenameDialog.validName
+                focusPolicy: Qt.StrongFocus
+                Controls.DialogButtonBox.buttonRole: Controls.DialogButtonBox.AcceptRole
+                KeyNavigation.tab: groupCancelButton
+                KeyNavigation.backtab: groupColorButton
+            }
+        }
+        Shortcut {
+            sequences: ["Ctrl+Return", "Ctrl+Enter"]
+            enabled: groupRenameDialog.keyboardActionsEnabled && groupRenameDialog.validName
+            onActivated: groupRenameDialog.accept()
+        }
+        Shortcut {
+            sequence: "Alt+N"
+            enabled: groupRenameDialog.keyboardActionsEnabled
+            onActivated: groupNameEditor.forceActiveFocus(Qt.ShortcutFocusReason)
+        }
+        Shortcut {
+            sequence: "Alt+I"
+            enabled: groupRenameDialog.keyboardActionsEnabled
+            onActivated: groupIconButton.clicked()
+        }
+        Shortcut {
+            sequence: "Alt+C"
+            enabled: groupRenameDialog.keyboardActionsEnabled
+            onActivated: groupColorButton.clicked()
         }
     }
 
@@ -5323,6 +5500,10 @@ Kirigami.ApplicationWindow {
                 if (!iconName) return
                 if (groupIconPicker.groupId) root.updateTabGroup(groupIconPicker.groupId, {icon: iconName})
                 else groupRenameDialog.groupIcon = iconName
+            }
+            onVisibleChanged: {
+                if (!visible && !groupIconPicker.groupId && groupRenameDialog.visible)
+                    Qt.callLater(() => groupIconButton.forceActiveFocus(Qt.PopupFocusReason))
             }
         }
     }
