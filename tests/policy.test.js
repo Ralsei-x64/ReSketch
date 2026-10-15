@@ -60,10 +60,18 @@ assert.equal(policy.deepLink('https://evil.test/'), '')
 assert.equal(policy.redeemSecret('figma://app_auth/redeem?g_secret=abc_123&locale=en'), 'abc_123')
 
 // Bursts of file opens are diverted before Home's document or route changes.
-let homeNavigation, listeners = 0
+let homeNavigation, listeners = 0, homeRoute = 'recents'
 const opens = []
+const microtasks = []
+const homeState = {view: 'recents'}
 const home = vm.createContext({
-    window: {}, navigation: {addEventListener(type, listener) {
+    history: {state: homeState},
+    queueMicrotask: callback => microtasks.push(callback),
+    PopStateEvent: class { constructor(type, options) { this.type = type; this.state = options.state } },
+    window: {dispatchEvent(event) {
+        assert.equal(event.type, 'popstate')
+        homeRoute = event.state.view
+    }}, navigation: {addEventListener(type, listener) {
         assert.equal(type, 'navigate'); ++listeners; homeNavigation = listener
     }}, __resketchNative(kind, address) { assert.equal(kind, 'home-file'); opens.push(address) }
 })
@@ -74,13 +82,21 @@ assert.equal(listeners, 1)
 for (let i = 0; i < 20; ++i) {
     let prevented = false
     const url = `https://www.figma.com/design/Burst_${i}/File`
-    homeNavigation({destination: {url}, cancelable: true, preventDefault() { prevented = true }})
+    // Like Figma, commit app state even when pushState's navigation is cancelled.
+    homeRoute = 'fullscreen'
+    homeNavigation({destination: {url, sameDocument: true}, cancelable: true, preventDefault() { prevented = true }})
     assert.equal(prevented, true)
     assert.equal(opens[i], url)
+    homeRoute = 'fullscreen'
+    microtasks.splice(0).forEach(callback => callback())
+    assert.equal(homeRoute, 'recents', 'Home restores its app route, not only its URL')
 }
 for (const url of ['https://www.figma.com/files/recent', 'https://accounts.google.com/signin',
                    'https://figma.com.evil.test/design/abc', 'https://www.figma.com:444/design/abc'])
     homeNavigation({destination: {url}, cancelable: true, preventDefault() { assert.fail(url) }})
 assert.equal(opens.length, 20)
+homeNavigation({destination: {url: 'https://www.figma.com/design/Document/File', sameDocument: false},
+                cancelable: true, preventDefault() {}})
+assert.equal(microtasks.length, 0, 'Cancelled document loads do not need a route restoration')
 assert.equal(policy.homeNavigationScript(false), '')
 console.log('Home file navigation burst checks passed')

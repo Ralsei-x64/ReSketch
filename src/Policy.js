@@ -12,7 +12,12 @@ function homeNavigationScript(enabled) {
         window.__resketchHomeNavigation = true;
         navigation.addEventListener('navigate', event => {
             if (!event.cancelable || !/^https:\/\/(?:[a-z0-9-]+\.)*figma\.com(?::443)?\/(?:file|design|board|proto|slides|deck|site|buzz|make)\/[^/?#]+/i.test(event.destination.url)) return;
+            const state = history.state;
             event.preventDefault();
+            // Figma updates its store before pushState. Cancelling the URL alone
+            // leaves Home in the editor; restore its route after that update ends.
+            if (event.destination.sameDocument)
+                queueMicrotask(() => window.dispatchEvent(new PopStateEvent('popstate', {state})));
             __resketchNative('home-file', event.destination.url);
         });
     })()`
