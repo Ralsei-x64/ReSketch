@@ -215,38 +215,49 @@ app.run({opacity: 100})
 assert.equal(app.elements.has('resketch-loading-background'), false, 'opaque setting restores original loading backgrounds')
 console.log('Figma theme synchronization and appearance checks passed')
 
-// The canvas renderer captures its capabilities while the app module initializes.
-// Cover webpack's retained parent push: interception must neither recurse nor
-// change unrelated capabilities, and disabled/Home/auth pages remain untouched.
-function canvasStartup(hidden, hostname = 'www.figma.com', pathname = '/design/Test/File') {
-    const context = vm.createContext({window: {}, location: {hostname, pathname}})
-    vm.runInContext(fs.readFileSync('src/FigmaTheme.js', 'utf8'), context)
-    vm.runInContext(context.canvasScrollbarsScript(hidden), context)
-    const chunks = context.window.rspackChunk_figma_web_bundler = []
-    const parentPush = chunks.push.bind(chunks)
-    let nativeScrollbarCapability, sceneCapability
-    chunks.push = function(entry) {
-        const module = {exports: {}}
-        entry[1].common(module, module.exports, () => {})
-        const common = new module.exports.CommonApp()
-        nativeScrollbarCapability = common.appCanRenderScrollbars.bind(common)
-        sceneCapability = common.appCanRenderSceneGraphUI()
-        return parentPush(entry)
-    }
-    const factory = function(module) {
-        module.exports.CommonApp = class {
-            appCanRenderScrollbars() { return true }
-            appCanRenderSceneGraphUI() { return true }
-        }
-    }
-    chunks.push([[1], {common: factory}])
-    assert.equal(chunks.length, 1)
-    assert.equal(sceneCapability, true)
-    return nativeScrollbarCapability()
+// Exercise the live controller through floating/scrollbar/backdrop changes.
+const canvasAttributes = new Map();
+const cssValues = new Map();
+const canvas = {
+    parentElement: null,
+    style: {setProperty: (k,v) => cssValues.set(k,v), removeProperty: k => cssValues.delete(k)},
+    setAttribute: (k,v) => canvasAttributes.set(k,v), removeAttribute: k => canvasAttributes.delete(k),
+    getBoundingClientRect: () => ({left:0, top:0, width:1280, height:800})
+};
+const controllerStyles = new Map();
+const frames = [];
+const body = {prepend() {}};
+canvas.parentElement = body;
+const sidebarContext = vm.createContext({
+    window: {addEventListener() {}, removeEventListener() {}},
+    location: {pathname:'/design/Test/File'}, innerWidth:1280, innerHeight:800,
+    document: {body, createElement: () => ({style:{}, remove() {}}),
+        querySelector: selector => selector === '.gpu-view-content' ? canvas : null,
+        querySelectorAll: selector => selector === '.gpu-view-content' ? [canvas] : []},
+    getComputedStyle: () => ({backgroundColor:'#444', getPropertyValue: () => '#222'}),
+    ResizeObserver: class {observe() {} unobserve() {} disconnect() {}},
+    MutationObserver: class {observe() {} disconnect() {}},
+    requestAnimationFrame: callback => {frames.push(callback);return frames.length},
+    cancelAnimationFrame() {}
+});
+vm.runInContext(app.context.sidebarMaskSource + ';' + app.context.sidebarSource, sidebarContext);
+function liveSidebars(floating, hidden, backdrop = 'desktop') {
+    sidebarContext.sidebarAppearance({floatingSidebars:floating, hideFloatingScrollbars:hidden,
+        translucentSidebars:true, opacity:85, sidebarBackdrop:backdrop}, (id,css) => controllerStyles.set(id,css));
+    while (frames.length) frames.shift()();
+    return canvasAttributes.has('data-resketch-canvas-scrollbars-hidden');
 }
-assert.equal(canvasStartup(true), false, 'Hide Figma canvas bars before the renderer initializes')
-assert.equal(canvasStartup(false), true, 'Restoring the option restores native canvas bars on reload')
-assert.equal(canvasStartup(true, 'www.figma.com', '/files/recent'), true)
-assert.equal(canvasStartup(true, 'www.figma.com', '/desktop_new_tab'), true)
-assert.equal(canvasStartup(true, 'accounts.google.com', '/design/Test/File'), true)
-console.log('Native Figma canvas scrollbar initialization checks passed')
+assert.equal(liveSidebars(true, true), true);
+const controller = sidebarContext.window.__resketchSidebars;
+assert.equal(liveSidebars(true, false), false, 'Showing scrollbars clears the live mask');
+assert.equal(liveSidebars(true, true, 'canvas'), true, 'Both sidebar backdrops hide canvas bars');
+assert.equal(liveSidebars(false, true), false, 'Disabling floating mode restores canvas bars');
+assert.equal(sidebarContext.window.__resketchSidebars, controller, 'Toggles reuse the live controller');
+sidebarContext.location.pathname = '/files/recent';
+assert.equal(liveSidebars(true, true), false, 'Home never hides canvas tracks or floats panels');
+assert.ok(controllerStyles.get('resketch-sidebars').includes('mask-repeat:no-repeat'));
+const mainSource = fs.readFileSync('src/Main.qml', 'utf8');
+const syncTheme = mainSource.slice(mainSource.indexOf('function syncFigmaTheme('), mainSource.indexOf('function pollHomeNotifications('));
+assert.ok(!syncTheme.includes('.reload('), 'Appearance changes must not reload documents');
+assert.ok(app.context.script({floatingSidebars:true, hideFloatingScrollbars:true}, '').includes('"hideFloatingScrollbars":true'));
+console.log('Live canvas scrollbar visibility checks passed');

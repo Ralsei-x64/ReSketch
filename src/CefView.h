@@ -295,6 +295,10 @@ class CefQuickView : public QQuickItem {
     void hoverMoveEvent(QHoverEvent *) override;
     void hoverLeaveEvent(QHoverEvent *) override;
     void wheelEvent(QWheelEvent *) override;
+    void dragEnterEvent(QDragEnterEvent *) override;
+    void dragMoveEvent(QDragMoveEvent *) override;
+    void dragLeaveEvent(QDragLeaveEvent *) override;
+    void dropEvent(QDropEvent *) override;
     void keyPressEvent(QKeyEvent *) override;
     void keyReleaseEvent(QKeyEvent *) override;
     void focusInEvent(QFocusEvent *) override;
@@ -321,6 +325,7 @@ class CefQuickView : public QQuickItem {
     bool m_overviewPreview = false, m_useSystemCursor = false;
     QCursor m_webCursor;
     bool m_pointerInside = false;
+    Qt::DropActions m_dropAction;
     QPointer<CefProfile> m_profile;
     QPointer<CefQuickView> m_inspected, m_devTools;
     QColor m_background = Qt::transparent;

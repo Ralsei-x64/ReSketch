@@ -5,12 +5,14 @@
 #include "include/cef_client.h"
 #include "include/cef_dialog_handler.h"
 #include <QApplication>
+#include <QDragEnterEvent>
 #include <QElapsedTimer>
 #include <QEnterEvent>
 #include <QFile>
 #include <QFileDialog>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QMimeData>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickItemGrabResult>
@@ -325,6 +327,34 @@ CefView {
             js(QString("scrollSamples.filter(y=>y>0 && y<%1).length").arg(wheelDistance)).toInt();
         fprintf(stderr, "Wheel animation intermediate samples: %d\n", samples);
         require(samples >= 2, "Chromium mouse wheel scrolling animates through intermediate positions");
+        // Exercise Qt -> Chromium drag delivery and its HTML drop data.
+        js("scrollTo(0,0);window.dropped='';window.dragLeft=false;window.dragOvers="
+           "0;"
+           "document.body.addEventListener('dragover',e=>{e.preventDefault();"
+           "window.dragOvers++;e.dataTransfer.dropEffect='copy'});"
+           "document.body.addEventListener('dragleave',()=>window.dragLeft=true);"
+           "document.body.addEventListener('drop',e=>{e.preventDefault();window."
+           "dropped=e.dataTransfer.getData('text/plain')})");
+        until([&] { return js("scrollY===0").toBool(); }, "drag fixture scroll position");
+        QMimeData dragMime;
+        dragMime.setText("layer-drag-fixture");
+        const QPoint dropPosition(200, 100);
+        QDragEnterEvent dragEnter(dropPosition, Qt::CopyAction, &dragMime, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&window, &dragEnter);
+        require(dragEnter.isAccepted(), "Web view accepts native drag entry");
+        QDragMoveEvent dragMove(dropPosition, Qt::CopyAction, &dragMime, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&window, &dragMove);
+        until([&] { return js("dragOvers>0").toBool(); }, "HTML target accepts native drag motion");
+        QDropEvent drop(dropPosition, Qt::CopyAction, &dragMime, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&window, &drop);
+        until([&] { return js("dropped").toString() == "layer-drag-fixture"; },
+              "HTML drop receives native payload");
+        QDragEnterEvent secondEnter(dropPosition, Qt::CopyAction, &dragMime, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&window, &secondEnter);
+        QDragLeaveEvent leave;
+        QCoreApplication::sendEvent(&window, &leave);
+        until([&] { return js("dragLeft").toBool(); }, "Leaving the view clears HTML drag state");
+        fprintf(stderr, "PASS: native drag/drop payload and cancellation\n");
         std::unique_ptr<QObject> popupObject(component.create());
         auto *popup = qobject_cast<CefQuickView *>(popupObject.get());
         popup->setParentItem(window.contentItem());
