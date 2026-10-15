@@ -38,6 +38,7 @@
 #include <QWheelEvent>
 #include <chrono>
 #include <cmath>
+#include <glib.h>
 
 namespace {
 struct Runtime {
@@ -52,6 +53,9 @@ struct Runtime {
             if (pumping || !started)
                 return;
             pumping = true;
+            // Qt uses its own dispatcher. Chromium's X11 clipboard and GTK
+            // sources still need the GLib default context to make progress.
+            g_main_context_iteration(nullptr, false);
             CefDoMessageLoopWork();
             pumping = false;
             // As in CEF's external-pump example, poll idle work too: Chromium
@@ -262,6 +266,10 @@ void initialize(const QStringList &switches) {
     auto &state = runtime();
     if (state.started)
         return;
+    // GTK desktop modules can leave asynchronous callbacks behind when they
+    // unload. Keep their code resident while Chromium pumps those callbacks.
+    const auto debug = qgetenv("G_DEBUG");
+    qputenv("G_DEBUG", debug.isEmpty() ? QByteArray("resident-modules") : debug + ",resident-modules");
     const QString directory = runtimeDirectory();
     const QString helper = qEnvironmentVariableIsSet("RESKETCH_CEF_HELPER")
                                ? qEnvironmentVariable("RESKETCH_CEF_HELPER")
@@ -467,6 +475,23 @@ class CefQuickClient final : public CefClient,
             return false;
         CefNavigationRequest navigation(address, frame->IsMain());
         emit view->navigationRequested(&navigation);
+        if (!navigation.rejected && frame->IsMain()) {
+            // Alloy cannot display Chrome's permission bubbles. Apply the app's
+            // origin policy before pages request clipboard, fonts or loopback.
+            const std::vector<std::pair<CefPermission::PermissionType, cef_content_setting_types_t>> permissions{
+                {CefPermission::PermissionType::ClipboardReadWrite, CEF_CONTENT_SETTING_TYPE_CLIPBOARD_READ_WRITE},
+                {CefPermission::PermissionType::LocalFontsAccess, CEF_CONTENT_SETTING_TYPE_LOCAL_FONTS},
+                {CefPermission::PermissionType::LocalNetworkAccess, CEF_CONTENT_SETTING_TYPE_LOCAL_NETWORK_ACCESS},
+                {CefPermission::PermissionType::LocalNetworkAccess, CEF_CONTENT_SETTING_TYPE_LOCAL_NETWORK},
+                {CefPermission::PermissionType::LocalNetworkAccess, CEF_CONTENT_SETTING_TYPE_LOOPBACK_NETWORK}};
+            for (const auto &[type, setting] : permissions) {
+                CefPermission permission(address, type);
+                emit view->permissionRequested(&permission);
+                browser->GetHost()->GetRequestContext()->SetContentSetting(
+                    request->GetURL(), request->GetURL(), setting,
+                    permission.accepted ? CEF_CONTENT_SETTING_VALUE_ALLOW : CEF_CONTENT_SETTING_VALUE_BLOCK);
+            }
+        }
         return navigation.rejected;
     }
     bool OnOpenURLFromTab(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>, const CefString &url,

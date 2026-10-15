@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-project(ReSketch VERSION 1.0.8 LANGUAGES C CXX)
+project(ReSketch VERSION 1.0.9 LANGUAGES C CXX)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Network Quick QuickControls2 OpenGL Widgets)
 find_package(KF6WindowSystem REQUIRED)
@@ -45,6 +45,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(cmake/CEF.cmake)
 find_package(PkgConfig REQUIRED)
+pkg_check_modules(GLIB REQUIRED IMPORTED_TARGET glib-2.0)
 pkg_check_modules(EGL REQUIRED IMPORTED_TARGET egl)
 qt_standard_project_setup(REQUIRES 6.8)
 
@@ -53,7 +54,7 @@ qt_add_qml_module(resketch_cef SHARED
     OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/qml/ReSketch/Cef"
     SOURCES src/CefView.h src/CefView.cpp src/CefApp.h src/CefApp.cpp src/CefTexture.h src/CefTexture.cpp)
 target_include_directories(resketch_cef PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
-target_link_libraries(resketch_cef PUBLIC Qt6::Quick cef_shared libcef_dll_wrapper PRIVATE Qt6::OpenGL Qt6::Widgets Qt6::Network PkgConfig::EGL)
+target_link_libraries(resketch_cef PUBLIC Qt6::Quick cef_shared libcef_dll_wrapper PRIVATE Qt6::OpenGL Qt6::Widgets Qt6::Network PkgConfig::EGL PkgConfig::GLIB)
 target_compile_definitions(resketch_cef PRIVATE RESKETCH_CEF_RUNTIME="${RESKETCH_CEF_RUNTIME}")
 set_target_properties(resketch_cef PROPERTIES BUILD_RPATH "${RESKETCH_CEF_RUNTIME}" INSTALL_RPATH "$ORIGIN/cef")
 qt_add_executable(resketch-cef-helper src/CefProcess.cpp src/CefApp.cpp src/CefApp.h)

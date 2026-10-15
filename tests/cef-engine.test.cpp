@@ -17,6 +17,7 @@
 #include <QQuickWindow>
 #include <QStyleHints>
 #include <QTcpSocket>
+#include <QTcpServer>
 #include <QTemporaryDir>
 #include <QThread>
 #include <QTimer>
@@ -94,14 +95,34 @@ CefView {
         view->setParentItem(window.contentItem());
         window.show();
         fprintf(stderr, "Loading local fixture\n");
-        view->loadHtml("<title>CEF "
+        const QString fixtureHtml = "<title>CEF "
                        "fixture</"
                        "title><style>html,body{margin:0;background:#e02030}input{position:absolute;top:20px;"
                        "left:20px}#blue{position:absolute;top:150px;width:100%;height:150px;background:#"
                        "2040e0}#long{height:1200px}</style><input id='input'><div id='blue'></div><div "
                        "id='long'></"
                        "div><script>window.seenCreation=window.created;window.ticks=0;setInterval(()=>ticks++"
-                       ",20)</script>");
+                       ",20)</script>";
+        QTcpServer fixtureServer;
+        require(fixtureServer.listen(QHostAddress::LocalHost), "Clipboard/font fixture HTTP server");
+        QObject::connect(&fixtureServer, &QTcpServer::newConnection, &fixtureServer, [&] {
+            auto *socket = fixtureServer.nextPendingConnection();
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            QObject::connect(socket, &QTcpSocket::readyRead, socket, [&, socket] {
+                const auto headers = socket->property("headers").toByteArray() + socket->readAll();
+                socket->setProperty("headers", headers);
+                if (!headers.contains("\r\n\r\n")) return;
+                const auto body = fixtureHtml.toUtf8();
+                socket->write("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: "
+                              + QByteArray::number(body.size()) + "\r\n\r\n" + body);
+                socket->disconnectFromHost();
+            });
+        });
+        QObject::connect(view, &CefQuickView::permissionRequested, [&](CefPermission *permission) {
+            if (permission->origin().host() == "127.0.0.1") permission->grant();
+        });
+        const QUrl fixtureUrl(QString("http://127.0.0.1:%1/").arg(fixtureServer.serverPort()));
+        view->setUrl(fixtureUrl);
         until(
             [&] {
                 return view->title() == "CEF fixture" && !view->loading() && view->renderProcessPid() > 0;
@@ -114,6 +135,27 @@ CefView {
         };
         require(js("Boolean(seenCreation && ready)").toBool(), "script injection ordering");
         require(js("document.title").toString() == "CEF fixture", "JavaScript result");
+        for (const auto setting : {CEF_CONTENT_SETTING_TYPE_CLIPBOARD_READ_WRITE,
+                CEF_CONTENT_SETTING_TYPE_LOCAL_FONTS, CEF_CONTENT_SETTING_TYPE_LOOPBACK_NETWORK}) {
+            require(view->profile()->context()->GetContentSetting(fixtureUrl.toString().toStdString(),
+                    fixtureUrl.toString().toStdString(), setting) == CEF_CONTENT_SETTING_VALUE_ALLOW,
+                    "Accepted origins receive clipboard/font/loopback permissions before script requests");
+            require(view->profile()->context()->GetContentSetting("https://example.invalid", "https://example.invalid",
+                    setting) != CEF_CONTENT_SETTING_VALUE_ALLOW, "Other origins do not inherit permissions");
+        }
+        js("window.fontCount=-1;queryLocalFonts().then(fonts=>fontCount=fonts.length,e=>window.fontError=e.name)");
+        until([&] { return js("fontCount>=0 || Boolean(window.fontError)").toBool(); }, "Local-font enumeration completes");
+        require(js("fontCount>0").toBool(), "CEF exposes installed local fonts to an accepted origin");
+        js("window.pastes=0;addEventListener('paste',e=>{e.preventDefault();window.pastes++;window.pasteTypes=[...e.clipboardData.types]});document.querySelector('input').focus()");
+        fprintf(stderr, "Reading clipboard through native paste\n");
+        view->browser()->GetMainFrame()->Paste();
+        until([&] { return js("pastes").toInt() == 1; }, "Native paste delivers an event without stalling the renderer");
+        fprintf(stderr, "Native clipboard event returned\n");
+        QKeyEvent pasteDown(QEvent::KeyPress, Qt::Key_V, Qt::ControlModifier, "\x16");
+        QKeyEvent pasteUp(QEvent::KeyRelease, Qt::Key_V, Qt::ControlModifier);
+        QCoreApplication::sendEvent(view, &pasteDown);
+        QCoreApplication::sendEvent(view, &pasteUp);
+        until([&] { return js("pastes").toInt() == 2; }, "Ctrl+V delivers paste without stalling the renderer");
         struct PickerFilters {
             std::vector<CefString> accepted, expanded;
             QStringList expected;
