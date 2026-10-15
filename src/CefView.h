@@ -291,6 +291,7 @@ class CefQuickView : public QQuickItem {
     void mouseReleaseEvent(QMouseEvent *) override;
     void mouseDoubleClickEvent(QMouseEvent *) override;
     void mouseMoveEvent(QMouseEvent *) override;
+    void hoverEnterEvent(QHoverEvent *) override;
     void hoverMoveEvent(QHoverEvent *) override;
     void hoverLeaveEvent(QHoverEvent *) override;
     void wheelEvent(QWheelEvent *) override;
@@ -319,6 +320,7 @@ class CefQuickView : public QQuickItem {
     LifecycleState m_lifecycle = LifecycleState::Active;
     bool m_overviewPreview = false, m_useSystemCursor = false;
     QCursor m_webCursor;
+    bool m_pointerInside = false;
     QPointer<CefProfile> m_profile;
     QPointer<CefQuickView> m_inspected, m_devTools;
     QColor m_background = Qt::transparent;

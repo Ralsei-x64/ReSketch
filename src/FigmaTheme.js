@@ -303,7 +303,7 @@ function sidebarAppearance(options, stylesheet) {
     }
     const selector = '[data-testid="navigation-bar"], [data-onboarding-key="unified-design-onboarding-left-panel"], [data-testid="properties-panel"], [class*="left_panel_container--sizeContainer--"]:not(:has([data-onboarding-key="unified-design-onboarding-left-panel"])), [class*="sidebar--navDefault--"], .fb-sidebar';
     // Comments and collaborator cursors are separate from the WebGL canvas.
-    const commentSelector = '[class*="comments_view--outerAnchorContainer--"], [class*="multiplayer_cursors--root--"]';
+    const commentSelector = '[class*="comments_view--outerAnchorContainer--"], [class*="multiplayer_cursors--root--"], [class*="viewport_overlay--overflowContainer--"]';
     let panels = [], ancestors = new Set(), canvases = [], comments = [], frame = 0;
     let layout = null;
     const authoredSizes = new WeakMap();
@@ -482,6 +482,17 @@ var pageThemeSource = `function applyAppearance(options) {
     bridge.observer?.disconnect();
     window.__resketchThemeObserver?.disconnect(); // Remove the old attribute-only synchronizer.
     let attempts = 0;
+    // Figma's canvas input test recognizes input/textarea, but not Lexical's
+    // contenteditable comments. Use its own keyboard opt-out for these editors.
+    if (!bridge.textEditorsProtected) {
+        const protect = node => {
+            if (node?.matches?.('[data-lexical-editor="true"][contenteditable="true"]'))
+                node.setAttribute('data-fullscreen-prevent-event-capture-keys', 'true');
+        };
+        document.addEventListener('focusin', event => protect(event.target), true);
+        protect(document.activeElement);
+        bridge.textEditorsProtected = true;
+    }
 
     function nativeTheme() {
         try {

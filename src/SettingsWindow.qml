@@ -511,7 +511,7 @@ Kirigami.ApplicationWindow {
                                     Controls.Label {
                                         Layout.fillWidth: true
                                         Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
-                                        text: "Reload the file after changing canvas scrollbar visibility or floating mode."
+                                        text: "File tabs reload automatically to apply canvas scrollbar visibility. Sleeping tabs apply it when they wake."
                                         opacity: 0.72
                                         wrapMode: Text.WordWrap
                                     }

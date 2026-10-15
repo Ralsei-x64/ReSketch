@@ -42,7 +42,9 @@ Item {
         }
         QtObject {
             id: view
+            signal loadStateChanged()
             property bool loading: false
+            onLoadingChanged: loadStateChanged()
             property int lifecycleState: 0
             property url url: "about:blank"
             property string lastScript: ""
@@ -102,6 +104,8 @@ Item {
                 compare(menus.entries[0].native.items.length, 3)
                 compare(menus.entries[0].popup.count, 3)
                 const ruler = menus.entries[0].children[0]
+                compare(String(ruler.native.shortcut), "", "Native menus must not intercept web editor shortcuts")
+                compare(ruler.native.text, "Rulers\tShift+R")
                 compare(ruler.native.checked, true)
                 compare(ruler.popup.checked, true)
                 compare(menus.entries[0].children[2].children[0].native.enabled, false)
@@ -203,7 +207,7 @@ Item {
                 compare(menus.entries[0].children[0].native, ruler)
                 compare(menus.entries[0].children[1].native, zoom)
                 compare(ruler.enabled, true)
-                compare(ruler.text, "Recovered")
+                compare(ruler.text, "Recovered\tShift+R")
                 view.lifecycleState = 1
                 compare(ruler.enabled, false)
                 view.lifecycleState = 0
@@ -225,11 +229,11 @@ Item {
                 verify(menus.usingHomeMenu)
                 view.response = {menus: documentMenus("Second")}
                 view.loading = false
-                compare(menus.entries[0].children[0].native.text, "Second")
+                compare(menus.entries[0].children[0].native.text, "Second\tShift+R")
                 view.loading = true
                 view.url = "https://www.figma.com/design/first/First?node-id=1-1"
                 verify(!menus.usingHomeMenu)
-                compare(menus.entries[0].children[0].native.text, "First")
+                compare(menus.entries[0].children[0].native.text, "First\tShift+R")
                 compare(menus.entries[0].children[0].native.enabled, false)
                 view.url = "https://www.figma.com/files/recent"
                 verify(menus.usingHomeMenu)
@@ -289,7 +293,7 @@ Item {
                 compare(menus.entries[0].children[0].native.enabled, false)
                 late(JSON.stringify({menus: documentMenus("Late")}))
                 verify(!menus.fileMenuAvailable)
-                compare(menus.entries[0].children[0].native.text, "Rulers")
+                compare(menus.entries[0].children[0].native.text, "Rulers\tShift+R")
                 view.defer = false
                 menus.refresh()
                 verify(menus.fileMenuAvailable)

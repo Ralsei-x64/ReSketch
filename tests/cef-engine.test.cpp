@@ -4,6 +4,7 @@
 #include "CefView.h"
 #include <QApplication>
 #include <QElapsedTimer>
+#include <QEnterEvent>
 #include <QFile>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -152,15 +153,27 @@ CefView {
         previewCapture.reset();
         view->setOverviewPreview(false);
         require(js("devicePixelRatio").toDouble() == 1, "interactive pixel density stays unchanged");
+        const QPointF pointerPosition(200, 100);
+        QEnterEvent enter(pointerPosition, pointerPosition, window.mapToGlobal(pointerPosition));
+        QCoreApplication::sendEvent(&window, &enter);
         const auto movePointer = [&] {
-            CefMouseEvent pointer;
-            pointer.x = 200;
-            pointer.y = 100;
-            view->browser()->GetHost()->SendMouseMoveEvent(pointer, false);
+            QMouseEvent motion(QEvent::MouseMove, pointerPosition, window.mapToGlobal(pointerPosition),
+                               Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(&window, &motion);
         };
         js("document.body.style.cursor=\"url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%3E%3Crect%20width%3D%2216%22%20height%3D%2216%22%20fill%3D%22%23ff0000%22%2F%3E%3C%2Fsvg%3E') 3 5, auto\"");
         movePointer();
         until([&] { return view->cursor().shape() == Qt::BitmapCursor; }, "custom web cursor");
+        require(window.cursor().shape() == Qt::BitmapCursor, "custom web cursor reaches the native window");
+        QQuickItem chrome(window.contentItem());
+        chrome.setX(300); chrome.setWidth(100); chrome.setHeight(300); chrome.setZ(1);
+        chrome.setCursor(QCursor(Qt::IBeamCursor));
+        QMouseEvent leaveCanvas(QEvent::MouseMove, QPointF(350, 100), window.mapToGlobal(QPointF(350, 100)),
+                                Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&window, &leaveCanvas);
+        until([&] { return window.cursor().shape() == Qt::IBeamCursor; }, "native control cursor after leaving web view");
+        movePointer();
+        until([&] { return window.cursor().shape() == Qt::BitmapCursor; }, "web cursor after returning to canvas");
         require(!view->useSystemCursor(), "Figma custom cursors enabled by default");
         require(view->cursor().hotSpot() == QPoint(3, 5), "custom cursor hotspot");
         require(view->cursor().pixmap().toImage().pixelColor(8, 8) == QColor(Qt::red), "custom cursor BGRA pixels");
@@ -183,10 +196,31 @@ CefView {
                             Qt::NoButton, Qt::NoModifier);
         QCoreApplication::sendEvent(view, &press);
         QCoreApplication::sendEvent(view, &release);
+        js("window.pressedKeys=[];document.getElementById('input').addEventListener('keypress',e=>pressedKeys.push(e.key))");
         QKeyEvent key(QEvent::KeyPress, Qt::Key_A, Qt::NoModifier, "a");
         QCoreApplication::sendEvent(view, &key);
         until([&] { return js("document.getElementById('input').value").toString() == "a"; },
               "mouse focus and keyboard input");
+        for (const auto entry : {std::pair{Qt::Key_E, 26}, std::pair{Qt::Key_N, 57}}) {
+            const QString text(QChar(ushort(entry.first)).toLower());
+            QKeyEvent typed(QEvent::KeyPress, entry.first, Qt::NoModifier, entry.second, 0, 0, text);
+            QCoreApplication::sendEvent(view, &typed);
+        }
+        until([&] { return js("document.getElementById('input').value").toString() == "aen"; },
+              "comment shortcut letters type into editable fields");
+        require(js("pressedKeys.join('')").toString() == "aen",
+                "keypress keys match typed letters instead of numeric keypad/function keys");
+        js("document.getElementById('input').value='';window.downKeys=[];document.getElementById('input').addEventListener('keydown',e=>downKeys.push(e.key))");
+        const QString symbols = QStringLiteral("!@#$%^&*()");
+        for (int index = 0; index < symbols.size(); ++index) {
+            const auto symbol = symbols[index];
+            QKeyEvent typed(QEvent::KeyPress, symbol.unicode(), Qt::ShiftModifier, 10 + index, 0, 0,
+                            QString(symbol));
+            QCoreApplication::sendEvent(view, &typed);
+        }
+        until([&] { return js("document.getElementById('input').value").toString() == symbols; },
+              "shifted number-row symbols insert into text fields");
+        require(js("downKeys.join('')").toString() == symbols, "shifted symbols have correct DOM key names");
         QWheelEvent wheel(QPointF(200, 200), QPointF(200, 200), QPoint(0, -100), QPoint(), Qt::NoButton,
                           Qt::NoModifier, Qt::ScrollUpdate, false);
         QCoreApplication::sendEvent(view, &wheel);

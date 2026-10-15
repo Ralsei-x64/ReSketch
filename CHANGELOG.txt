@@ -3,6 +3,9 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
 About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
+1.0.7 - 2026-10-14
+Fixed comment typing and shifted symbols, native-window canvas cursors, floating comment overlays, titlebar autohide, and automatic application of canvas scrollbar preferences.
+
 1.0.6 - 2026-10-14
 Clipped overflowing comment pins and collaborator markers around floating sidebars, restored Figma custom cursors, and added a system-cursor preference.
 

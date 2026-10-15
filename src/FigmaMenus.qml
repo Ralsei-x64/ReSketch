@@ -349,12 +349,11 @@ QtObject {
             for (let i = 0; i < item.children.length; ++i)
                 updateEntry(entry.children[i], item.children[i], disabled)
         } else {
-            entry.native.text = item.text
-            entry.native.shortcut = item.shortcut.replace(/⌫/g, "Backspace")
-                                                .replace(/⌦/g, "Delete")
-                                                .replace(/↑/g, "Up").replace(/↓/g, "Down")
-                                                .replace(/←/g, "Left").replace(/→/g, "Right")
-            entry.popup.text = item.text + (item.shortcut ? "\t" + item.shortcut : "")
+            // Figma handles its shortcuts in the focused web editor. Registering
+            // them with Qt steals single-letter keys from comment/input fields.
+            entry.native.shortcut = ""
+            entry.native.text = item.text + (item.shortcut ? "\t" + item.shortcut : "")
+            entry.popup.text = entry.native.text
             entry.native.checkable = entry.popup.checkable = !!item.checkable
             entry.native.checked = entry.popup.checked = !!item.checked
         }

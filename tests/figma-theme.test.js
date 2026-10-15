@@ -9,6 +9,7 @@ function page(hostname = 'www.figma.com', native = true) {
     const elements = new Map()
     const children = []
     let observer, queued = [], dispatches = 0, lookups = 0
+    const focusHandlers = []
     const body = {
         theme: 'light', style: {},
         getAttribute() { return this.theme },
@@ -41,6 +42,7 @@ function page(hostname = 'www.figma.com', native = true) {
         window: native ? {rspackChunk_figma_web_bundler: {push(chunk) { chunk[2](runtime) }}} : {},
         document: {
             body, head, documentElement: {style: {}},
+            addEventListener: (type, handler) => { if (type === "focusin") focusHandlers.push(handler) },
             querySelector: () => provider,
             createTreeWalker: () => ({nextNode: () => null}),
             getElementById: id => elements.get(id),
@@ -61,13 +63,30 @@ function page(hostname = 'www.figma.com', native = true) {
     const storeSource = context.storeSource
     vm.runInContext(fs.readFileSync('src/FigmaTheme.js', 'utf8'), context)
     return {
-        context, body, nested, elements, children,
+        context, body, nested, elements, children, focusHandlers,
         run: options => vm.runInContext(context.script(options, storeSource), context),
         mutate: () => observer.callback(),
         drain: () => { for (let i = 0; queued.length && i < 100; ++i) queued.shift()() },
         dispatches: () => dispatches, lookups: () => lookups, pending: () => queued.length
     }
 }
+
+const editorPage = page();
+const attributes = new Map();
+const commentEditor = {matches: () => true, setAttribute: (key, value) => attributes.set(key, value)};
+editorPage.context.document.activeElement = commentEditor;
+editorPage.run({dark: true});
+assert.equal(attributes.get('data-fullscreen-prevent-event-capture-keys'), 'true',
+    'Focused rich-text comments opt out of Figma canvas keyboard handling');
+editorPage.run({dark: false});
+assert.equal(editorPage.focusHandlers.length, 1, 'Theme updates do not duplicate focus handlers');
+attributes.clear();
+editorPage.focusHandlers[0]({target: commentEditor});
+assert.equal(attributes.get('data-fullscreen-prevent-event-capture-keys'), 'true',
+    'Newly focused comment editors are protected too');
+attributes.clear();
+editorPage.focusHandlers[0]({target: {matches: () => false, setAttribute: commentEditor.setAttribute}});
+assert.equal(attributes.size, 0, 'Figma canvas text focus remains available for canvas shortcuts');
 
 const app = page()
 vm.runInContext(app.context.sidebarMaskSource, app.context)

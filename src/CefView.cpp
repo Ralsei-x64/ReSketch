@@ -131,6 +131,11 @@ int keyCode(int key) {
         return key;
     if (key >= Qt::Key_0 && key <= Qt::Key_9)
         return key;
+    if (key > 0 && key < 128) {
+        const int shiftedDigit = QStringLiteral(")!@#$%^&*(").indexOf(QChar(ushort(key)));
+        if (shiftedDigit >= 0)
+            return '0' + shiftedDigit;
+    }
     switch (key) {
     case Qt::Key_Backspace:
         return 0x08;
@@ -1097,6 +1102,10 @@ void CefQuickView::setLifecycleState(LifecycleState value) {
         emit lifecycleStateChanged();
 }
 void CefQuickView::syncVisibility() {
+    if (m_pointerInside && !isVisible()) {
+        m_pointerInside = false;
+        if (window()) window()->unsetCursor();
+    }
     if (m_browser) {
         m_browser->GetHost()->WasHidden(m_lifecycle != LifecycleState::Active || !isVisible());
         // Showing an evicted OSR surface can leave it stalled. Screen-info
@@ -1115,8 +1124,14 @@ void CefQuickView::setUseSystemCursor(bool value) {
 }
 void CefQuickView::syncCursor() {
     const auto shape = m_webCursor.shape();
-    setCursor(m_useSystemCursor && (shape == Qt::BitmapCursor || shape == Qt::BlankCursor)
-                  ? QCursor(Qt::ArrowCursor) : m_webCursor);
+    const QCursor desired = m_useSystemCursor && (shape == Qt::BitmapCursor || shape == Qt::BlankCursor)
+        ? QCursor(Qt::ArrowCursor) : m_webCursor;
+    if (cursor() != desired)
+        setCursor(desired);
+    // OSR cursor updates arrive asynchronously. Apply them to the hovered host
+    // window too, including when Qt's cursor-item cache still points at chrome.
+    if (m_pointerInside && isVisible() && isEnabled() && window() && window()->cursor() != desired)
+        window()->setCursor(desired);
 }
 void CefQuickView::setOverviewPreview(bool value) {
     if (m_overviewPreview == value)
@@ -1277,17 +1292,26 @@ void CefQuickView::mouseDoubleClickEvent(QMouseEvent *event) {
     event->accept();
 }
 void CefQuickView::mouseMoveEvent(QMouseEvent *event) {
+    m_pointerInside = true;
+    syncCursor();
     if (m_browser)
         m_browser->GetHost()->SendMouseMoveEvent(
             mouse(event->position(), event->modifiers(), event->buttons()), false);
     event->accept();
 }
+void CefQuickView::hoverEnterEvent(QHoverEvent *event) {
+    hoverMoveEvent(event);
+}
 void CefQuickView::hoverMoveEvent(QHoverEvent *event) {
+    m_pointerInside = true;
+    syncCursor();
     if (m_browser)
         m_browser->GetHost()->SendMouseMoveEvent(mouse(event->position(), event->modifiers()), false);
     event->accept();
 }
 void CefQuickView::hoverLeaveEvent(QHoverEvent *event) {
+    m_pointerInside = false;
+    if (window()) window()->unsetCursor();
     if (m_browser)
         m_browser->GetHost()->SendMouseMoveEvent(mouse(event->position(), event->modifiers()), true);
     event->accept();
@@ -1328,7 +1352,7 @@ void CefQuickView::sendKey(QKeyEvent *event, bool release) {
         for (const auto character : event->text()) {
             key.type = KEYEVENT_CHAR;
             key.character = character.unicode();
-            key.windows_key_code = character.unicode();
+            // CEF expects a Windows virtual key here, not a Unicode code point.
             m_browser->GetHost()->SendKeyEvent(key);
         }
 }

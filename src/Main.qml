@@ -2337,13 +2337,19 @@ Kirigami.ApplicationWindow {
         targetWindow: root
     }
 
-    HoverHandler {
+    Item {
         parent: root.contentItem
-        enabled: root.toolbarAutoHidden
-        onPointChanged: root.fullscreenToolbarHovered = hovered && point.position.y >= 0
-                                                       && point.position.y < (root.fullscreenToolbarHovered ? root.tabStripHeight : 3)
-        onHoveredChanged: root.fullscreenToolbarHovered = hovered && point.position.y >= 0
-                                                         && point.position.y < (root.fullscreenToolbarHovered ? root.tabStripHeight : 3)
+        anchors.top: parent.top
+        width: parent.width
+        height: root.fullscreenToolbarHovered ? root.tabStripHeight : 3
+        z: 1000
+        visible: root.toolbarAutoHidden
+        // Receive hover before the CEF item consumes it, without intercepting
+        // clicks or hover on the revealed toolbar's controls.
+        HoverHandler {
+            blocking: false
+            onHoveredChanged: root.fullscreenToolbarHovered = hovered
+        }
     }
 
     ListModel { id: tabModel }
@@ -2762,6 +2768,7 @@ Kirigami.ApplicationWindow {
                 enabled: !appSettings.reduceMotion
                 NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
             }
+            property bool canvasScrollbarsHiddenAtLoad: false
             property bool dedicatedHome: false
             readonly property bool notificationSource: dedicatedHome && !ownerWindow.primaryWindow
                                                        && appSettings.desktopNotifications
@@ -2904,6 +2911,8 @@ Kirigami.ApplicationWindow {
             transform: Translate { x: webView.frameContainer ? 0 : webView.slideX }
 
             onLoadStateChanged: function(loadInfo) {
+                if (loadInfo.status === CefView.LoadStartedStatus)
+                    canvasScrollbarsHiddenAtLoad = appSettings.floatingSidebars && appSettings.hideFloatingScrollbars
                 if (!loading) {
                     if (lifecycleState !== CefView.LifecycleState.Discarded
                             && String(url) && String(url) !== "about:blank")
@@ -3185,6 +3194,15 @@ Kirigami.ApplicationWindow {
         if (!view || view.loading || view.lifecycleState !== CefView.LifecycleState.Active
                 || !Policy.isFigmaUrl(view.url))
             return
+        const hideCanvasBars = appSettings.floatingSidebars && appSettings.hideFloatingScrollbars
+        // Figma caches this native-renderer capability during initialization.
+        // Sleeping tabs reach this path when they wake; Home never reloads here.
+        if (view.hasLoadedFrame && Policy.isFileUrl(view.url)
+                && view.canvasScrollbarsHiddenAtLoad !== hideCanvasBars) {
+            view.canvasScrollbarsHiddenAtLoad = hideCanvasBars
+            view.reload()
+            return
+        }
         view.runJavaScript(root.figmaAppearanceScript, () => {
             if (view) appSettings.repaintWebView(view)
         })

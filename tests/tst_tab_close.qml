@@ -1984,9 +1984,35 @@ Item {
             app.show()
         }
 
+        function test_canvas_scrollbar_toggle_reloads_files_and_defers_sleeping_tabs() {
+            appSettings.floatingSidebars = true
+            appSettings.hideFloatingScrollbars = true
+            let reloads = 0
+            const view = {url:"https://www.figma.com/design/Test/File", loading:false,
+                lifecycleState:CefView.LifecycleState.Active, hasLoadedFrame:true,
+                canvasScrollbarsHiddenAtLoad:false, reload:() => ++reloads,
+                runJavaScript:() => {}, syncNotifications:() => {}}
+            app.syncFigmaTheme(view)
+            compare(reloads, 1, "Awake file tabs apply scrollbar changes automatically")
+            app.syncFigmaTheme(view)
+            compare(reloads, 1, "The same setting does not reload again")
+            view.lifecycleState = CefView.LifecycleState.Frozen
+            appSettings.hideFloatingScrollbars = false
+            app.syncFigmaTheme(view)
+            compare(reloads, 1, "Changing visibility does not wake sleeping tabs")
+            view.lifecycleState = CefView.LifecycleState.Active
+            app.syncFigmaTheme(view)
+            compare(reloads, 2, "Waking a tab applies its pending scrollbar preference")
+            view.url = "https://www.figma.com/files/recent"
+            appSettings.hideFloatingScrollbars = true
+            app.syncFigmaTheme(view)
+            compare(reloads, 2, "Home stays running when canvas scrollbar visibility changes")
+        }
+
         function test_floating_sidebars_clip_comment_pins_data() {
             return [{tag:"comments", className:"comments_view--outerAnchorContainer--fixture"},
-                    {tag:"collaborator-cursors", className:"multiplayer_cursors--root--fixture"}]
+                    {tag:"collaborator-cursors", className:"multiplayer_cursors--root--fixture"},
+                    {tag:"viewport-overlay", className:"viewport_overlay--overflowContainer--fixture"}]
         }
 
         function test_floating_sidebars_clip_comment_pins(data) {
