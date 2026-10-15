@@ -20,6 +20,7 @@
 #include <QJsonDocument>
 #include <QKeyEvent>
 #include <QMenu>
+#include <QMimeDatabase>
 #include <QMouseEvent>
 #include <QOpenGLContext>
 #include <QProcess>
@@ -681,32 +682,47 @@ class CefQuickClient final : public CefClient,
     }
     bool OnFileDialog(CefRefPtr<CefBrowser> browser, FileDialogMode mode, const CefString &title,
                       const CefString &path, const std::vector<CefString> &filters,
-                      const std::vector<CefString> &, const std::vector<CefString> &,
+                      const std::vector<CefString> &extensions, const std::vector<CefString> &,
                       CefRefPtr<CefFileDialogCallback> callback) override {
         if (!current(browser)) {
             callback->Cancel();
             return true;
         }
         QStringList names;
-        for (const auto &filter : filters) {
-            const auto f = text(filter);
-            if (f.startsWith('.'))
-                names << "*" + f;
+        QMimeDatabase mimeDatabase;
+        for (size_t index = 0; index < filters.size(); ++index) {
+            const auto filter = text(filters[index]).trimmed();
+            const auto expanded = index < extensions.size() ? text(extensions[index]) : QString{};
+            if (!expanded.isEmpty()) {
+                for (const auto &extension : expanded.split(';', Qt::SkipEmptyParts))
+                    names << "*" + extension.trimmed();
+            } else if (filter.startsWith('.')) {
+                names << "*" + filter;
+            } else if (filter.endsWith("/*")) {
+                const auto prefix = filter.left(filter.size() - 1);
+                for (const auto &mime : mimeDatabase.allMimeTypes())
+                    if (mime.name().startsWith(prefix)) names.append(mime.globPatterns());
+            } else {
+                names.append(mimeDatabase.mimeTypeForName(filter).globPatterns());
+            }
         }
+        names.removeDuplicates();
+        const auto nameFilter = names.isEmpty() ? QString{}
+            : QObject::tr("Supported files (%1);;All files (*)").arg(names.join(' '));
         QStringList selected;
         const int kind = int(mode) & 0xFF;
         if (kind == FILE_DIALOG_OPEN_MULTIPLE)
-            selected = QFileDialog::getOpenFileNames(nullptr, text(title), text(path), names.join(' '));
+            selected = QFileDialog::getOpenFileNames(nullptr, text(title), text(path), nameFilter);
         else if (kind == FILE_DIALOG_OPEN_FOLDER) {
             const auto folder = QFileDialog::getExistingDirectory(nullptr, text(title), text(path));
             if (!folder.isEmpty())
                 selected << folder;
         } else if (kind == FILE_DIALOG_SAVE) {
-            const auto file = QFileDialog::getSaveFileName(nullptr, text(title), text(path), names.join(' '));
+            const auto file = QFileDialog::getSaveFileName(nullptr, text(title), text(path), nameFilter);
             if (!file.isEmpty())
                 selected << file;
         } else {
-            const auto file = QFileDialog::getOpenFileName(nullptr, text(title), text(path), names.join(' '));
+            const auto file = QFileDialog::getOpenFileName(nullptr, text(title), text(path), nameFilter);
             if (!file.isEmpty())
                 selected << file;
         }

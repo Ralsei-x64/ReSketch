@@ -2,10 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "CefApp.h"
 #include "CefView.h"
+#include "include/cef_client.h"
+#include "include/cef_dialog_handler.h"
 #include <QApplication>
 #include <QElapsedTimer>
 #include <QEnterEvent>
 #include <QFile>
+#include <QFileDialog>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QQmlComponent>
@@ -16,6 +19,7 @@
 #include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QThread>
+#include <QTimer>
 #include <QUrlQuery>
 #include <QWheelEvent>
 #include <cstdio>
@@ -36,6 +40,16 @@ template <class F> void until(F predicate, const char *message, int timeout = 15
     }
     require(predicate(), message);
 }
+class CancelledPicker final : public CefFileDialogCallback {
+  public:
+    bool cancelled = false;
+    void Cancel() override { cancelled = true; }
+    void Continue(const std::vector<CefString> &) override {
+        require(false, "Cancelled picker must not return any files");
+    }
+  private:
+    IMPLEMENT_REFCOUNTING(CancelledPicker);
+};
 int main(int argc, char **argv) {
     qputenv("QT_NO_GLIB", "1");
     const bool gpu = argc > 1 && QByteArray(argv[1]) == "--gpu";
@@ -47,6 +61,7 @@ int main(int argc, char **argv) {
         qputenv("QT_XCB_GL_INTEGRATION", "xcb_egl");
     }
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
+    QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication app(argc, argv);
     QTemporaryDir directory;
     require(directory.isValid(), "temporary profile");
@@ -99,6 +114,31 @@ CefView {
         };
         require(js("Boolean(seenCreation && ready)").toBool(), "script injection ordering");
         require(js("document.title").toString() == "CEF fixture", "JavaScript result");
+        struct PickerFilters {
+            std::vector<CefString> accepted, expanded;
+            QStringList expected;
+        };
+        for (const auto &filters : {
+            PickerFilters{{".fig", "image/*"}, {"", ".png;.jpg;.jpeg;.webp;.svg;.avif;.heic;.heif"},
+                          {"*.fig", "*.png", "*.jpeg", "*.webp", "*.svg", "*.avif", "*.heic", "*.heif"}},
+            PickerFilters{{".fig", "image/*"}, {}, {"*.fig", "*.png", "*.jpg", "*.webp", "*.svg"}},
+            PickerFilters{{"image/jpeg", "image/x-unknown", ".fig"}, {}, {"*.jpg", "*.jpeg", "*.fig"}}
+        }) {
+            QTimer::singleShot(0, &app, [&] {
+                auto *dialog = qobject_cast<QFileDialog *>(QApplication::activeModalWidget());
+                require(dialog, "Qt file picker opened");
+                const auto names = dialog->nameFilters();
+                require(names.size() == 2 && names.last() == "All files (*)", "File picker offers an unfiltered fallback");
+                for (const auto &pattern : filters.expected)
+                    require(names.first().contains(pattern), "File picker includes accepted image extensions");
+                dialog->reject();
+            });
+            CefRefPtr<CancelledPicker> result = new CancelledPicker;
+            require(view->browser()->GetHost()->GetClient()->GetDialogHandler()->OnFileDialog(
+                view->browser(), FILE_DIALOG_OPEN_MULTIPLE, "Import fixture", directory.path().toStdString(),
+                filters.accepted, filters.expanded, {}, result), "Custom picker handles the request");
+            require(result->cancelled, "Picker cancellation discards the selection");
+        }
         view->setProperty("dedicatedHome", true);
         int fileOpens = 0, homeLoads = 0;
         auto navigation =
