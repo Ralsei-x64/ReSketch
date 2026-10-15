@@ -2770,6 +2770,7 @@ Kirigami.ApplicationWindow {
                 NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
             }
             property bool dedicatedHome: false
+            property bool canvasScrollbarsHiddenAtLoad: false
             readonly property bool notificationSource: dedicatedHome && !ownerWindow.primaryWindow
                                                        && appSettings.desktopNotifications
             function syncNotifications() {
@@ -2890,6 +2891,12 @@ Kirigami.ApplicationWindow {
                 worldId: CefScript.MainWorld,
                 runsOnSubFrames: false
             }, {
+                name: "resketch-canvas-scrollbars",
+                sourceCode: FigmaTheme.canvasScrollbarsScript(appSettings.floatingSidebars && appSettings.hideFloatingScrollbars),
+                injectionPoint: CefScript.DocumentCreation,
+                worldId: CefScript.MainWorld,
+                runsOnSubFrames: false
+            }, {
                 name: "resketch-appearance",
                 sourceCode: webView.ownerWindow.figmaAppearanceScript,
                 injectionPoint: CefScript.DocumentReady,
@@ -2905,6 +2912,8 @@ Kirigami.ApplicationWindow {
             transform: Translate { x: webView.frameContainer ? 0 : webView.slideX }
 
             onLoadStateChanged: function(loadInfo) {
+                if (loadInfo.status === CefView.LoadStartedStatus)
+                    canvasScrollbarsHiddenAtLoad = appSettings.floatingSidebars && appSettings.hideFloatingScrollbars
                 if (!loading) {
                     if (lifecycleState !== CefView.LifecycleState.Discarded
                             && String(url) && String(url) !== "about:blank")
@@ -3186,6 +3195,15 @@ Kirigami.ApplicationWindow {
         if (!view || view.loading || view.lifecycleState !== CefView.LifecycleState.Active
                 || !Policy.isFigmaUrl(view.url))
             return
+        const hideCanvasBars = appSettings.floatingSidebars && appSettings.hideFloatingScrollbars
+        // Figma reads this native-renderer capability once during startup.
+        // Apply changes to sleeping files when they wake, without reloading Home.
+        if (view.hasLoadedFrame && Policy.isFileUrl(view.url)
+                && view.canvasScrollbarsHiddenAtLoad !== hideCanvasBars) {
+            view.canvasScrollbarsHiddenAtLoad = hideCanvasBars
+            view.reload()
+            return
+        }
         view.runJavaScript(root.figmaAppearanceScript, () => {
             if (view) appSettings.repaintWebView(view)
         })

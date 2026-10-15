@@ -1984,6 +1984,28 @@ Item {
             app.show()
         }
 
+        function test_hidden_canvas_scrollbars_preserve_edge_pixels() {
+            appSettings.reduceMotion = true
+            const view = app.activeView
+            let ready = false
+            view.runJavaScript('document.body.innerHTML="<style>body{margin:0}.gpu-view-content{position:absolute;inset:0;background:#444}</style><div class=gpu-view-content><canvas></canvas></div>";'
+                + 'const c=document.querySelector("canvas");c.width=innerWidth;c.height=innerHeight;'
+                + 'const p=c.getContext("2d");p.fillStyle="#00ff00";p.fillRect(0,0,c.width,c.height);'
+                + 'p.fillStyle="#ff0000";p.fillRect(c.width-12,0,12,c.height);p.fillRect(0,c.height-12,c.width,12);'
+                + '(()=>{const location={pathname:"/design/Test/File"};' + FigmaTheme.sidebarMaskSource + ';' + FigmaTheme.sidebarSource
+                + ';sidebarAppearance({theme:"dark",floatingSidebars:true,hideFloatingScrollbars:true,sidebarBackdrop:"desktop",opacity:85,sidebarMargin:8,sidebarCornerRadius:8},(id,css)=>{'
+                + 'let s=document.createElement("style");s.id=id;s.textContent=css;document.head.appendChild(s)})})()', () => ready = true)
+            tryVerify(() => ready)
+            view.hasLoadedFrame = true
+            tryVerify(() => {
+                const image = grabImage(app.contentItem)
+                const right = view.mapToItem(app.contentItem, view.width - 2, view.height / 2)
+                const bottom = view.mapToItem(app.contentItem, view.width / 2, view.height - 2)
+                return String(image.pixel(Math.floor(right.x), Math.floor(right.y))) === "#ff0000"
+                    && String(image.pixel(Math.floor(bottom.x), Math.floor(bottom.y))) === "#ff0000"
+            }, 5000, "The right and bottom canvas pixels must remain visible with scrollbar hiding enabled")
+        }
+
         function test_canvas_scrollbar_toggle_reloads_files_and_defers_sleeping_tabs() {
             appSettings.floatingSidebars = true
             appSettings.hideFloatingScrollbars = true

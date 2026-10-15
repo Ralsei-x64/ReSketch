@@ -148,6 +148,56 @@ function paletteCss(palette) {
         + '[data-testid="file-icon"] { --color-icon:var(--color-icon-onbrand) !important; }'
 }
 
+// Canvas scrollbars are rendered by Figma, rather than browser scroll containers.
+// Its native renderer reads this capability during initialization.
+function canvasScrollbarsScript(hidden) {
+    if (!hidden) return "";
+    return `(function() {
+        if (!/(^|\\.)figma\\.com$/.test(location.hostname)
+                || !/^\\/(file|design|board|proto|slides|deck|site|buzz|make)\\/[^/]+/i.test(location.pathname)) return;
+        let chunks, patched = false;
+        function intercept(array) {
+            let push = array.push;
+            Object.defineProperty(array, 'push', {
+                configurable:true,
+                get() {
+                    // Capture this handler so webpack can retain its parent push.
+                    const original = push;
+                    return function(...entries) {
+                        if (!patched) for (const entry of entries) {
+                            const modules = entry?.[1];
+                            if (!modules) continue;
+                            for (const id of Object.keys(modules)) {
+                                const factory = modules[id];
+                                if (typeof factory !== 'function' || factory.resketchScrollbarHook
+                                        || !factory.toString().includes('appCanRenderScrollbars')) continue;
+                                const wrapped = function(module, exports, runtime) {
+                                    factory.call(this, module, exports, runtime);
+                                    const app = Object.values(module.exports).find(value => typeof value === 'function'
+                                        && typeof value.prototype?.appCanRenderScrollbars === 'function');
+                                    if (app) {
+                                        app.prototype.appCanRenderScrollbars = () => false;
+                                        patched = window.__resketchCanvasScrollbarsHidden = true;
+                                    }
+                                };
+                                wrapped.resketchScrollbarHook = true;
+                                modules[id] = wrapped;
+                            }
+                        }
+                        return original.apply(this, entries);
+                    };
+                },
+                set(value) { push = value; }
+            });
+        }
+        Object.defineProperty(window, 'rspackChunk_figma_web_bundler', {
+            configurable:true,
+            get() { return chunks; },
+            set(value) { chunks = value; if (Array.isArray(value)) intercept(value); }
+        });
+    })()`;
+}
+
 // Cut holes in opaque page/canvas backgrounds without changing Figma's layout.
 var sidebarMaskSource = `function sidebarMask(bounds, panels, viewport = bounds) {
     const rounded = panels.some(panel => panel.radius > 0);
@@ -256,16 +306,6 @@ function sidebarAppearance(options, stylesheet) {
     const commentSelector = '[class*="comments_view--outerAnchorContainer--"], [class*="multiplayer_cursors--root--"], [class*="viewport_overlay--overflowContainer--"]';
     let panels = [], ancestors = new Set(), canvases = [], comments = [], frame = 0;
     let layout = null;
-    let canvasStore = null, canvasColor = '', unsubscribeCanvas = null;
-    function pageCanvasColor() {
-        try {
-            const mirror = canvasStore?.getState()?.mirror;
-            const color = mirror?.sceneGraph?.get(mirror.appModel?.currentPage)?.backgroundColor;
-            if (color && [color.r, color.g, color.b].every(Number.isFinite))
-                return 'rgb(' + [color.r, color.g, color.b].map(value => Math.round(value * 255)).join(',') + ')';
-        } catch (_) {}
-        return '';
-    }
     const authoredSizes = new WeakMap();
     const authoredSize = panel => panel.style.width + ':' + panel.style.height;
     const canvasSizes = new WeakMap();
@@ -307,10 +347,6 @@ function sidebarAppearance(options, stylesheet) {
         + '{ background:var(--resketch-sidebar-surface) !important; border:1px solid var(--color-border); }'
         + '[data-resketch-sidebar-ancestor] { background-color:transparent !important; }'
         + '[data-resketch-sidebar-canvas] { clip-path:var(--resketch-sidebar-clip) !important; }'
-        // Native canvas scrollbar tracks occupy the outer 12 CSS pixels. Mask
-        // those tracks independently of rounded sidebar holes and DOM scrollbars.
-        + '[data-resketch-canvas-scrollbars-hidden] { mask-image:linear-gradient(#000,#000) !important;'
-        + 'mask-size:calc(100% - 12px) calc(100% - 12px) !important; mask-position:0 0 !important; mask-repeat:no-repeat !important; }'
         + '#resketch-sidebar-underlay { position:fixed; inset:0; z-index:-1; pointer-events:none; }');
     function clear() {
         for (const panel of panels) {
@@ -323,7 +359,6 @@ function sidebarAppearance(options, stylesheet) {
         for (const ancestor of ancestors) ancestor.removeAttribute('data-resketch-sidebar-ancestor');
         for (const canvas of canvases.concat(comments)) {
             canvas.removeAttribute('data-resketch-sidebar-canvas');
-            canvas.removeAttribute('data-resketch-canvas-scrollbars-hidden');
             canvas.style.removeProperty('--resketch-sidebar-clip');
         }
         ancestors.clear();
@@ -369,19 +404,8 @@ function sidebarAppearance(options, stylesheet) {
         const railBounds = rail?.getBoundingClientRect(), leftBounds = leftPanel?.getBoundingClientRect();
         const joined = options.floatingSidebars && railBounds?.width && leftBounds?.width
             && Math.abs(railBounds.right - leftBounds.left) < 3;
-        const store = window.__resketchAppearance?.store;
-        if (store !== canvasStore) {
-            unsubscribeCanvas?.();
-            canvasStore = store;
-            unsubscribeCanvas = store?.subscribe(() => {
-                if (pageCanvasColor() !== canvasColor) schedule();
-            });
-        }
-        // The WebGL page fill can differ from .gpu-view-content's fallback gray.
-        // Use the rendered page color behind the masked native scrollbar tracks.
-        canvasColor = pageCanvasColor();
         underlay.style.backgroundColor = (options.floatingSidebars || options.sidebarBackdrop === 'canvas') && canvases.length
-            ? canvasColor || getComputedStyle(canvases[0]).backgroundColor : bg;
+            ? getComputedStyle(canvases[0]).backgroundColor : bg;
         for (const panel of panels) {
             authoredSizes.set(panel, authoredSize(panel));
             panel.style.setProperty('--resketch-sidebar-tint', tint);
@@ -415,8 +439,6 @@ function sidebarAppearance(options, stylesheet) {
         }).filter(rect => rect.right > rect.left && rect.bottom > rect.top);
         underlay.style.clipPath = options.sidebarBackdrop === 'desktop'
             ? sidebarMask({left:0, top:0, width:innerWidth, height:innerHeight}, rects) : 'none';
-        if (options.floatingSidebars && options.hideFloatingScrollbars)
-            for (const canvas of canvases) canvas.setAttribute('data-resketch-canvas-scrollbars-hidden', '');
         for (const canvas of (options.sidebarBackdrop === 'desktop' ? canvases : []).concat(comments)) {
             // Figma keeps some overlay bounds inset even after the canvas fills
             // the window. Pins can overflow those bounds, so clip the viewport.
@@ -444,7 +466,6 @@ function sidebarAppearance(options, stylesheet) {
             resize.disconnect();
             observer.disconnect();
             window.removeEventListener('resize', schedule);
-            unsubscribeCanvas?.();
             clear();
             layout?.dispose();
             underlay.remove();
