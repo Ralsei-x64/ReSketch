@@ -3,6 +3,9 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
 About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
+0.3.8 - 2026-10-16
+Declared Vulkan headers as a build dependency for clean Arch installations and release builds.
+
 0.3.7 - 2026-10-16
 Fixed Git checkout ownership checks in the Arch release containers.
 
