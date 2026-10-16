@@ -1118,13 +1118,14 @@ double CefQuickView::taskCpuUsage(qint64 taskId) {
 }
 
 CefQuickView::CefQuickView(QQuickItem *parent) : QQuickItem(parent), m_scripts(this), m_settings(this) {
+    connect(&m_settings, &CefViewSettings::changed, this, &CefQuickView::stopWheelScrolling);
     m_wheelTimer.setInterval(16);
     m_wheelTimer.setTimerType(Qt::PreciseTimer);
     m_wheelEndTimer.setSingleShot(true);
     m_wheelEndTimer.setInterval(40);
     connect(&m_wheelTimer, &QTimer::timeout, this, &CefQuickView::advanceWheelScrolling);
     connect(&m_wheelEndTimer, &QTimer::timeout, this, [this] {
-        if (!m_settings.scrollAnimatorEnabled || m_platformMomentum || m_wheelSamples < 2
+        if (!m_settings.inertialScrollingEnabled || m_platformMomentum || m_wheelSamples < 2
                 || !m_wheelSampleClock.isValid() || m_wheelSampleClock.elapsed() > 120
                 || std::hypot(m_wheelVelocity.x(), m_wheelVelocity.y()) < 80) return;
         m_wheelKinetic = true;
@@ -1631,7 +1632,7 @@ void CefQuickView::stopWheelScrolling() {
 }
 void CefQuickView::advanceWheelScrolling() {
     if (!m_browser || !isEnabled() || !isVisible() || m_lifecycle != LifecycleState::Active
-            || !m_settings.scrollAnimatorEnabled) { stopWheelScrolling(); return; }
+            || (m_wheelKinetic ? !m_settings.inertialScrollingEnabled : !m_settings.scrollAnimatorEnabled)) { stopWheelScrolling(); return; }
     const double dt = std::clamp(m_wheelFrameClock.restart() / 1000.0, 0.001, 0.05);
     m_wheelEvent.modifiers |= EVENTFLAG_PRECISION_SCROLLING_DELTA;
     if (m_wheelKinetic) {
@@ -1684,9 +1685,14 @@ void CefQuickView::wheelEvent(QWheelEvent *event) {
         event->accept();
         return;
     }
+    if (phase == Qt::ScrollMomentum && !m_settings.inertialScrollingEnabled) {
+        stopWheelScrolling();
+        event->accept();
+        return;
+    }
     if (phase == Qt::ScrollBegin) stopWheelScrolling();
     if (!delta.isNull()) {
-        if (!m_settings.scrollAnimatorEnabled || event->modifiers().testFlag(Qt::ControlModifier)) {
+        if (event->modifiers().testFlag(Qt::ControlModifier) || (!trackpad && !m_settings.scrollAnimatorEnabled)) {
             stopWheelScrolling();
             m_wheelEvent = mouse(event->position(), event->modifiers(), event->buttons());
             if (trackpad || !m_settings.scrollAnimatorEnabled) m_wheelEvent.modifiers |= EVENTFLAG_PRECISION_SCROLLING_DELTA;
@@ -1720,7 +1726,7 @@ void CefQuickView::wheelEvent(QWheelEvent *event) {
     }
     if (phase == Qt::ScrollEnd) {
         if (m_platformMomentum) stopWheelScrolling();
-        else if (m_settings.scrollAnimatorEnabled) m_wheelEndTimer.start(40);
+        else if (m_settings.inertialScrollingEnabled) m_wheelEndTimer.start(40);
     }
     event->accept();
 }

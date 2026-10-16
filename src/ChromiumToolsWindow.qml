@@ -66,6 +66,8 @@ Kirigami.ApplicationWindow {
             anchors.fill: parent
             active: tools.mode === "devtools"
             sourceComponent: CefView {
+                settings.scrollAnimatorEnabled: appSettings.smoothScrolling && !appSettings.reduceMotion
+                settings.inertialScrollingEnabled: appSettings.inertialScrolling && !appSettings.reduceMotion
                 objectName: "chromiumDeveloperTools"
                 inspectedView: tools.inspectedView
                 backgroundColor: Kirigami.Theme.backgroundColor
@@ -100,6 +102,7 @@ Kirigami.ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
+                ScrollGestureArea { flickable: tabList }
                 model: tools.tasks
                 TapHandler {
                     onTapped: eventPoint => {

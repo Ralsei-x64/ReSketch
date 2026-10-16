@@ -59,9 +59,11 @@ class CefViewSettings : public QObject {
     Q_OBJECT
     QML_ANONYMOUS
     Q_PROPERTY(bool scrollAnimatorEnabled MEMBER scrollAnimatorEnabled NOTIFY changed)
+    Q_PROPERTY(bool inertialScrollingEnabled MEMBER inertialScrollingEnabled NOTIFY changed)
   public:
     explicit CefViewSettings(QObject *parent) : QObject(parent) {}
     bool scrollAnimatorEnabled = true;
+    bool inertialScrollingEnabled = true;
   signals:
     void changed();
 };

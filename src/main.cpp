@@ -4,6 +4,7 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QNativeGestureEvent>
+#include <QWheelEvent>
 #include <QColorDialog>
 #include <QCursor>
 #include <QDateTime>
@@ -231,6 +232,8 @@ class AppSettings : public QObject
     Q_PROPERTY(int sidebarCanvasOpacity READ sidebarCanvasOpacity WRITE setSidebarCanvasOpacity NOTIFY changed)
     Q_PROPERTY(bool menuIntegration READ menuIntegration WRITE setMenuIntegration NOTIFY changed)
     Q_PROPERTY(bool reduceMotion READ reduceMotion WRITE setReduceMotion NOTIFY changed)
+    Q_PROPERTY(bool smoothScrolling READ smoothScrolling WRITE setSmoothScrolling NOTIFY changed)
+    Q_PROPERTY(bool inertialScrolling READ inertialScrolling WRITE setInertialScrolling NOTIFY changed)
     Q_PROPERTY(int toolbarOpacity READ toolbarOpacity WRITE setToolbarOpacity NOTIFY changed)
     Q_PROPERTY(QVariantList toolbarItems READ toolbarItems WRITE setToolbarItems NOTIFY changed)
     Q_PROPERTY(QVariantMap shortcutOverrides READ shortcutOverrides WRITE setShortcutOverrides NOTIFY changed)
@@ -493,6 +496,8 @@ public:
             {QStringLiteral("tooltipText"), palette.color(QPalette::ToolTipText).name()}
         };
     }
+    bool smoothScrolling() const { return store.value(QStringLiteral("smoothScrolling"), true).toBool(); }
+    bool inertialScrolling() const { return store.value(QStringLiteral("inertialScrolling"), true).toBool(); }
     bool reduceMotion() const { return store.value(QStringLiteral("reduceMotion"), false).toBool(); }
     int toolbarOpacity() const { return qBound(0, store.value(QStringLiteral("toolbarOpacity"), 100).toInt(), 100); }
     QVariantList toolbarItems() const
@@ -682,12 +687,9 @@ public:
         auto *window = qobject_cast<QWindow *>(object);
         if (!window)
             return;
-        const bool desktopSidebars = (translucentSidebars()
-            || (floatingSidebars() && window->property("floatingFileSidebars").toBool()))
-            && sidebarBackdrop() == QStringLiteral("desktop");
-        // A null region follows the whole surface through fullscreen and resize.
-        const QRegion region = window->property("chromiumFrameLoaded").toBool() && !desktopSidebars
-            ? QRegion(0, 0, window->width(), window->property("tabStripHeight").toInt()) : QRegion();
+        // Opaque web content masks this naturally; loaders and popups still
+        // reveal desktop blur even when sidebars use the canvas backdrop.
+        const QRegion region;
         KWindowEffects::enableBlurBehind(window, !safeMode() && toolbarOpacity() < 100 && !ignoreToolbarBlur(), region);
     }
     Q_INVOKABLE void refreshMemoryUsage()
@@ -909,6 +911,18 @@ public:
         emit changed();
         emit figmaAppearanceChanged();
     }
+    void setSmoothScrolling(bool value)
+    {
+        if (smoothScrolling() == value) return;
+        store.setValue(QStringLiteral("smoothScrolling"), value);
+        emit changed();
+    }
+    void setInertialScrolling(bool value)
+    {
+        if (inertialScrolling() == value) return;
+        store.setValue(QStringLiteral("inertialScrolling"), value);
+        emit changed();
+    }
     void setReduceMotion(bool value)
     {
         if (reduceMotion() == value)
@@ -1087,16 +1101,40 @@ signals:
 private:
     bool eventFilter(QObject *watched, QEvent *event) override
     {
+        if (event->type() == QEvent::Wheel) {
+            auto *window = qobject_cast<QQuickWindow *>(watched);
+            if (registeredWindows.contains(window) && !window->property("overviewVisible").toBool()
+                && !window->property("keyboardPopupActive").toBool() && !window->property("allFrozen").toBool()) {
+                auto *view = qobject_cast<CefQuickView *>(window->property("activeView").value<QObject *>());
+                auto *area = qobject_cast<QQuickItem *>(window->property("browserContent").value<QObject *>());
+                auto *wheel = static_cast<QWheelEvent *>(event);
+                if (view && area && area->contains(area->mapFromScene(wheel->position()))) {
+                    // Qt can keep a touchpad stream grabbed by the tab that
+                    // just slid offscreen. Always deliver web scrolling to the active tab.
+                    QWheelEvent forwarded(view->mapFromScene(wheel->position()), wheel->globalPosition(),
+                        wheel->pixelDelta(), wheel->angleDelta(), wheel->buttons(), wheel->modifiers(),
+                        wheel->phase(), wheel->inverted(), wheel->source(), wheel->pointingDevice());
+                    forwarded.setTimestamp(wheel->timestamp());
+                    QCoreApplication::sendEvent(view, &forwarded);
+                    wheel->accept();
+                    return true;
+                }
+            }
+        }
         if (event->type() == QEvent::NativeGesture) {
             auto *window = qobject_cast<QWindow *>(watched);
             const auto *gesture = static_cast<QNativeGestureEvent *>(event);
             // Qt's PinchHandler tracks native scale, but ignores interleaved
             // native pan events. Keep finger movement in the same transition.
             if (registeredWindows.contains(window) && window->property("overviewPinchTracking").toBool()
-                    && gesture->gestureType() == Qt::PanNativeGesture && gesture->fingerCount() == 2
                     && gesture->pointingDevice()->type() == QInputDevice::DeviceType::TouchPad) {
-                QMetaObject::invokeMethod(window, "panOverviewPinch", Q_ARG(QVariant, QVariant::fromValue(gesture->delta())));
-                if (window->property("overviewPinchAccepted").toBool()) return true;
+                if (gesture->gestureType() == Qt::EndNativeGesture) {
+                    // Settle with the last gesture values before Qt resets the handler on release.
+                    QMetaObject::invokeMethod(window, "finishOverviewPinch");
+                } else if (gesture->gestureType() == Qt::PanNativeGesture && gesture->fingerCount() == 2) {
+                    QMetaObject::invokeMethod(window, "panOverviewPinch", Q_ARG(QVariant, QVariant::fromValue(gesture->delta())));
+                    if (window->property("overviewPinchAccepted").toBool()) return true;
+                }
             }
         }
         if (event->type() == QEvent::Close) {

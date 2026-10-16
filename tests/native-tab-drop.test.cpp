@@ -183,6 +183,12 @@ int main(int argc, char **argv)
     assert(settings.sidebarCornerRadius() == 0);
     settings.resetSettings();
     assert(!settings.floatingSidebars() && settings.sidebarCornerRadius() == 12 && settings.sidebarMargin() == 8 && settings.hideFloatingScrollbars());
+    assert(settings.smoothScrolling() && settings.inertialScrolling());
+    settings.setSmoothScrolling(false);
+    settings.setInertialScrolling(false);
+    { AppSettings saved; assert(!saved.smoothScrolling() && !saved.inertialScrolling()); }
+    settings.resetSettings();
+    assert(settings.smoothScrolling() && settings.inertialScrolling());
     {
         QQuickWindow window;
         settings.registerMainWindow(&window);
@@ -198,13 +204,17 @@ int main(int argc, char **argv)
         assert(requestedBlurEnabled && requestedBlurRegion.isEmpty()); // Whole-window hint has no stale bounds.
         window.setProperty("chromiumFrameLoaded", true);
         settings.refreshWindowBlur(&window);
-        assert(requestedBlurRegion == QRegion(0, 0, window.width(), 40)); // The platform controls fullscreen geometry.
+        assert(requestedBlurRegion.isEmpty()); // The platform controls fullscreen geometry.
         settings.setFloatingSidebars(true);
         settings.refreshWindowBlur(&window);
-        assert(requestedBlurRegion == QRegion(0, 0, window.width(), 40)); // Home does not float.
+        assert(requestedBlurRegion.isEmpty()); // Home does not float.
         window.setProperty("floatingFileSidebars", true);
         settings.refreshWindowBlur(&window);
-        assert(requestedBlurEnabled && requestedBlurRegion.isEmpty()); // Only the floating surfaces reveal the desktop.
+        assert(requestedBlurEnabled && requestedBlurRegion.isEmpty()); // Floating sidebars reveal the desktop.
+        settings.setSidebarBackdrop(QStringLiteral("canvas"));
+        settings.refreshWindowBlur(&window);
+        assert(requestedBlurEnabled && requestedBlurRegion.isEmpty()); // Loading screens retain desktop blur.
+        settings.setSidebarBackdrop(QStringLiteral("desktop"));
         settings.setFloatingSidebars(false);
         settings.setTranslucentSidebars(true);
         settings.refreshWindowBlur(&window);
@@ -226,7 +236,7 @@ int main(int argc, char **argv)
         settings.refreshWindowBlur(&window);
         assert(!requestedBlurEnabled);
     }
-    puts("Fullscreen and resized window blur hints, toolbar bounds, sidebar coverage and disable checks passed");
+    puts("Fullscreen, resized windows, canvas-mode loaders and desktop blur disable checks passed");
     {
         CefPermission permission(QUrl("https://www.figma.com"), CefPermission::PermissionType::LocalFontsAccess);
         permission.grant();assert(permission.accepted);permission.deny();assert(!permission.accepted);
@@ -571,6 +581,7 @@ int main(int argc, char **argv)
     auto *tabs = destination->findChild<QQuickItem *>(QStringLiteral("tabsViewport"));
     auto *overview = destination->findChild<QQuickItem *>(QStringLiteral("overviewFlickable"));
     assert(tabs && overview);
+    settings.setReduceMotion(false);
     QPointingDevice touchpad(QStringLiteral("Test touchpad"), 42, QInputDevice::DeviceType::TouchPad,
                              QPointingDevice::PointerType::Finger, QInputDevice::Capability::Position | QInputDevice::Capability::Scroll,
                              2, 0);
@@ -623,7 +634,45 @@ int main(int argc, char **argv)
     assert(qAbs(position(overview, "wheelTargetY") - wheelStart) < 1);
     wheel(overview, {}, {}, Qt::ScrollBegin);
     assert(!overview->property("smoothWheel").toBool()); // A new gesture stops old mouse-wheel easing.
+    wheel(overview, {}, {}, Qt::ScrollEnd);
     puts("Native trackpad axes, pixels, momentum, natural scrolling, and mouse-wheel easing checks passed");
+    auto *uiScroll = overview->findChild<QQuickItem *>("scrollGestureArea");
+    assert(uiScroll);
+    const auto uiWheel = [&](QPoint pixels, QPoint angles, Qt::ScrollPhase phase, bool inverted = false,
+                              const QPointingDevice *device = nullptr) {
+        QWheelEvent event(QPointF(80,200), QPointF(80,200), pixels, angles, Qt::NoButton, Qt::NoModifier,
+                          phase, inverted, Qt::MouseEventSynthesizedBySystem, device ? device : &touchpad);
+        QCoreApplication::sendEvent(uiScroll, &event);
+    };
+    settings.setSmoothScrolling(false);
+    settings.setInertialScrolling(false);
+    assert(evaluate("destination.views.every(v=>!v.settings.scrollAnimatorEnabled && !v.settings.inertialScrollingEnabled)").toBool());
+    overview->setProperty("contentY", 100.0);
+    uiWheel({}, QPoint(0,-120), Qt::NoScrollPhase, false, QPointingDevice::primaryPointingDevice());
+    assert(!overview->property("smoothWheel").toBool());
+    assert(position(overview,"contentY") > 100);
+    uiWheel({}, {}, Qt::ScrollBegin);
+    for(int i=0;i<3;++i) { uiWheel(QPoint(0,-12), {}, Qt::ScrollUpdate); render(); }
+    uiWheel({}, {}, Qt::ScrollEnd);
+    const double noInertia = position(overview,"contentY");
+    render();
+    assert(qAbs(position(overview,"contentY") - noInertia) < 1);
+    uiWheel({}, {}, Qt::ScrollBegin);
+    uiWheel(QPoint(0,-24), {}, Qt::ScrollMomentum);
+    uiWheel({}, {}, Qt::ScrollEnd);
+    assert(qAbs(position(overview,"contentY") - noInertia) < 1);
+    settings.setInertialScrolling(true);
+    overview->setProperty("contentY", 0.0);
+    uiWheel({}, {}, Qt::ScrollBegin);
+    for(int i=0;i<3;++i) { uiWheel(QPoint(0,-24), {}, Qt::ScrollUpdate); if(i<2) render(); }
+    uiWheel({}, {}, Qt::ScrollEnd);
+    const double beforeInertia = position(overview,"contentY");
+    render();
+    assert(position(overview,"contentY") > beforeInertia);
+    settings.setSmoothScrolling(true);
+    uiWheel({}, {}, Qt::ScrollBegin);
+    uiWheel({}, {}, Qt::ScrollEnd);
+    puts("Scroll preference persistence, live web/UI updates and native UI inertia checks passed");
     evaluate("destination.dismissOverview(); destination.activateTab(0, false); var pinchFixtureReady = false;"
              "destination.activeView.runJavaScript(\"document.body.innerHTML='<style>body{margin:0}nav{position:absolute;left:0;top:0;width:200px;height:100vh;background:gray;z-index:1}.gpu-view-content{position:absolute;inset:0}</style><div class=gpu-view-content></div><nav data-onboarding-key=unified-design-onboarding-left-panel></nav>';window.zoomWheels=[];addEventListener('wheel',e=>{e.preventDefault();zoomWheels.push(e.deltaY)},{passive:false})\", () => pinchFixtureReady = true);");
     for (int i = 0; i < 50 && !evaluate("pinchFixtureReady").toBool(); ++i) render();
@@ -649,8 +698,13 @@ int main(int argc, char **argv)
     assert(qAbs(destination->property("overviewPinchOffsetX").toDouble() - pinchX - 30) < 1);
     assert(qAbs(destination->property("overviewProgress").toDouble() - pinchProgress) < 0.001);
     nativePinch(Qt::ZoomNativeGesture, -0.5);
+    const double releasedProgress = destination->property("overviewProgress").toDouble();
+    const double releasedScale = destination->property("overviewPinchScale").toDouble();
     nativePinch(Qt::EndNativeGesture);
-    for (int i = 0; i < 10 && destination->property("overviewProgress").toDouble() < 0.999; ++i) render();
+    for (int i = 0; i < 30 && destination->property("overviewProgress").toDouble() < 0.999; ++i) render();
+    if(destination->property("overviewProgress").toDouble()!=1 || !destination->property("overviewVisible").toBool())
+        fprintf(stderr,"pinch failure: releaseScale=%f releaseProgress=%f finalProgress=%f closing=%d tracking=%d visible=%d animation=%d\n", releasedScale,releasedProgress,
+            destination->property("overviewProgress").toDouble(),destination->property("overviewClosing").toBool(),destination->property("overviewPinchTracking").toBool(),destination->property("overviewVisible").toBool(),destination->property("overviewAnimationRunning").toBool());
     assert(destination->property("overviewProgress").toDouble() == 1 && destination->property("overviewVisible").toBool());
     assert(!destination->property("overviewPinchTracking").toBool());
     evaluate("destination.dismissOverview();");
@@ -685,9 +739,11 @@ int main(int argc, char **argv)
     assert(swipeView);
     const auto sidebarWheel = [&](QPoint pixels, Qt::ScrollPhase phase) {
         const QPointF local(80,300);
-        QWheelEvent event(local, swipeView->mapToGlobal(local), pixels, {}, Qt::NoButton, Qt::NoModifier,
+        auto *browser = qobject_cast<QQuickItem *>(destination->property("browserContent").value<QObject *>());
+        const auto scene = browser->mapToScene(local);
+        QWheelEvent event(scene, destination->mapToGlobal(scene), pixels, {}, Qt::NoButton, Qt::NoModifier,
                           phase, false, Qt::MouseEventSynthesizedBySystem, &touchpad);
-        QCoreApplication::sendEvent(swipeView, &event);
+        QCoreApplication::sendEvent(destination, &event);
     };
     sidebarWheel({}, Qt::ScrollBegin);
     render();
@@ -700,6 +756,17 @@ int main(int argc, char **argv)
     sidebarWheel({}, Qt::ScrollEnd);
     for(int i=0; i<10 && destination->property("activeView").value<QObject *>() == swipeView; ++i) render();
     assert(destination->property("activeView").value<QObject *>() != swipeView);
+    evaluate("var reverseReady=false;destination.activeView.runJavaScript(\"document.body.innerHTML='<nav style=\\\"position:absolute;inset:0\\\" data-onboarding-key=unified-design-onboarding-left-panel></nav>'\",()=>reverseReady=true)");
+    for(int i=0;i<30 && !evaluate("reverseReady").toBool();++i) render();
+    assert(evaluate("reverseReady").toBool());
+    evaluate("destination.activeView.restoreHistoryUrl('https://www.figma.com/design/ReverseFixture/Test');destination.activeView.hasLoadedFrame=true");
+    sidebarWheel({}, Qt::ScrollBegin);
+    render();
+    assert(destination->property("sidebarSwipeAllowed").toBool());
+    sidebarWheel(QPoint(600,0), Qt::ScrollUpdate);
+    sidebarWheel({}, Qt::ScrollEnd);
+    for(int i=0;i<10 && destination->property("activeView").value<QObject *>() != swipeView;++i) render();
+    assert(destination->property("activeView").value<QObject *>() == swipeView);
     evaluate("destination.openOverview(false)");
     for(int i=0; i<10 && destination->property("overviewProgress").toDouble() < 0.999; ++i) render();
     const auto cardPoint = evaluate("var pinchCard=destination.overviewNavigationCards().find(c=>typeof c.target!=='string' && c.target!==destination.activeView);"

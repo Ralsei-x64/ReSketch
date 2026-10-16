@@ -16,7 +16,7 @@
 - **Fullscreen:** Use the fullscreen shortcut (F11 by default) to enter or exit, and hover the top edge to reveal the tab strip; Escape clears selections or closes the overview while keeping fullscreen active.
 - **Titlebar autohide:** Press Shift+F11 to hide the tab strip and reveal it at the top edge without entering fullscreen.
 - **Keyboard shortcuts:** Customize every app shortcut in Settings, reset individual bindings or all defaults, and use Delete, Alt+Delete, and Ctrl+G to manage selected tabs and groups.
-- **Smooth scrolling:** Mouse wheels and trackpads smoothly scroll the tab strip, overview, and web content, including Home sidebars, with trackpad inertia.
+- **Scrolling controls:** Toggle smooth scrolling and inertia for both Figma and the app interface in Settings, with direction following desktop preferences.
 - **Session restore:** Optionally remember file tabs and their group names, colors, and collapsed states, with deferred loading until selected.
 - **Tab sleeping:** Configure idle time and minimum and maximum loaded-tab counts to manage background tabs.
 - **Sleeping previews:** Optionally show saved, blurred previews with a sleep icon for sleeping tabs.

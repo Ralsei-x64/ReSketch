@@ -35,6 +35,8 @@ Item {
         property int sidebarCanvasBlur: 0
         property int sidebarCanvasOpacity: 100
         property bool reduceMotion: false
+        property bool smoothScrolling: true
+        property bool inertialScrolling: true
         property int toolbarOpacity: 100
         function defaultToolbarItems() {
             return [{id: "new-tab", title: "New tab", icon: "tab-new", enabled: true},
@@ -142,6 +144,16 @@ Item {
             notification.close()
         }
     }
+    Component {
+        id: standardScrollFixture
+        Flickable {
+            id: standardScroll
+            width: 240; height: 240
+            contentWidth: width; contentHeight: 2400
+            Rectangle { width: 240; height: 2400; color: "gray" }
+            App.ScrollGestureArea { flickable: standardScroll }
+        }
+    }
     App.Main {
         id: app
         sharedProfile: testProfile
@@ -188,6 +200,8 @@ Item {
         function init() {
             app.externalLinks = []
             app.dismissOverview()
+            appSettings.smoothScrolling = true
+            appSettings.inertialScrolling = true
             appSettings.reduceMotion = true
             appSettings.changed()
             for (const view of app.views.slice())
@@ -204,6 +218,70 @@ Item {
             wait(300)
             app.activateTab(2)
             wait(350)
+        }
+
+        function test_scroll_preferences_apply_to_webviews_and_standard_ui() {
+            const scroll = createTemporaryObject(standardScrollFixture, fixture)
+            verify(scroll)
+            appSettings.smoothScrolling = false
+            appSettings.inertialScrolling = false
+            for (const view of [app.homeView].concat(app.views)) {
+                compare(view.settings.scrollAnimatorEnabled, false)
+                compare(view.settings.inertialScrollingEnabled, false)
+            }
+            mouseWheel(scroll, 80, 80, 0, -120)
+            compare(scroll.contentY, 120)
+            appSettings.smoothScrolling = true
+            mouseWheel(scroll, 80, 80, 0, -120)
+            compare(scroll.contentY, 120, "The standard app scroller starts easing instead of jumping")
+            wait(50)
+            verify(scroll.contentY > 120 && scroll.contentY < 240)
+            tryCompare(scroll, "contentY", 240)
+            appSettings.reduceMotion = true
+            mouseWheel(scroll, 80, 80, 0, -120)
+            compare(scroll.contentY, 360)
+            compare(app.activeView.settings.scrollAnimatorEnabled, false)
+            compare(app.activeView.settings.inertialScrollingEnabled, false)
+        }
+
+        function test_settings_scroll_area_and_checkboxes_use_shared_preferences() {
+            const component = Qt.createComponent("../src/SettingsWindow.qml")
+            compare(component.status, Component.Ready, component.errorString())
+            const window = createTemporaryObject(component, fixture, {visible:true, height:440})
+            verify(window)
+            const section = findChild(window, "settingsSectionScroll")
+            verify(section)
+            const scroller = section.contentItem
+            tryVerify(() => scroller.contentHeight > scroller.height)
+            appSettings.smoothScrolling = false
+            mouseWheel(scroller, 30, 70, 0, -120)
+            verify(scroller.contentY > 0)
+            appSettings.smoothScrolling = true
+            const current = scroller.contentY
+            mouseWheel(scroller, 30, 70, 0, -120)
+            compare(scroller.contentY, current)
+            tryVerify(() => scroller.contentY > current)
+            compare(findChild(window, "smoothScrollingCheck").checked, true)
+            appSettings.inertialScrolling = false
+            compare(findChild(window, "inertialScrollingCheck").checked, false)
+            appSettings.smoothScrolling = false
+            appSettings.figmaCustomCssEnabled = true
+            const editor = findChild(window, "customCssEditor")
+            editor.text = Array(100).fill("/* Scrollable custom CSS */").join("\n")
+            const cssScroll = findChild(window, "customCssScroll")
+            tryVerify(() => cssScroll.contentItem.contentHeight > cssScroll.contentItem.height)
+            wait(100) // Allow the form and outer ScrollView to finish relayout.
+            scroller.cancelFlick()
+            scroller.contentY = Math.min(scroller.contentHeight - scroller.height,
+                cssScroll.mapToItem(scroller.contentItem,0,0).y - 30)
+            wait(50)
+            const outerPosition = scroller.contentY
+            mouseWheel(cssScroll.contentItem, 30, 50, 0, -120)
+            tryVerify(() => cssScroll.contentItem.contentY > 0)
+            compare(scroller.contentY, outerPosition, "Nested editors scroll without moving Settings")
+            editor.text = ""
+            appSettings.figmaCustomCssEnabled = false
+            window.close()
         }
 
         function test_cursor_preference_applies_to_existing_views() {
@@ -3244,6 +3322,21 @@ Item {
             app.handleSidebarSwipe(source,0,0,Qt.ScrollEnd,position)
             tryCompare(source,"slideX",0)
             compare(app.activeView,source)
+        }
+
+        function test_sidebar_swipes_work_back_and_forth_between_tabs() {
+            for (const direction of [-1, 1, 1, -1]) {
+                const source = prepareSidebarPinchFixture()
+                const target = app.views[app.views.indexOf(source) + direction]
+                const point = Qt.point(100,300)
+                app.handleSidebarSwipe(source,0,0,Qt.ScrollBegin,point)
+                tryCompare(app,"sidebarSwipeAllowed",true)
+                app.handleSidebarSwipe(source,-direction * app.browserWidth * 0.6,0,Qt.ScrollUpdate,point)
+                app.handleSidebarSwipe(source,0,0,Qt.ScrollEnd,point)
+                tryVerify(() => app.activeView === target)
+                compare(target.slideX,0)
+                compare(source.visible,false)
+            }
         }
 
         function test_sidebar_swipe_ignores_vertical_scrolling_and_controls() {

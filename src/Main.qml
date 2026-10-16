@@ -442,7 +442,7 @@ Kirigami.ApplicationWindow {
                         const limit = Math.max(0, contentWidth - width)
                         const currentTarget = !direct && wheelScroll.running ? wheelTargetX : contentX
                         wheelTargetX = Math.max(0, Math.min(limit, currentTarget - distance))
-                        smoothWheel = !direct && !appSettings.reduceMotion
+                        smoothWheel = !direct && appSettings.smoothScrolling && !appSettings.reduceMotion
                         if (!smoothWheel)
                             wheelScroll.stop()
                         contentX = wheelTargetX
@@ -1386,7 +1386,7 @@ Kirigami.ApplicationWindow {
                         const currentTarget = !direct && overviewWheelScroll.running
                                               ? wheelTargetY : contentY
                         wheelTargetY = Math.max(0, Math.min(limit, currentTarget - distance))
-                        smoothWheel = !direct && !appSettings.reduceMotion
+                        smoothWheel = !direct && appSettings.smoothScrolling && !appSettings.reduceMotion
                         if (!smoothWheel)
                             overviewWheelScroll.stop()
                         contentY = wheelTargetY
@@ -1401,7 +1401,7 @@ Kirigami.ApplicationWindow {
                     anchors.fill: parent
                     z: root.overviewDraggedView || (root.overviewSelectedView
                        && (root.overviewClosing || root.overviewProgress < 0.999)) ? 10 : 0
-                    interactive: !overviewSelectionArea.pressed && !root.overviewDraggedView && !root.overviewDraggedGroupId
+                    interactive: !root.overviewPinchTracking && !overviewSelectionArea.pressed && !root.overviewDraggedView && !root.overviewDraggedGroupId
                     contentWidth: width
                     contentHeight: root.overviewLayout.height
                     onContentHeightChanged: {
@@ -1435,7 +1435,7 @@ Kirigami.ApplicationWindow {
                     }
 
                     ScrollGestureArea {
-                        enabled: overviewFlickable.contentHeight > overviewFlickable.height
+                        enabled: !root.overviewPinchTracking && overviewFlickable.contentHeight > overviewFlickable.height
                         flickable: overviewFlickable
                         wheelStep: Math.max(220, Math.min(320, root.overviewCardHeight + root.overviewGap))
                     }
@@ -2477,46 +2477,6 @@ Kirigami.ApplicationWindow {
         Drag.onDragFinished: action => root.finishNativeTabDrag(action)
     }
 
-    // One receiver handles both axes, including zero-delta gesture boundaries.
-    component ScrollGestureArea: MouseArea {
-        id: gestureArea
-        anchors.fill: parent
-        z: 100
-        acceptedButtons: Qt.NoButton
-        required property var flickable
-        required property real wheelStep
-        property bool horizontal: false
-        property int gestureAxis: 0
-        Timer {
-            id: gestureIdle
-            interval: 150
-            onTriggered: gestureArea.gestureAxis = 0
-        }
-        onWheel: event => {
-            const pixels = event.pixelDelta.x !== 0 || event.pixelDelta.y !== 0
-            const continuous = pixels || event.phase !== Qt.NoScrollPhase
-                               || event.device.type === PointerDevice.TouchPad
-            if (event.phase === Qt.ScrollBegin) gestureAxis = 0
-            const delta = pixels ? event.pixelDelta : event.angleDelta
-            let axis = horizontal && Math.abs(delta.x) > Math.abs(delta.y) ? 1 : 2
-            if (continuous && (delta.x !== 0 || delta.y !== 0)) {
-                if (!gestureAxis) gestureAxis = axis
-                axis = gestureAxis
-            }
-            const distance = axis === 1 ? delta.x : delta.y
-            if (distance !== 0 || (continuous && event.phase === Qt.ScrollBegin)) {
-                flickable.cancelFlick()
-                flickable.scrollBy(pixels ? distance : distance * wheelStep / 120, continuous)
-            }
-            if (continuous) gestureIdle.restart()
-            if (event.phase === Qt.ScrollEnd) {
-                gestureIdle.stop()
-                gestureAxis = 0
-            }
-            event.accepted = true
-        }
-    }
-
     Kirigami.InlineMessage {
         objectName: "gpuAccelerationWarning"
         parent: root.contentItem
@@ -2955,7 +2915,8 @@ Kirigami.ApplicationWindow {
                        : 0
             profile: webView.ownerWindow.browserProfile
             useSystemCursor: appSettings.useSystemCursor
-            settings.scrollAnimatorEnabled: !appSettings.reduceMotion
+            settings.scrollAnimatorEnabled: appSettings.smoothScrolling && !appSettings.reduceMotion
+            settings.inertialScrollingEnabled: appSettings.inertialScrolling && !appSettings.reduceMotion
             onTrackpadScroll: (dx, dy, phase, position) => {
                 trackpadScrollAccepted = webView.ownerWindow.handleSidebarSwipe(webView, dx, dy, phase, position)
             }

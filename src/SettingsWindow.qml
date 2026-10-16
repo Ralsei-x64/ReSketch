@@ -43,7 +43,7 @@ Kirigami.ApplicationWindow {
             ? Object.assign({}, item, {enabled: checked}) : item)
     }
     readonly property var sections: [
-        {title: "Appearance", icon: "preferences-desktop-theme", keywords: "theme colors CSS transparency opacity blur shadow strength floating sidebars corners radius cursor window controls decorations motion"},
+        {title: "Appearance", icon: "preferences-desktop-theme", keywords: "theme colors CSS transparency opacity blur shadow strength floating sidebars corners radius cursor window controls decorations motion scrolling smooth inertia mouse trackpad"},
         {title: "Tabs", icon: "tab-duplicate", keywords: "sleep remember restore loaded Home"},
         {title: "Performance", icon: "preferences-system-performance", keywords: "memory preview quality menus Chromium GPU Vulkan canvas flags switches"},
         {title: "Notifications", icon: "preferences-desktop-notification", keywords: "desktop alerts enable disable Home"},
@@ -65,6 +65,12 @@ Kirigami.ApplicationWindow {
                              : Qt.Window | Qt.CustomizeWindowHint | Qt.WindowTitleHint | Qt.WindowCloseButtonHint
     title: appSettings.safeMode ? "ReSketch — Safe Mode Settings" : "ReSketch — Settings"
     pageStack.globalToolBar.style: Kirigami.ApplicationHeaderStyle.None
+
+    ScrollGestureArea {
+        parent: sectionScroll
+        flickable: sectionScroll.contentItem
+        nestedFlickables: [cssScroll.contentItem]
+    }
 
     Timer {
         interval: 5000
@@ -146,6 +152,7 @@ Kirigami.ApplicationWindow {
                 }
                 Controls.ScrollView {
                     id: sectionScroll
+                    objectName: "settingsSectionScroll"
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
@@ -372,6 +379,27 @@ Kirigami.ApplicationWindow {
                                     }
 
                                     Controls.CheckBox {
+                                        objectName: "smoothScrollingCheck"
+                                        Kirigami.FormData.label: "Scrolling:"
+                                        text: qsTr("Smooth scrolling")
+                                        checked: appSettings.smoothScrolling
+                                        onToggled: appSettings.smoothScrolling = checked
+                                    }
+                                    Controls.CheckBox {
+                                        objectName: "inertialScrollingCheck"
+                                        text: qsTr("Scroll inertia")
+                                        checked: appSettings.inertialScrolling
+                                        onToggled: appSettings.inertialScrolling = checked
+                                    }
+                                    Controls.Label {
+                                        Layout.fillWidth: true
+                                        Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
+                                        text: qsTr("Applies to Figma and the app interface. Reduce motion pauses these effects. Scrolling direction follows your desktop settings.")
+                                        opacity: 0.72
+                                        wrapMode: Text.WordWrap
+                                    }
+
+                                    Controls.CheckBox {
                                         Kirigami.FormData.label: "Figma colors:"
                                         text: "Use KDE colors (experimental)"
                                         checked: appSettings.figmaSystemColors
@@ -388,6 +416,9 @@ Kirigami.ApplicationWindow {
                                     Controls.ScrollView {
                                         Layout.fillWidth: true
                                         Layout.preferredHeight: 140
+                                        implicitHeight: 140
+                                        id: cssScroll
+                                        objectName: "customCssScroll"
                                         visible: appSettings.figmaCustomCssEnabled
                                         Controls.TextArea {
                                             id: customCssEditor

@@ -211,6 +211,10 @@ assert.equal(google.body.theme, 'light')
 assert.equal(google.elements.size, 0, 'never inject CSS into the Google sign-in page')
 app.run({opacity: 50, translucentSidebars: false})
 assert.ok(app.elements.has('resketch-loading-background'), 'loading transparency is independent of sidebars')
+const desktopLoadingCss = app.elements.get('resketch-loading-background').textContent
+app.run({opacity: 50, sidebarBackdrop: 'canvas', sidebarCanvasOpacity: 100, sidebarCanvasBlur: 40})
+assert.equal(app.elements.get('resketch-loading-background').textContent, desktopLoadingCss,
+             'canvas blur and opacity only affect sidebars, not the loading backdrop')
 app.run({opacity: 100})
 assert.equal(app.elements.has('resketch-loading-background'), false, 'opaque setting restores original loading backgrounds')
 console.log('Figma theme synchronization and appearance checks passed')

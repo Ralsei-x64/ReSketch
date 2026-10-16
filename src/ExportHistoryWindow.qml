@@ -144,6 +144,7 @@ Kirigami.ApplicationWindow {
                 Layout.fillHeight: true
                 spacing: Kirigami.Units.smallSpacing
                 clip: true
+                ScrollGestureArea { flickable: exportsList }
                 model: historyModel
                 boundsBehavior: Flickable.StopAtBounds
                 interactive: historyWindow.activeRemovals === 0

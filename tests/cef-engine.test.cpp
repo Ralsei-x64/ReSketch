@@ -468,6 +468,28 @@ CefView {
         QCoreApplication::sendEvent(view, &homeMouse);
         until([&] { return js("homeScroll.scrollTop").toInt() == beforeMouse + wheelDistance; }, "Mouse scrolling retains its full distance");
         require(js("homeWheels.length>=3").toBool(), "Custom Figma/Home wheel handlers receive smooth mouse steps");
+        view->settings()->setProperty("scrollAnimatorEnabled", false);
+        view->settings()->setProperty("inertialScrollingEnabled", false);
+        const int noEffectsStart = js("homeScroll.scrollTop").toInt();
+        js("homeWheels=[]");
+        QCoreApplication::sendEvent(view, &homeMouse);
+        until([&] { return js("homeScroll.scrollTop").toInt() == noEffectsStart + wheelDistance; }, "Disabled mouse smoothing still scrolls");
+        require(js("homeWheels.length").toInt() == 1, "Disabling smoothing sends one mouse step");
+        homeWheel({}, Qt::ScrollBegin);
+        for(int i=0; i<3; ++i) { homeWheel(QPoint(0,-12), Qt::ScrollUpdate); processFor(20); }
+        homeWheel({}, Qt::ScrollEnd);
+        const int noInertia = js("homeScroll.scrollTop").toInt();
+        processFor(200);
+        require(js("homeScroll.scrollTop").toInt() == noInertia, "Disabled inertia has no synthetic tail");
+        homeWheel(QPoint(0,-24), Qt::ScrollMomentum);
+        processFor(100);
+        require(js("homeScroll.scrollTop").toInt() == noInertia, "Disabled inertia also ignores platform momentum");
+        view->settings()->setProperty("inertialScrollingEnabled", true);
+        homeWheel({}, Qt::ScrollBegin);
+        for(int i=0; i<3; ++i) { homeWheel(QPoint(0,-12), Qt::ScrollUpdate); processFor(20); }
+        homeWheel({}, Qt::ScrollEnd);
+        until([&] { return js("homeScroll.scrollTop").toInt() > noInertia + 40; }, "Inertia works independently of mouse smoothing");
+        view->settings()->setProperty("scrollAnimatorEnabled", true);
         js("homeScroll.remove()");
         fprintf(stderr, "PASS: Home sidebar finger tracking, inertia, cancellation, platform momentum and smooth mouse scrolling\n");
         // Exercise Qt -> Chromium drag delivery and its HTML drop data.
