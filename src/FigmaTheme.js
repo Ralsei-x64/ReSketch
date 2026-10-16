@@ -400,7 +400,8 @@ function sidebarAppearance(options, stylesheet) {
         const bg = getComputedStyle(document.body).getPropertyValue('--color-bg').trim() || (options.theme === 'dark' ? '#2c2c2c' : '#ffffff');
         // Desktop tint is already drawn by the native window background.
         // Applying it again here makes 85% opacity effectively 98%.
-        const translucent = (options.translucentSidebars || options.floatingSidebars) && options.opacity < 100;
+        const translucent = (options.translucentSidebars || options.floatingSidebars) && options.opacity < 100
+            && (options.sidebarBackdrop !== 'canvas' || floatingFilePage());
         const tint = !translucent ? bg : options.sidebarBackdrop === 'desktop' ? 'transparent'
             : 'color-mix(in srgb, ' + bg + ' ' + options.opacity + '%, transparent)';
         const rail = panels.find(panel => panel.matches('[data-testid="navigation-bar"]'));

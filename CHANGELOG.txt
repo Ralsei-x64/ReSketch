@@ -3,6 +3,9 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
 About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
+1.0.18 - 2026-10-16
+Made Home sidebars opaque when using the canvas backdrop, preserving desktop backdrop transparency.
+
 1.0.17 - 2026-10-16
 Fixed canvas transparency behind docked sidebars and added canvas backdrop blur and opacity sliders for docked and floating sidebars.
 

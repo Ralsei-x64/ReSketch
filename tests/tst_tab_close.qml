@@ -2229,7 +2229,7 @@ Item {
             function inspect() {
                 view.runJavaScript('(()=>{const p=document.getElementById("home"),s=getComputedStyle(p),r=p.getBoundingClientRect();'
                     + 'const right=document.querySelector("[data-testid=properties-panel]"),child=right.firstElementChild;'
-                    + 'return {x:r.x,y:r.y,width:r.width,height:r.height,radius:s.borderRadius,overflow:s.overflow,bg:s.backgroundColor,'
+                    + 'return {x:r.x,y:r.y,width:r.width,height:r.height,radius:s.borderRadius,overflow:s.overflow,bg:s.backgroundColor,blur:s.backdropFilter,'
                     + 'rightWidth:right.getBoundingClientRect().width,childWidth:child.getBoundingClientRect().width,'
                     + 'commentsWidth:document.querySelector("[class*=comments_sidebar--container--]").getBoundingClientRect().width,'
                     + 'canvasLeft:document.querySelector(".gpu-view-content").getBoundingClientRect().left,'
@@ -2316,9 +2316,15 @@ Item {
             }
             options.opacity = 60
             options.translucentSidebars = true
+            options.sidebarCanvasBlur = 16
             apply()
             tryVerify(() => { inspect(); return result.marked && !result.floating })
-            verify(result.bg.includes("0.6"), "Home keeps ordinary translucency when it is independently enabled")
+            compare(result.bg, "rgb(238, 238, 238)", "Home has a flat sidebar with the canvas backdrop")
+            compare(result.blur, "none", "Home does not blur the canvas backdrop")
+            options.sidebarBackdrop = "desktop"
+            apply()
+            tryVerify(() => { inspect(); return result.bg === "rgba(0, 0, 0, 0)" })
+            compare(result.blur, "none", "Desktop backdrop keeps its existing transparency")
             options.translucentSidebars = false
             options.floatingSidebars = false
             apply()
@@ -2543,11 +2549,11 @@ Item {
                 const options = {theme:"light", translucentSidebars:appSettings.translucentSidebars,
                                  opacity:appSettings.toolbarOpacity, sidebarBackdrop:appSettings.sidebarBackdrop}
                 // Exercise the real sidebar controller against a local DOM fixture.
-                view.runJavaScript(FigmaTheme.sidebarMaskSource + ';' + FigmaTheme.sidebarSource
+                view.runJavaScript('(()=>{const location={pathname:"/design/Test/File"};' + FigmaTheme.sidebarMaskSource + ';' + FigmaTheme.sidebarSource
                     + ';sidebarAppearance(' + JSON.stringify(options) + ', (id,css)=>{'
                     + 'let s=document.getElementById(id);if(!css){s?.remove();return}'
                     + 'if(!s){s=document.createElement("style");s.id=id;document.head.appendChild(s)}'
-                    + 's.textContent=css;});')
+                    + 's.textContent=css;});})()')
             }
             applySidebar()
             let result = null
