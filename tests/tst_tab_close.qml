@@ -2283,6 +2283,68 @@ Item {
             tryVerify(() => { inspect(); return result?.clip === "none" && result.pinVisible })
         }
 
+        function test_floating_canvas_fills_frame_after_layout_changes() {
+            const view = app.activeView
+            const html = '<style>body{margin:0}#host{position:absolute;inset:0}'
+                + '#host.inset{width:80%;height:75%}'
+                + '.gpu-view-content{position:absolute;inset:28px 0 36px;background:#444}</style>'
+                + '<div id="host"><div class="gpu-view-content"></div></div>'
+            let result = null
+            const options = {theme:"light",floatingSidebars:true,opacity:100,sidebarBackdrop:"canvas",
+                sidebarMargin:8,sidebarCornerRadius:12}
+            view.runJavaScript('document.body.innerHTML=' + JSON.stringify(html), () => result = true)
+            tryVerify(() => result === true)
+            function apply() {
+                view.runJavaScript('(()=>{const location={pathname:"/design/Test/File"};'
+                    + FigmaTheme.sidebarMaskSource + ';' + FigmaTheme.sidebarSource
+                    // The native bridge is covered separately; emulate its layout
+                    // here to exercise the real CEF DOM observers and edge checks.
+                    + ';floatingCanvasLayout=()=>({update(){document.getElementById("host").className="";'
+                    + 'document.querySelector(".gpu-view-content").style.inset="0px"},dispose(){'
+                    + 'document.querySelector(".gpu-view-content").style.inset="0px 200px"}});'
+                    + 'sidebarAppearance(' + JSON.stringify(options) + ',(id,css)=>{'
+                    + 'let s=document.getElementById(id);if(!css){s?.remove();return}'
+                    + 'if(!s){s=document.createElement("style");s.id=id;document.head.appendChild(s)}s.textContent=css;});})()')
+            }
+            function fillsFrame() {
+                view.runJavaScript('(()=>{const r=document.querySelector(".gpu-view-content").getBoundingClientRect();'
+                    + 'return {left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:innerWidth,height:innerHeight}})()',
+                    value => result = value)
+                return result && result.left === 0 && result.top === 0
+                    && result.right === result.width && result.bottom === result.height
+            }
+            apply()
+            tryVerify(fillsFrame, 5000, "Initial vertical insets must be removed by native layout")
+            result = null
+            view.runJavaScript('document.querySelector(".gpu-view-content").style.inset="32px 0 16px"')
+            tryVerify(fillsFrame, 5000, "Later vertical layout changes must fill the entire frame")
+            result = null
+            view.runJavaScript('document.querySelector(".gpu-view-content").style.inset="0px 25px 0px -25px"')
+            tryVerify(fillsFrame, 5000, "A shifted full-width canvas must be restored too")
+            result = null
+            view.runJavaScript('document.getElementById("host").className="inset"')
+            tryVerify(fillsFrame, 5000, "CSS parent resizing must trigger native layout without inline style changes")
+            const width = app.width, height = app.height
+            try {
+                for (const size of [[960,600],[1440,900],[800,500]]) {
+                    app.width = size[0]; app.height = size[1]
+                    result = null
+                    tryVerify(fillsFrame, 5000, "The canvas must fill resized frames")
+                }
+            } finally {
+                app.width = width; app.height = height
+            }
+            options.floatingSidebars = false
+            result = null
+            apply()
+            tryVerify(() => { fillsFrame(); return result && result.left === 200 }, 5000,
+                "Disabling floating mode restores the normal panel insets")
+            options.floatingSidebars = true
+            result = null
+            apply()
+            tryVerify(fillsFrame, 5000, "Re-enabling floating mode fills the frame again")
+        }
+
         function test_floating_sidebars_keep_backdrops_and_restore_layout() {
             const view = app.activeView
             const fixture = '<style>body{margin:0;--color-bg:#eee;--color-border:#8899aa}'

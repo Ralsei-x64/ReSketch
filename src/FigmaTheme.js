@@ -391,7 +391,9 @@ function sidebarAppearance(options, stylesheet) {
         if (canvasBehind && canvasView) {
             layout ||= floatingCanvasLayout();
             const bounds = canvasView.getBoundingClientRect();
-            if (bounds.left > 1 || Math.abs(bounds.width - innerWidth) > 1) layout?.update();
+            if (Math.abs(bounds.left) > 1 || Math.abs(bounds.top) > 1
+                    || Math.abs(bounds.right - innerWidth) > 1
+                    || Math.abs(bounds.bottom - innerHeight) > 1) layout?.update();
         }
         const found = Array.from(document.querySelectorAll(selector));
         const next = found.filter(panel => !found.some(other => other !== panel && other.contains(panel)));
@@ -401,7 +403,10 @@ function sidebarAppearance(options, stylesheet) {
         observer.disconnect();
         observer.observe(document.body, {childList:true, subtree:true});
         for (const panel of panels) observer.observe(panel, {attributes:true, attributeFilter:['style']});
-        canvases = Array.from(document.querySelectorAll('.gpu-view-content'));
+        const nextCanvases = Array.from(document.querySelectorAll('.gpu-view-content'));
+        for (const canvas of canvases) if (!nextCanvases.includes(canvas)) resize.unobserve(canvas);
+        for (const canvas of nextCanvases) if (!canvases.includes(canvas)) resize.observe(canvas);
+        canvases = nextCanvases;
         comments = canvasBehind ? Array.from(document.querySelectorAll(commentSelector)) : [];
         // Native layout can move the canvas after updating the panel flags.
         // Watch its actual layout, ignoring our mask variables to avoid a loop.
