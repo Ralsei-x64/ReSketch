@@ -7,11 +7,13 @@ case "${RELEASE_ENGINE:?}" in
     *) echo "Unknown release engine" >&2; exit 1 ;;
 esac
 [[ "${GITHUB_REF_NAME:?}" == "$expected_branch" ]]
+workspace=${GITHUB_WORKSPACE:?}
+# Container root and checkout's host user have different UIDs.
+git config --global --add safe.directory "$workspace"
 [[ "$(git rev-parse HEAD)" == "${GITHUB_SHA:?}" ]]
 version=$(sed -n 's/^project(ReSketch VERSION \([^ ]*\) .*/\1/p' CMakeLists.txt)
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 short_commit=$(git rev-parse --short=7 HEAD)
-workspace=${GITHUB_WORKSPACE:?}
 package_dir="$workspace/.ci-package"
 mkdir -p "$package_dir" "$workspace/dist"
 cp packaging/arch/PKGBUILD "$package_dir/PKGBUILD"
