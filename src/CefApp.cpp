@@ -5,6 +5,7 @@
 #include "include/cef_process_message.h"
 #include "include/cef_v8.h"
 #include <unistd.h>
+#include <time.h>
 
 namespace {
 class NativeBridge final : public CefV8Handler {
@@ -116,8 +117,22 @@ void ReSketchCefApp::OnContextCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<C
         }
     }
 }
-bool ReSketchCefApp::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>,
+bool ReSketchCefApp::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
                                               CefProcessId, CefRefPtr<CefProcessMessage> message) {
+    if (message->GetName() == "resketch.cpu") {
+        // Process CPU clocks include renderer workers and do not depend on the
+        // sandbox's PID namespace or access to another process's /proc files.
+        timespec cpu{}, wall{};
+        const bool measured = clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpu) == 0
+            && clock_gettime(CLOCK_MONOTONIC, &wall) == 0;
+        auto response = CefProcessMessage::Create("resketch.cpu");
+        const auto args = response->GetArgumentList();
+        args->SetInt(0, message->GetArgumentList()->GetInt(0));
+        args->SetDouble(1, measured ? cpu.tv_sec + cpu.tv_nsec / 1e9 : -1);
+        args->SetDouble(2, measured ? wall.tv_sec + wall.tv_nsec / 1e9 : -1);
+        frame->SendProcessMessage(PID_BROWSER, response);
+        return true;
+    }
     if (message->GetName() != "resketch.scripts")
         return false;
     scripts[browser->GetIdentifier()] = message->GetArgumentList()->GetList(0)->Copy();

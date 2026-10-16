@@ -109,7 +109,7 @@ Kirigami.ApplicationWindow {
     })).filter(group => group.tabs.length)
     readonly property var chromiumPages: [homeView].concat(views).filter(view => !!view && !view.overviewClosingCard
         && !pendingCloseViews.includes(view) && !closingViews.includes(view)).map(view => ({
-        view: view, home: view === homeView, pid: view.renderProcessPid, title: view === homeView ? qsTr("Home") : Policy.pageLabel(view.tabUrl, view.title)
+        view: view, home: view === homeView, title: view === homeView ? qsTr("Home") : Policy.pageLabel(view.tabUrl, view.title)
     }))
     readonly property var memoryTabCandidates: [homeView].concat(views)
         .filter(view => memoryUnloadEligible(view)).map(view => ({view: view, lastUsedAt: view.lastUsedAt}))

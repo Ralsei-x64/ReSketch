@@ -5,6 +5,7 @@
 #include "include/cef_download_handler.h"
 #include "include/cef_render_handler.h"
 #include "include/cef_request_context.h"
+#include "include/cef_task_manager.h"
 #include <QColor>
 #include <QCursor>
 #include <QImage>
@@ -196,6 +197,22 @@ class CefProfile : public QObject {
     CefRefPtr<CefRequestContext> m_context;
     QMap<QString, CefPermission *> m_permissions;
 };
+// Hold Chromium's sampler only while a task-manager window is visible.
+class CefTaskMonitor : public QObject {
+    Q_OBJECT
+    QML_ELEMENT
+    Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
+  public:
+    explicit CefTaskMonitor(QObject *parent = nullptr) : QObject(parent) {}
+    bool active() const { return !!m_manager; }
+    void setActive(bool active);
+    Q_INVOKABLE QVariantMap resourceUsage(CefQuickView *view) const;
+  signals:
+    void activeChanged();
+  private:
+    CefRefPtr<CefTaskManager> m_manager;
+};
+
 class CefQuickView : public QQuickItem {
     Q_OBJECT
     QML_NAMED_ELEMENT(CefView)
@@ -307,6 +324,8 @@ class CefQuickView : public QQuickItem {
 
   private:
     friend class CefQuickClient;
+    friend class CefTaskMonitor;
+    double taskCpuUsage(qint64 taskId);
     void ensureBrowser();
     void publishFrame(const QImage &image, bool popup = false);
     void publishAccelerated(const CefAcceleratedPaintInfo &info, bool popup);
@@ -321,6 +340,11 @@ class CefQuickView : public QQuickItem {
     bool m_loading = false, m_creating = false, m_closing = false;
     int m_progress = 0;
     qint64 m_pid = 0;
+    qint64 m_cpuTaskId = -1;
+    int m_cpuRequest = 0;
+    bool m_cpuPending = false;
+    double m_cpuUsage = -1, m_cpuTime = -1, m_cpuWallTime = -1;
+    double m_cpuRequestedAt = 0, m_cpuResponseAt = 0;
     LifecycleState m_lifecycle = LifecycleState::Active;
     bool m_overviewPreview = false, m_useSystemCursor = false;
     QCursor m_webCursor;

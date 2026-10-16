@@ -28,19 +28,30 @@ Kirigami.ApplicationWindow {
     function refreshTasks() {
         if (mode !== "tasks" || !visible) return
         const selectedView = tasks[tabList.currentIndex]?.view
-        const resources = appSettings.chromiumTabResources()
         tasks = (ownerWindow?.chromiumPages || []).map(page => {
-            const resource = resources.find(task => task.pid === page.pid)
             const view = page.view
             const unloaded = !!String(view.deferredRestoreUrl) || view.lifecycleState === CefView.LifecycleState.Discarded
+            const resource = unloaded ? {} : taskMonitor.resourceUsage(view)
             const sleeping = view.lifecycleState === CefView.LifecycleState.Frozen
-            return {view: view, home: page.home, title: page.title, pid: resource ? page.pid : 0,
+            return {view: view, home: page.home, title: page.title, taskId: resource.taskId,
                     cpu: resource?.cpu, memory: resource?.memory,
                     state: unloaded ? qsTr("Unloaded") : sleeping ? qsTr("Sleeping") : view.loading ? qsTr("Loading") : qsTr("Running")}
         })
         tabList.currentIndex = tasks.findIndex(task => task.view === selectedView)
     }
-    Timer { interval: 2000; running: tools.visible && tools.mode === "tasks"; repeat: true; onTriggered: tools.refreshTasks() }
+    CefTaskMonitor {
+        id: taskMonitor
+        objectName: "chromiumTaskMonitor"
+        active: tools.visible && tools.mode === "tasks"
+    }
+    Timer {
+        objectName: "chromiumTaskRefreshTimer"
+        interval: 1000
+        running: taskMonitor.active
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: tools.refreshTasks()
+    }
 
     pageStack.initialPage: Kirigami.Page {
         padding: 0
@@ -112,8 +123,8 @@ Kirigami.ApplicationWindow {
                             source: modelData.home ? "go-home" : "text-x-generic"
                         }
                         Controls.Label { Layout.fillWidth: true; elide: Text.ElideRight; text: modelData.title }
-                        Controls.Label { Layout.preferredWidth: 85; text: modelData.pid ? Number(modelData.cpu).toFixed(1) + "%" : "—" }
-                        Controls.Label { Layout.preferredWidth: 100; text: modelData.pid ? Number(modelData.memory).toFixed(1) + " MiB" : "—" }
+                        Controls.Label { Layout.preferredWidth: 85; objectName: "chromiumTaskCpu"; text: Number.isFinite(modelData.cpu) ? modelData.cpu.toFixed(1) + "%" : "—" }
+                        Controls.Label { Layout.preferredWidth: 100; objectName: "chromiumTaskMemory"; text: Number.isFinite(modelData.memory) ? modelData.memory.toFixed(1) + " MiB" : "—" }
                         Controls.Label { Layout.preferredWidth: 90; text: modelData.state }
                     }
                 }
@@ -122,7 +133,7 @@ Kirigami.ApplicationWindow {
                 Layout.fillWidth: true
                 Controls.Label {
                     Layout.fillWidth: true
-                    text: qsTr("CPU and memory describe the tab’s renderer. Tabs sharing a renderer show the same usage.")
+                    text: qsTr("Updated every second. Tabs can share renderer CPU and memory usage.")
                     wrapMode: Text.WordWrap
                     opacity: 0.7
                     font: Kirigami.Theme.smallFont

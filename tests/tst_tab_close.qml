@@ -93,8 +93,6 @@ Item {
         property bool exportDeletionSucceeds: true
         property bool nativeTabDragSupported: false
         property string gpuAccelerationWarning: ""
-        property var taskRows: []
-        function chromiumTabResources() { return taskRows }
         function cursorPosition() { return Qt.point(0, 0) }
         signal changed()
         signal effectiveThemeChanged()
@@ -1143,7 +1141,6 @@ Item {
             const taskView = app.views[0]
             taskView.loadHtml("<html><body>Task preview</body></html>")
             tryVerify(() => taskView.renderProcessPid > 0)
-            appSettings.taskRows = [{pid: taskView.renderProcessPid, cpu: 12.5, memory: 64}]
             app.openTaskManager()
             const manager = findChild(app, "chromiumTaskManagerWindow")
             verify(manager && manager.visible)
@@ -1153,8 +1150,11 @@ Item {
             verify(manager.flags & Qt.WindowMaximizeButtonHint)
             const list = findChild(manager, "chromiumTabList")
             compare(list.count, 5, "The task manager lists Home and each tab, not app processes")
-            compare(manager.tasks[1].cpu, 12.5)
-            compare(manager.tasks[1].memory, 64)
+            tryVerify(() => Number.isFinite(manager.tasks[1].memory) && manager.tasks[1].memory > 0
+                && Number.isFinite(manager.tasks[1].cpu))
+            verify(manager.tasks[1].taskId >= 0)
+            compare(findChild(manager, "chromiumTaskRefreshTimer").interval, 1000)
+            verify(findChild(manager, "chromiumTaskMonitor").active)
             const end = findChild(manager, "closeTaskManagerTabButton")
             list.currentIndex = 0
             tryCompare(end, "enabled", false, 5000, "Home cannot be closed")
@@ -1182,7 +1182,16 @@ Item {
             manager.refreshTasks()
             compare(list.count, 5)
             compare(manager.tasks[4].state, "Unloaded", "Deferred tabs are included without waking them")
+            verify(!Number.isFinite(manager.tasks[4].memory), "Unloaded tabs have no stale memory sample")
             verify(String(manager.tasks[4].view.deferredRestoreUrl).length > 0)
+            appSettings.releaseClosedWindows = false
+            const monitor = findChild(manager, "chromiumTaskMonitor")
+            manager.hide()
+            tryCompare(monitor, "active", false)
+            compare(findChild(manager, "chromiumTaskRefreshTimer").running, false)
+            app.openTaskManager()
+            tryCompare(monitor, "active", true)
+            appSettings.releaseClosedWindows = true
             manager.close()
             tryVerify(() => !findChild(app, "chromiumTaskManagerWindow"))
             app.openDeveloperTools()
@@ -1202,7 +1211,6 @@ Item {
             developer.close()
             tryVerify(() => !findChild(app, "developerToolsWindow"))
             compare(app.activeView.devToolsView, null, "Closing tools detaches Chromium's inspector")
-            appSettings.taskRows = []
         }
 
         function test_collapsed_group_preview_counts_data() {

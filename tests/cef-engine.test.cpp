@@ -56,9 +56,10 @@ class CancelledPicker final : public CefFileDialogCallback {
 int main(int argc, char **argv) {
     qputenv("QT_NO_GLIB", "1");
     const bool gpu = argc > 1 && QByteArray(argv[1]) == "--gpu";
+    const bool sandbox = argc > 1 && QByteArray(argv[1]) == "--sandbox";
     if (!gpu) {
         qputenv("QT_QUICK_BACKEND", "software");
-        qputenv("RESKETCH_CEF_FLAGS", "--disable-gpu --no-sandbox");
+        qputenv("RESKETCH_CEF_FLAGS", sandbox ? "--disable-gpu" : "--disable-gpu --no-sandbox");
     } else {
         QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
         qputenv("QT_XCB_GL_INTEGRATION", "xcb_egl");
@@ -432,6 +433,27 @@ CefView {
         tools->setInspectedView(nullptr);
         tools->setParentItem(nullptr);
         toolsObject.reset();
+        CefTaskMonitor taskMonitor;
+        require(!taskMonitor.active() && taskMonitor.resourceUsage(view).isEmpty(), "Hidden task monitor does no sampling");
+        taskMonitor.setActive(true);
+        until([&] { return taskMonitor.resourceUsage(view).value("memory").toDouble() > 0; },
+              "Chromium task manager publishes a real memory sample");
+        const auto idleResources = taskMonitor.resourceUsage(view);
+        const auto taskId = idleResources.value("taskId").toLongLong();
+        const double idleMemory = idleResources.value("memory").toDouble();
+        js("window.taskMemory=new Uint8Array(48*1024*1024);taskMemory.fill(17);"
+           "window.resourceBurn=setInterval(()=>{const end=performance.now()+35;while(performance.now()<end){}},50)");
+        until([&] {
+            const auto usage = taskMonitor.resourceUsage(view);
+            return usage.value("memory").toDouble() > idleMemory + 24 && usage.value("cpu").toDouble() > 10;
+        }, "Task samples track real renderer CPU work and resident allocation");
+        const double busyCpu = taskMonitor.resourceUsage(view).value("cpu").toDouble();
+        require(taskMonitor.resourceUsage(view).value("taskId").toLongLong() == taskId,
+                "Resource samples stay associated with the correct browser task");
+        js("clearInterval(resourceBurn);delete window.taskMemory");
+        until([&] { return taskMonitor.resourceUsage(view).value("cpu").toDouble() < busyCpu * 0.8; },
+              "CPU samples fall after renderer work stops");
+        fprintf(stderr, "PASS: live Chromium task samples (idle %.1f MiB, busy %.1f%% CPU)\n", idleMemory, busyCpu);
         fprintf(stderr, "PASS: pixels, input, trackpad, popups, downloads and Developer Tools\n");
         fprintf(stderr, "PASS: load, scripts, JavaScript and %s\n", qPrintable(view->renderingBackend()));
         const auto first = js("ticks").toInt();
@@ -451,6 +473,9 @@ CefView {
         until([&] { return js("ticks").toInt() > frozen; }, "resumed timers");
         view->setLifecycleState(CefQuickView::LifecycleState::Discarded);
         require(!view->browser(), "discarded browser released");
+        require(taskMonitor.resourceUsage(view).isEmpty(), "Unloaded tabs do not retain stale task samples");
+        taskMonitor.setActive(false);
+        require(!taskMonitor.active() && taskMonitor.resourceUsage(view).isEmpty(), "Closing task manager stops sampling");
         view->setLifecycleState(CefQuickView::LifecycleState::Active);
         view->loadHtml("<title>Restored</title><body>restored</body>");
         until([&] { return view->title() == "Restored" && !view->loading(); }, "reloaded discarded view");

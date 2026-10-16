@@ -462,18 +462,21 @@ int main(int argc, char **argv)
         render();
     const qint64 rendererPid = evaluate("destination.homeView.renderProcessPid").toNumber();
     assert(rendererPid > 0);
-    const auto resources = settings.chromiumTabResources();
-    assert(!resources.isEmpty());
-    bool haveRenderer = false;
-    for (const auto &value : resources) {
-        const auto task = value.toMap();
-        const auto pid = task.value("pid").toLongLong();
-        assert(pid > 0 && pid != QCoreApplication::applicationPid());
-        assert(task.value("memory").toDouble() >= 0 && task.value("cpu").toDouble() >= 0);
-        if (pid == rendererPid) haveRenderer = true;
+    CefTaskMonitor taskMonitor;
+    taskMonitor.setActive(true);
+    auto *taskView = qobject_cast<CefQuickView *>(evaluate("destination.homeView").toQObject());
+    QVariantMap resource;
+    for (int attempt = 0; attempt < 50; ++attempt) {
+        resource = taskMonitor.resourceUsage(taskView);
+        if (resource.value("memory").toDouble() > 0 && resource.value("cpu").isValid()) break;
+        render();
     }
-    assert(haveRenderer);
-    puts("Tab task manager measures live tab renderers and excludes the app process");
+    assert(resource.value("taskId").toLongLong() >= 0);
+    assert(resource.value("memory").toDouble() > 0 && resource.value("cpu").isValid()
+           && resource.value("cpu").toDouble() >= 0);
+    taskMonitor.setActive(false);
+    assert(taskMonitor.resourceUsage(taskView).isEmpty());
+    puts("Tab task manager measures Chromium's live browser tasks without renderer-local PIDs");
     evaluate("destination.chooseTabGroupIcon(savedGroup);");
     bool iconPickerOpened = false;
     for (int attempt = 0; attempt < 20 && !iconPickerOpened; ++attempt) {

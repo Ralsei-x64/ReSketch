@@ -70,6 +70,9 @@ Qt::DropActions qtDragOperations(CefRenderHandler::DragOperationsMask actions) {
         result |= Qt::LinkAction;
     return result;
 }
+double monotonicSeconds() {
+    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 struct Runtime {
     bool started = false, pumping = false, stopping = false;
     QTimer timer;
@@ -906,6 +909,20 @@ class CefQuickClient final : public CefClient,
         if (!current(browser))
             return false;
         const auto args = message->GetArgumentList();
+        if (message->GetName() == "resketch.cpu") {
+            const auto mainFrame = browser->GetMainFrame();
+            if (!mainFrame || !frame->IsMain() || frame->GetIdentifier() != mainFrame->GetIdentifier()
+                    || args->GetInt(0) != view->m_cpuRequest) return true;
+            view->m_cpuPending = false;
+            const double cpu = args->GetDouble(1), wall = args->GetDouble(2);
+            if (cpu < 0 || wall < 0) { view->m_cpuUsage = -1; return true; }
+            view->m_cpuUsage = view->m_cpuWallTime >= 0 && wall > view->m_cpuWallTime && cpu >= view->m_cpuTime
+                ? 100.0 * (cpu - view->m_cpuTime) / (wall - view->m_cpuWallTime) : -1;
+            view->m_cpuTime = cpu;
+            view->m_cpuWallTime = wall;
+            view->m_cpuResponseAt = monotonicSeconds();
+            return true;
+        }
         if (message->GetName() == "resketch.renderer") {
             view->m_pid = args->GetInt(0);
             emit view->renderProcessPidChanged();
@@ -1012,6 +1029,46 @@ CefPermission *CefProfile::queryPermission(const QUrl &origin, CefPermission::Pe
     if (!permission)
         permission = new CefPermission(origin, type, this);
     return permission;
+}
+
+void CefTaskMonitor::setActive(bool active) {
+    if (active == this->active()) return;
+    m_manager = active && ReSketchCef::initialized() ? CefTaskManager::GetTaskManager() : nullptr;
+    emit activeChanged();
+}
+QVariantMap CefTaskMonitor::resourceUsage(CefQuickView *view) const {
+    if (!m_manager || !view || !view->browser()) return {};
+    const auto id = m_manager->GetTaskIdForBrowserId(view->browser()->GetIdentifier());
+    CefTaskInfo info;
+    if (id < 0 || !m_manager->GetTaskInfo(id, info)) return {};
+    // Chromium returns no memory until its first sample. Do not present an
+    // initial zero as measured usage, or leak a previous renderer's sample.
+    const bool sampled = info.memory > 0;
+    const double cpu = view->taskCpuUsage(info.id);
+    return {{QStringLiteral("taskId"), qint64(info.id)},
+            {QStringLiteral("cpu"), std::isfinite(cpu) && cpu >= 0
+                ? QVariant(cpu) : QVariant{}},
+            {QStringLiteral("memory"), sampled ? QVariant(info.memory / (1024.0 * 1024.0)) : QVariant{}}};
+}
+
+double CefQuickView::taskCpuUsage(qint64 taskId) {
+    const double now = monotonicSeconds();
+    const bool reset = taskId != m_cpuTaskId || now - m_cpuRequestedAt > 2.5;
+    if (reset) {
+        m_cpuTaskId = taskId;
+        m_cpuUsage = m_cpuTime = m_cpuWallTime = -1;
+        m_cpuPending = false;
+    }
+    if (now - m_cpuResponseAt > 2.5) m_cpuUsage = -1;
+    const auto frame = m_browser ? m_browser->GetMainFrame() : nullptr;
+    if (frame && (reset || (!m_cpuPending && now - m_cpuRequestedAt >= 0.8))) {
+        m_cpuRequestedAt = now;
+        m_cpuPending = true;
+        auto request = CefProcessMessage::Create("resketch.cpu");
+        request->GetArgumentList()->SetInt(0, ++m_cpuRequest);
+        frame->SendProcessMessage(PID_RENDERER, request);
+    }
+    return m_cpuUsage;
 }
 
 CefQuickView::CefQuickView(QQuickItem *parent) : QQuickItem(parent), m_scripts(this), m_settings(this) {
