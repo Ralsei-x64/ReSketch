@@ -74,6 +74,8 @@ Kirigami.ApplicationWindow {
         hideFloatingScrollbars: appSettings.hideFloatingScrollbars,
         sidebarCornerRadius: appSettings.sidebarCornerRadius,
         sidebarMargin: appSettings.sidebarMargin,
+        sidebarShadowTransparency: appSettings.sidebarShadowTransparency,
+        sidebarShadowStrength: appSettings.sidebarShadowStrength,
         sidebarBackdrop: appSettings.sidebarBackdrop,
         sidebarCanvasBlur: appSettings.sidebarCanvasBlur,
         sidebarCanvasOpacity: appSettings.sidebarCanvasOpacity,

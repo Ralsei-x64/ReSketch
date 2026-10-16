@@ -222,6 +222,8 @@ class AppSettings : public QObject
     Q_PROPERTY(bool floatingSidebars READ floatingSidebars WRITE setFloatingSidebars NOTIFY changed)
     Q_PROPERTY(int sidebarCornerRadius READ sidebarCornerRadius WRITE setSidebarCornerRadius NOTIFY changed)
     Q_PROPERTY(int sidebarMargin READ sidebarMargin WRITE setSidebarMargin NOTIFY changed)
+    Q_PROPERTY(int sidebarShadowTransparency READ sidebarShadowTransparency WRITE setSidebarShadowTransparency NOTIFY changed)
+    Q_PROPERTY(int sidebarShadowStrength READ sidebarShadowStrength WRITE setSidebarShadowStrength NOTIFY changed)
     Q_PROPERTY(bool hideFloatingScrollbars READ hideFloatingScrollbars WRITE setHideFloatingScrollbars NOTIFY changed)
     Q_PROPERTY(QString sidebarBackdrop READ sidebarBackdrop WRITE setSidebarBackdrop NOTIFY changed)
     Q_PROPERTY(int sidebarCanvasBlur READ sidebarCanvasBlur WRITE setSidebarCanvasBlur NOTIFY changed)
@@ -465,6 +467,8 @@ public:
     bool floatingSidebars() const { return store.value(QStringLiteral("floatingSidebars"), false).toBool(); }
     int sidebarCornerRadius() const { return qBound(0, store.value(QStringLiteral("sidebarCornerRadius"), 12).toInt(), 40); }
     int sidebarMargin() const { return qBound(0, store.value(QStringLiteral("sidebarMargin"), 8).toInt(), 40); }
+    int sidebarShadowTransparency() const { return qBound(0, store.value(QStringLiteral("sidebarShadowTransparency"), 65).toInt(), 100); }
+    int sidebarShadowStrength() const { return qBound(0, store.value(QStringLiteral("sidebarShadowStrength"), 40).toInt(), 100); }
     bool hideFloatingScrollbars() const { return store.value(QStringLiteral("hideFloatingScrollbars"), true).toBool(); }
     QString sidebarBackdrop() const { return store.value(QStringLiteral("sidebarBackdrop"), QStringLiteral("desktop")).toString(); }
     int sidebarCanvasBlur() const { return qBound(0, store.value(QStringLiteral("sidebarCanvasBlur"), 0).toInt(), 40); }
@@ -878,6 +882,22 @@ public:
         value = qBound(0, value, 40);
         if (sidebarMargin() == value) return;
         store.setValue(QStringLiteral("sidebarMargin"), value);
+        emit changed();
+        emit figmaAppearanceChanged();
+    }
+    void setSidebarShadowTransparency(int value)
+    {
+        value = qBound(0, value, 100);
+        if (sidebarShadowTransparency() == value) return;
+        store.setValue(QStringLiteral("sidebarShadowTransparency"), value);
+        emit changed();
+        emit figmaAppearanceChanged();
+    }
+    void setSidebarShadowStrength(int value)
+    {
+        value = qBound(0, value, 100);
+        if (sidebarShadowStrength() == value) return;
+        store.setValue(QStringLiteral("sidebarShadowStrength"), value);
         emit changed();
         emit figmaAppearanceChanged();
     }

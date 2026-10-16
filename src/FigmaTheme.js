@@ -323,9 +323,13 @@ function sidebarAppearance(options, stylesheet) {
         + 'width:var(--resketch-sidebar-width) !important; min-width:0 !important; max-width:none !important;'
         + 'height:var(--resketch-sidebar-height) !important; min-height:0 !important;'
         + 'border:1px solid var(--color-border) !important;'
+        + 'box-shadow:var(--resketch-sidebar-shadow) !important;'
         + 'margin:var(--resketch-sidebar-gap-vertical) var(--resketch-sidebar-gap-right) var(--resketch-sidebar-gap-vertical) var(--resketch-sidebar-gap-left) !important; border-radius:var(--resketch-sidebar-radius) !important; overflow:hidden !important; }'
         + '[data-resketch-sidebar-join="start"] { border-right:1px solid var(--color-border) !important; border-radius:var(--resketch-sidebar-radius) 0 0 var(--resketch-sidebar-radius) !important; }'
         + '[data-resketch-sidebar-join="end"] { border-left:0 !important; border-radius:0 var(--resketch-sidebar-radius) var(--resketch-sidebar-radius) 0 !important; }'
+        // Joined panels only cast a shadow on the outside of their shared card.
+        + '[data-resketch-sidebar-join="start"] { clip-path:inset(-100px 0 -100px -100px) !important; }'
+        + '[data-resketch-sidebar-join="end"] { clip-path:inset(-100px -100px -100px 0) !important; }'
         + '[data-resketch-floating-sidebar] :is([class*="left_panel_container--panel--"],[class*="properties_panel--panelPosition--"]) '
         + '{ box-sizing:border-box !important; width:100% !important; height:100% !important; border:0 !important; }'
         + '[data-resketch-floating-sidebar] [class*="properties_panel--panelContainer--"] { border-left:0 !important; }'
@@ -355,7 +359,7 @@ function sidebarAppearance(options, stylesheet) {
             panel.removeAttribute('data-resketch-sidebar');
             panel.removeAttribute('data-resketch-floating-sidebar');
             panel.removeAttribute('data-resketch-sidebar-join');
-            for (const name of ['tint','surface','content','blur','width','height','gap-left','gap-right','gap-vertical','radius'])
+            for (const name of ['tint','surface','content','blur','shadow','width','height','gap-left','gap-right','gap-vertical','radius'])
                 panel.style.removeProperty('--resketch-sidebar-' + name);
         }
         for (const ancestor of ancestors) ancestor.removeAttribute('data-resketch-sidebar-ancestor');
@@ -409,6 +413,10 @@ function sidebarAppearance(options, stylesheet) {
         const railBounds = rail?.getBoundingClientRect(), leftBounds = leftPanel?.getBoundingClientRect();
         const joined = options.floatingSidebars && railBounds?.width && leftBounds?.width
             && Math.abs(railBounds.right - leftBounds.left) < 3;
+        const strength = options.sidebarShadowStrength || 0;
+        const shadow = strength > 0 && options.sidebarShadowTransparency < 100
+            ? '0 ' + strength / 10 + 'px ' + strength * 0.4 + 'px rgba(0,0,0,'
+                + (1 - options.sidebarShadowTransparency / 100) + ')' : 'none';
         underlay.style.backgroundColor = (options.floatingSidebars || options.sidebarBackdrop === 'canvas') && canvases.length
             ? getComputedStyle(canvases[0]).backgroundColor : bg;
         for (const panel of panels) {
@@ -430,6 +438,7 @@ function sidebarAppearance(options, stylesheet) {
                 panel.style.setProperty('--resketch-sidebar-gap-left', gapLeft + 'px');
                 panel.style.setProperty('--resketch-sidebar-gap-right', gapRight + 'px');
                 panel.style.setProperty('--resketch-sidebar-radius', options.sidebarCornerRadius + 'px');
+                panel.style.setProperty('--resketch-sidebar-shadow', shadow);
                 panel.setAttribute('data-resketch-floating-sidebar', '');
                 if (joined && (panel === rail || panel === leftPanel))
                     panel.setAttribute('data-resketch-sidebar-join', panel === rail ? 'start' : 'end');
@@ -594,6 +603,8 @@ function script(options, storeSource) {
         hideFloatingScrollbars: !!options.hideFloatingScrollbars,
         sidebarCornerRadius: Math.max(0, Math.min(40, Number.isFinite(options.sidebarCornerRadius) ? options.sidebarCornerRadius : 12)),
         sidebarMargin: Math.max(0, Math.min(40, Number.isFinite(options.sidebarMargin) ? options.sidebarMargin : 8)),
+        sidebarShadowTransparency: Math.max(0, Math.min(100, Number.isFinite(options.sidebarShadowTransparency) ? options.sidebarShadowTransparency : 65)),
+        sidebarShadowStrength: Math.max(0, Math.min(100, Number.isFinite(options.sidebarShadowStrength) ? options.sidebarShadowStrength : 40)),
         sidebarBackdrop: options.sidebarBackdrop === "canvas" ? "canvas" : "desktop",
         sidebarCanvasBlur: Math.max(0, Math.min(40, Number.isFinite(options.sidebarCanvasBlur) ? options.sidebarCanvasBlur : 0)),
         sidebarCanvasOpacity: Math.max(0, Math.min(100, Number.isFinite(options.sidebarCanvasOpacity) ? options.sidebarCanvasOpacity

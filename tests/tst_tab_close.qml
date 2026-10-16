@@ -28,6 +28,8 @@ Item {
         property bool floatingSidebars: false
         property int sidebarCornerRadius: 12
         property int sidebarMargin: 8
+        property int sidebarShadowTransparency: 65
+        property int sidebarShadowStrength: 40
         property bool hideFloatingScrollbars: true
         property string sidebarBackdrop: "desktop"
         property int sidebarCanvasBlur: 0
@@ -2068,6 +2070,8 @@ Item {
             appSettings.useSystemCursor = false
             appSettings.sidebarCornerRadius = 12
             appSettings.sidebarMargin = 8
+            appSettings.sidebarShadowTransparency = 65
+            appSettings.sidebarShadowStrength = 40
             appSettings.hideFloatingScrollbars = true
             appSettings.toolbarOpacity = 100
             appSettings.toolbarItems = appSettings.defaultToolbarItems()
@@ -2217,6 +2221,7 @@ Item {
             view.runJavaScript('document.body.innerHTML=' + JSON.stringify(fixture), () => result = true)
             tryVerify(() => result === true)
             const options = {theme: "light", floatingSidebars: true, sidebarCornerRadius: 22, sidebarMargin: 8, hideFloatingScrollbars: true,
+                             sidebarShadowTransparency:60, sidebarShadowStrength:50,
                              translucentSidebars: false, opacity: 60, sidebarBackdrop: "desktop"}
             let fixturePath = "/design/Test/File"
             function apply() {
@@ -2229,7 +2234,7 @@ Item {
             function inspect() {
                 view.runJavaScript('(()=>{const p=document.getElementById("home"),s=getComputedStyle(p),r=p.getBoundingClientRect();'
                     + 'const right=document.querySelector("[data-testid=properties-panel]"),child=right.firstElementChild;'
-                    + 'return {x:r.x,y:r.y,width:r.width,height:r.height,radius:s.borderRadius,overflow:s.overflow,bg:s.backgroundColor,blur:s.backdropFilter,'
+                    + 'return {x:r.x,y:r.y,width:r.width,height:r.height,radius:s.borderRadius,overflow:s.overflow,bg:s.backgroundColor,blur:s.backdropFilter,shadow:s.boxShadow,'
                     + 'rightWidth:right.getBoundingClientRect().width,childWidth:child.getBoundingClientRect().width,'
                     + 'commentsWidth:document.querySelector("[class*=comments_sidebar--container--]").getBoundingClientRect().width,'
                     + 'canvasLeft:document.querySelector(".gpu-view-content").getBoundingClientRect().left,'
@@ -2268,6 +2273,24 @@ Item {
             verify(result.clip.startsWith("path(evenodd,"), "Transparency follows the rounded sidebar shape")
             verify(/H\s*170\b/.test(result.clip), "The mask uses the inset sidebar's bounds and 22 px corners")
             compare(result.underlayBg, "rgb(68, 68, 68)", "The surrounding space uses the opaque Figma canvas background")
+            compare(result.shadow, "rgba(0, 0, 0, 0.4) 0px 5px 20px 0px")
+            view.hasLoadedFrame = true
+            function shadowPixel() {
+                const point = view.mapToItem(app.contentItem, 200, 200)
+                return grabImage(app.contentItem).pixel(Math.floor(point.x), Math.floor(point.y))
+            }
+            tryVerify(() => shadowPixel().r < 0.26, 5000, "The shadow paints outside the floating sidebar")
+            options.sidebarShadowTransparency = 100
+            apply()
+            tryVerify(() => { inspect(); return result.shadow === "none" })
+            tryVerify(() => String(shadowPixel()) === "#444444", 5000, "A fully transparent shadow leaves the canvas unchanged")
+            options.sidebarShadowTransparency = 60
+            options.sidebarShadowStrength = 0
+            apply()
+            tryVerify(() => { inspect(); return result.shadow === "none" })
+            options.sidebarShadowStrength = 80
+            apply()
+            tryVerify(() => { inspect(); return result.shadow.includes("8px 32px") })
             // Figma may change a native canvas ancestor after the mask was measured.
             const fullWidth = result.canvasWidth
             view.runJavaScript('document.getElementById("nativeCanvasLayout").style.left="60px"')
@@ -2321,6 +2344,7 @@ Item {
             tryVerify(() => { inspect(); return result.marked && !result.floating })
             compare(result.bg, "rgb(238, 238, 238)", "Home has a flat sidebar with the canvas backdrop")
             compare(result.blur, "none", "Home does not blur the canvas backdrop")
+            compare(result.shadow, "none", "Home never gets floating sidebar shadows")
             options.sidebarBackdrop = "desktop"
             apply()
             tryVerify(() => { inspect(); return result.bg === "rgba(0, 0, 0, 0)" })
@@ -2332,6 +2356,7 @@ Item {
             compare(result.width, 260); compare(result.height, 400)
             compare(result.x, 0); compare(result.y, 0)
             compare(result.radius, "0px"); compare(result.clip, "none")
+            compare(result.shadow, "none", "Disabling floating mode restores the original sidebar")
             compare(result.innerBorder, "1px", "Disabling floating mode restores the original Figma border")
 
             // In files, the navigation rail and layer panel form one floating card.
@@ -2411,6 +2436,11 @@ Item {
             const scrollbars = findChild(window, "hideFloatingScrollbarsToggle")
             verify(scrollbars && !scrollbars.enabled && scrollbars.checked)
             const margin = findChild(window, "sidebarMarginControl")
+            const shadowTransparency = findChild(window, "sidebarShadowTransparencyControl")
+            const shadowStrength = findChild(window, "sidebarShadowStrengthControl")
+            verify(shadowTransparency && shadowStrength)
+            compare(shadowTransparency.enabled, false)
+            compare(shadowStrength.enabled, false)
             verify(toggle && radius && margin)
             compare(margin.enabled, false)
             compare(radius.enabled, false)
@@ -2422,6 +2452,12 @@ Item {
             tryCompare(margin, "enabled", true)
             margin.value = 16; margin.valueModified()
             compare(appSettings.sidebarMargin, 16)
+            tryCompare(shadowTransparency, "enabled", true)
+            tryCompare(shadowStrength, "enabled", true)
+            shadowTransparency.value = 45; shadowTransparency.moved()
+            shadowStrength.value = 70; shadowStrength.moved()
+            compare(appSettings.sidebarShadowTransparency, 45)
+            compare(appSettings.sidebarShadowStrength, 70)
             tryCompare(scrollbars, "enabled", true)
             scrollbars.toggle(); scrollbars.toggled()
             compare(appSettings.hideFloatingScrollbars, false)

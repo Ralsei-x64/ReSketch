@@ -43,7 +43,7 @@ Kirigami.ApplicationWindow {
             ? Object.assign({}, item, {enabled: checked}) : item)
     }
     readonly property var sections: [
-        {title: "Appearance", icon: "preferences-desktop-theme", keywords: "theme colors CSS transparency opacity blur floating sidebars corners radius cursor window controls decorations motion"},
+        {title: "Appearance", icon: "preferences-desktop-theme", keywords: "theme colors CSS transparency opacity blur shadow strength floating sidebars corners radius cursor window controls decorations motion"},
         {title: "Tabs", icon: "tab-duplicate", keywords: "sleep remember restore loaded Home"},
         {title: "Performance", icon: "preferences-system-performance", keywords: "memory preview quality menus Chromium GPU Vulkan canvas flags switches"},
         {title: "Notifications", icon: "preferences-desktop-notification", keywords: "desktop alerts enable disable Home"},
@@ -540,10 +540,54 @@ Kirigami.ApplicationWindow {
                                         onValueModified: appSettings.sidebarMargin = value
                                     }
 
+                                    RowLayout {
+                                        Kirigami.FormData.label: "Shadow transparency:"
+                                        enabled: appSettings.floatingSidebars
+                                        Layout.fillWidth: true
+                                        Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
+                                        Controls.Slider {
+                                            objectName: "sidebarShadowTransparencyControl"
+                                            Layout.fillWidth: true
+                                            from: 0
+                                            to: 100
+                                            stepSize: 1
+                                            value: appSettings.sidebarShadowTransparency
+                                            onMoved: appSettings.sidebarShadowTransparency = Math.round(value)
+                                            Accessible.name: "Floating sidebar shadow transparency"
+                                        }
+                                        Controls.Label {
+                                            text: appSettings.sidebarShadowTransparency + "%"
+                                            Layout.minimumWidth: Kirigami.Units.gridUnit * 3
+                                            horizontalAlignment: Text.AlignRight
+                                        }
+                                    }
+
+                                    RowLayout {
+                                        Kirigami.FormData.label: "Shadow strength:"
+                                        enabled: appSettings.floatingSidebars
+                                        Layout.fillWidth: true
+                                        Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
+                                        Controls.Slider {
+                                            objectName: "sidebarShadowStrengthControl"
+                                            Layout.fillWidth: true
+                                            from: 0
+                                            to: 100
+                                            stepSize: 1
+                                            value: appSettings.sidebarShadowStrength
+                                            onMoved: appSettings.sidebarShadowStrength = Math.round(value)
+                                            Accessible.name: "Floating sidebar shadow strength"
+                                        }
+                                        Controls.Label {
+                                            text: appSettings.sidebarShadowStrength + "%"
+                                            Layout.minimumWidth: Kirigami.Units.gridUnit * 3
+                                            horizontalAlignment: Text.AlignRight
+                                        }
+                                    }
+
                                     Controls.Label {
                                         Layout.fillWidth: true
                                         Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
-                                        text: "Background opacity controls the toolbar and desktop backdrop. Canvas backdrop blur and opacity apply to both floating and docked sidebars; 0% opacity shows the canvas fully."
+                                        text: "Shadow strength controls its size and softness; 0% turns it off. Background opacity controls the toolbar and desktop backdrop. Canvas backdrop blur and opacity apply to both floating and docked sidebars; 0% opacity shows the canvas fully."
                                         opacity: 0.72
                                         wrapMode: Text.WordWrap
                                     }
