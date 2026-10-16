@@ -26,6 +26,7 @@
 - **Local fonts:** Make installed computer fonts available to Figma through the local font service.
 - **Figma menus:** Optionally expose Figma actions through native menus and Plasma AppMenu, with a hamburger menu fallback.
 - **Chromium tools:** Open Developer Tools and a tab task manager with renderer CPU and memory usage from the menu without keyboard shortcuts.
+- **Update checks:** Check GitHub releases at startup or manually, choose a branch, skip versions, and read update or installed-version changelogs in Settings.
 - **App themes:** Use system colors by default, or turn them off to choose Breeze Light or Dark.
 - **Canvas cursors:** Show Figma’s custom cursors by default, with an option to use the system cursor.
 - **KDE colors:** Optionally apply the system color palette to Figma's web interface.

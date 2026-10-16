@@ -25,6 +25,8 @@
 #include <QTcpSocket>
 #include <cassert>
 
+void checkUpdates();
+
 // Capture requests to the compositor, including when tests run without KWin.
 static QRegion requestedBlurRegion;
 static bool requestedBlurEnabled = false;
@@ -97,6 +99,10 @@ int main(int argc, char **argv)
     assert(temporary.isValid());
     qputenv("RESKETCH_CEF_CACHE_ROOT", (temporary.path()+"/cef").toUtf8());
     QSettings::setPath(QSettings::NativeFormat, QSettings::UserScope, temporary.path());
+    if (app.arguments().contains(QStringLiteral("--updates"))) {
+        checkUpdates();
+        return 0;
+    }
     assert(requestedSafeMode({QStringLiteral("resketch"), QStringLiteral("--safe-mode")}));
     {
         QSettings saved(QStringLiteral("aether64"), QStringLiteral("ReSketch"));
@@ -272,6 +278,7 @@ int main(int argc, char **argv)
     { AppSettings saved; assert(!saved.smoothScrolling() && !saved.inertialScrolling()); }
     settings.resetSettings();
     assert(settings.smoothScrolling() && settings.inertialScrolling());
+    settings.updates()->setEnabled(false); // Update checks use their own local HTTP fixture.
     {
         QQuickWindow window;
         settings.registerMainWindow(&window);

@@ -15,6 +15,7 @@ Item {
     height: 800
     property QtObject appSettings: QtObject {
         readonly property string buildCommit: "abc1234"
+        property var updates: null
         property bool safeMode: false
         property bool desktopNotifications: false
         property string theme: "auto"
@@ -219,6 +220,20 @@ Item {
             wait(300)
             app.activateTab(2)
             wait(350)
+        }
+
+        function test_updates_page_and_navigation_fit_small_settings_window() {
+            app.openSettings()
+            const settings = findChild(app, "settingsWindow")
+            verify(settings)
+            settings.height = 420
+            settings.selectedSection = 6
+            const navigation = visualChild(settings.contentItem, "settingsSection-6")
+            verify(navigation)
+            tryVerify(() => navigation.width > 100)
+            const check = findChild(settings, "checkForUpdatesButton")
+            tryVerify(() => check.visible && check.width > 100)
+            settings.close()
         }
 
         function test_scroll_preferences_apply_to_webviews_and_standard_ui() {

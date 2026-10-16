@@ -44,6 +44,7 @@
 #include <QWindow>
 #include <QWidget>
 #include "FontHelper.h"
+#include "UpdateChecker.h"
 #include <KWindowEffects>
 #include <KNotification>
 #include <KColorSchemeManager>
@@ -216,6 +217,7 @@ class AppSettings : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString buildCommit READ buildCommit CONSTANT)
+    Q_PROPERTY(UpdateChecker *updates READ updates CONSTANT)
     Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY changed)
     Q_PROPERTY(bool useSystemColors READ useSystemColors WRITE setUseSystemColors NOTIFY changed)
     Q_PROPERTY(bool darkTheme READ darkTheme NOTIFY effectiveThemeChanged)
@@ -272,6 +274,7 @@ class AppSettings : public QObject
     Q_PROPERTY(bool safeMode READ safeMode CONSTANT)
 
 public:
+    UpdateChecker *updates() { return &updateChecker; }
     QString buildCommit() const { return QStringLiteral(RESKETCH_COMMIT); }
 
     QString gpuAccelerationWarning() const { return graphicsWarning; }
@@ -626,6 +629,7 @@ public:
         // Keep a reset from importing legacy preferences on next launch.
         store.setValue(QStringLiteral("settingsInitialized"), true);
         store.sync();
+        updateChecker.reset();
         applyTheme();
         emit changed();
         emit effectiveThemeChanged();
@@ -1177,6 +1181,7 @@ private:
     }
 
     QSettings store;
+    UpdateChecker updateChecker{this};
     const bool recoveryMode;
     QSet<QWindow *> registeredWindows;
     QTimer memoryMonitor;

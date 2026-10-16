@@ -2534,6 +2534,16 @@ Kirigami.ApplicationWindow {
         id: settingsWindowLoader
         sourceComponent: SettingsWindow { visible: false }
     }
+    UpdateDialog { id: updateNotice; updater: appSettings.updates }
+    Connections {
+        target: appSettings.updates
+        function onUpdateAvailable() { if (!root.primaryWindow) updateNotice.open() }
+    }
+    Timer {
+        interval: 1500
+        running: !root.primaryWindow && !appSettings.safeMode
+        onTriggered: if (appSettings.updates) appSettings.updates.checkAtStartup()
+    }
     AuxiliaryWindowLoader {
         id: aboutWindowLoader
         sourceComponent: AboutWindow { visible: false }
