@@ -3,6 +3,9 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
 About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
+1.2.7 - 2026-10-16
+Used Chromium's headless display backend for the release startup check in CI containers without a display server.
+
 1.2.6 - 2026-10-16
 Fixed the Arch release startup crash (close symbol missing) by retaining CEF ahead of libc in the load order; added a packaged-app startup check before publishing releases.
 
