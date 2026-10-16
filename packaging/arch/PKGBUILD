@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 pkgname=resketch-git
-pkgver=1.2.3.r48.196e179
+pkgver=1.2.4.r48.196e179
 pkgrel=1
 pkgdesc='Open-source Figma client for Linux!'
 arch=('x86_64')
@@ -42,7 +42,7 @@ depends=(
     'fontconfig'
     'freetype2'
 )
-makedepends=('cmake>=3.21' 'git' 'ninja')
+makedepends=('cmake>=3.21' 'git' 'ninja' 'vulkan-headers')
 optdepends=(
     'qt6-wayland: Native Wayland support'
     'breeze-icons: Fallback desktop icons'
