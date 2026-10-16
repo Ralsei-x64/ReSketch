@@ -9,6 +9,7 @@
 #include <QDropEvent>
 #include <QEventLoop>
 #include <QMimeData>
+#include <QNativeGestureEvent>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QJsonArray>
@@ -623,4 +624,47 @@ int main(int argc, char **argv)
     wheel(overview, {}, {}, Qt::ScrollBegin);
     assert(!overview->property("smoothWheel").toBool()); // A new gesture stops old mouse-wheel easing.
     puts("Native trackpad axes, pixels, momentum, natural scrolling, and mouse-wheel easing checks passed");
+    evaluate("destination.dismissOverview(); destination.activateTab(0, false); var pinchFixtureReady = false;"
+             "destination.activeView.runJavaScript(\"document.body.innerHTML='<style>body{margin:0}nav{position:absolute;left:0;top:0;width:200px;height:100vh;background:gray}</style><nav data-onboarding-key=unified-design-onboarding-left-panel></nav>'\", () => pinchFixtureReady = true);");
+    for (int i = 0; i < 50 && !evaluate("pinchFixtureReady").toBool(); ++i) render();
+    assert(evaluate("pinchFixtureReady").toBool());
+    evaluate("destination.activeView.restoreHistoryUrl('https://www.figma.com/design/PinchFixture/Test'); destination.activeView.hasLoadedFrame = true;");
+    render();
+    const auto nativePinch = [&](Qt::NativeGestureType type, double value = 0, QPointF delta = {}, QPointF position = QPointF(80, 300)) {
+        auto *content = qobject_cast<QQuickItem *>(destination->property("browserContent").value<QObject *>());
+        assert(content);
+        const auto scene = content->mapToScene(position);
+        QNativeGestureEvent event(type, &touchpad, 2, scene, scene, destination->mapToGlobal(scene), value, delta);
+        QCoreApplication::sendEvent(destination, &event);
+    };
+    nativePinch(Qt::BeginNativeGesture);
+    nativePinch(Qt::ZoomNativeGesture, -0.1);
+    render();
+    assert(evaluate("destination.overviewPinchTracking && destination.overviewPinchAccepted && destination.overviewVisible").toBool());
+    const double pinchProgress = destination->property("overviewProgress").toDouble();
+    assert(pinchProgress > 0 && pinchProgress < 0.5);
+    const double pinchX = destination->property("overviewPinchOffsetX").toDouble();
+    nativePinch(Qt::PanNativeGesture, 0, QPointF(30, 15));
+    render();
+    assert(qAbs(destination->property("overviewPinchOffsetX").toDouble() - pinchX - 30) < 1);
+    assert(qAbs(destination->property("overviewProgress").toDouble() - pinchProgress) < 0.001);
+    nativePinch(Qt::ZoomNativeGesture, -0.5);
+    nativePinch(Qt::EndNativeGesture);
+    for (int i = 0; i < 10 && destination->property("overviewProgress").toDouble() < 0.999; ++i) render();
+    assert(destination->property("overviewProgress").toDouble() == 1 && destination->property("overviewVisible").toBool());
+    assert(!destination->property("overviewPinchTracking").toBool());
+    evaluate("destination.dismissOverview();");
+    nativePinch(Qt::BeginNativeGesture);
+    nativePinch(Qt::ZoomNativeGesture, -0.25);
+    render();
+    nativePinch(Qt::ZoomNativeGesture, 0.3);
+    nativePinch(Qt::EndNativeGesture);
+    for (int i = 0; i < 10 && destination->property("overviewVisible").toBool(); ++i) render();
+    assert(!destination->property("overviewVisible").toBool());
+    nativePinch(Qt::BeginNativeGesture, 0, {}, QPointF(400, 300));
+    nativePinch(Qt::ZoomNativeGesture, -0.5, {}, QPointF(400, 300));
+    render();
+    nativePinch(Qt::EndNativeGesture, 0, {}, QPointF(400, 300));
+    assert(!destination->property("overviewVisible").toBool());
+    puts("Native sidebar pinch, pan, completion, reversal and canvas exclusion checks passed");
 }

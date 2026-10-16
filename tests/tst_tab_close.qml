@@ -3074,6 +3074,115 @@ Item {
             compare(bar.window, null)
         }
 
+        function prepareSidebarPinchFixture() {
+            const view = app.activeView
+            let ready = false
+            view.runJavaScript('document.body.innerHTML=' + JSON.stringify(
+                '<style>body{margin:0}nav,aside{position:absolute;top:0;bottom:0;width:200px;background:#ddd}'
+                + 'nav{left:0}aside{right:0}button{position:absolute;top:0;height:30px}'
+                + '#heading{position:absolute;top:40px}#layer{position:absolute;top:100px;height:50px;width:200px}</style>'
+                + '<nav data-onboarding-key="unified-design-onboarding-left-panel"><button>Tool</button><div id="heading">Layers</div>'
+                + '<div id="layer" role="treeitem">Frame</div></nav><aside data-testid="properties-panel"></aside>'),
+                () => ready = true)
+            tryVerify(() => ready)
+            view.restoreHistoryUrl("https://www.figma.com/design/PinchFixture/Test")
+            view.hasLoadedFrame = true
+            return view
+        }
+
+        function test_sidebar_pinch_tracks_scale_pan_and_settles_data() {
+            return [{tag:"left",right:false}, {tag:"right",right:true}]
+        }
+        function test_sidebar_pinch_tracks_scale_pan_and_settles(data) {
+            const view = prepareSidebarPinchFixture()
+            const origin = Qt.point(data.right ? app.browserWidth - 100 : 100, 300)
+            app.beginOverviewPinch(origin)
+            tryCompare(app, "overviewPinchAccepted", true)
+            app.updateOverviewPinch(0.75, Qt.point(0,0))
+            verify(app.overviewVisible)
+            verify(!app.overviewAnimationRunning, "The gesture controls progress directly")
+            const progress = app.overviewProgress
+            verify(progress > 0 && progress < 1)
+            const card = overviewCard(view)
+            tryVerify(() => Math.abs(card.width - app.browserWidth * 0.75) < 1)
+            let position = card.mapToItem(app.browserContent, 0, 0)
+            fuzzyCompare(position.x, origin.x * 0.25, 1)
+            fuzzyCompare(position.y, origin.y * 0.25, 1)
+            wait(50)
+            compare(app.overviewProgress, progress, "Progress stays with the fingers instead of running a timed animation")
+            app.updateOverviewPinch(0.75, Qt.point(60,35))
+            position = card.mapToItem(app.browserContent, 0, 0)
+            fuzzyCompare(position.x, origin.x * 0.25 + 60, 1)
+            fuzzyCompare(position.y, origin.y * 0.25 + 35, 1)
+            app.updateOverviewPinch(0.9, Qt.point(30,20))
+            verify(app.overviewProgress < progress, "Reversing the pinch reverses the transition")
+            app.updateOverviewPinch(0.5, Qt.point(50,10))
+            app.finishOverviewPinch()
+            verify(app.overviewAnimationRunning)
+            tryCompare(app, "overviewProgress", 1)
+            tryCompare(app, "overviewPinchOffsetX", 0)
+            tryCompare(app, "overviewPinchOffsetY", 0)
+            compare(app.overviewVisible, true)
+            compare(app.overviewPinchTracking, false)
+            compare(app.activeView, view)
+        }
+
+        function test_sidebar_pinch_reversal_cancel_and_late_hit_test() {
+            const view = prepareSidebarPinchFixture()
+            const origin = Qt.point(100,300)
+            app.beginOverviewPinch(origin)
+            tryCompare(app, "overviewPinchAccepted", true)
+            app.updateOverviewPinch(0.7, Qt.point(30,20))
+            app.updateOverviewPinch(0.99, Qt.point(0,0))
+            app.finishOverviewPinch()
+            tryCompare(app, "overviewVisible", false)
+            compare(app.activeView, view)
+            compare(view.frameContainer.previewCard, null)
+            compare(app.overviewPinchOffsetX, 0)
+            app.beginOverviewPinch(origin)
+            app.updateOverviewPinch(0.5, Qt.point(0,0))
+            app.finishOverviewPinch()
+            wait(100)
+            compare(app.overviewVisible, false, "A late DOM response cannot reopen an ended gesture")
+            app.beginOverviewPinch(origin)
+            tryCompare(app, "overviewPinchAccepted", true)
+            app.updateOverviewPinch(1.2, Qt.point(0,0))
+            app.finishOverviewPinch()
+            compare(app.overviewVisible, false, "An outward pinch does not open overview")
+            app.beginOverviewPinch(origin)
+            app.toggleOverview()
+            app.finishOverviewPinch()
+            tryCompare(app, "overviewProgress", 1)
+            compare(app.overviewVisible, true, "A normal overview action cancels any pending gesture hit test")
+        }
+
+        function test_sidebar_pinch_respects_reduced_motion() {
+            prepareSidebarPinchFixture()
+            appSettings.reduceMotion = true
+            app.beginOverviewPinch(Qt.point(100,300))
+            tryCompare(app, "overviewPinchAccepted", true)
+            app.updateOverviewPinch(0.5, Qt.point(40,20))
+            verify(app.overviewProgress > 0 && app.overviewProgress < 1)
+            compare(app.overviewPinchOffsetX, 0)
+            app.finishOverviewPinch()
+            compare(app.overviewProgress, 1)
+            compare(app.overviewAnimationRunning, false)
+        }
+
+        function test_sidebar_pinch_ignores_controls_and_canvas_data() {
+            return [{tag:"button",x:30,y:15}, {tag:"heading",x:20,y:48},
+                    {tag:"layer",x:30,y:125}, {tag:"canvas",x:400,y:300}]
+        }
+        function test_sidebar_pinch_ignores_controls_and_canvas(data) {
+            prepareSidebarPinchFixture()
+            app.beginOverviewPinch(Qt.point(data.x,data.y))
+            app.updateOverviewPinch(0.4,Qt.point(0,0))
+            wait(150)
+            compare(app.overviewPinchAccepted, false)
+            compare(app.overviewVisible, false)
+            app.finishOverviewPinch()
+        }
+
         function test_overview_transparency_changes_immediately_then_fades_after_scaling() {
             appSettings.translucentSidebars = true
             appSettings.toolbarOpacity = 50

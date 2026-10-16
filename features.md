@@ -8,6 +8,7 @@
 - **Tab groups:** Name, color, choose icons for, collapse, and rearrange groups, with context menus to edit, ungroup, or close all their tabs.
 - **Animated tabs:** Opening, closing, selection, and rearrangement use smooth transitions.
 - **Tab overview:** Browse searchable live previews in a responsive grid using the arrow keys and Enter, with 2×2 group previews and one expanded group container at a time.
+- **Trackpad overview gesture:** Pinch inward over empty Figma sidebar space to reveal overview, following finger movement and settling smoothly on release.
 - **Overview dragging:** Rearrange cards or entire group containers, with a Home card that returns to its fixed position.
 - **Multiple windows:** Drag tabs or cards between windows or detach them without reloading their content.
 - **Fullscreen:** Use the fullscreen shortcut (F11 by default) to enter or exit, and hover the top edge to reveal the tab strip; Escape clears selections or closes the overview while keeping fullscreen active.

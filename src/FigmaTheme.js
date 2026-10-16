@@ -2,6 +2,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 function validColor(color) { return /^#[0-9a-f]{6}$/i.test(color || "") }
+function sidebarPinchHitTest(x, y) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return "false"
+    return `(()=>{
+        const node = document.elementFromPoint(${x}, ${y});
+        const panel = node?.closest('[data-resketch-sidebar],[data-testid="navigation-bar"],[data-onboarding-key="unified-design-onboarding-left-panel"],[data-testid="properties-panel"],[class*="left_panel_container--sizeContainer--"],[class*="sidebar--navDefault--"],.fb-sidebar');
+        if (!panel || node.closest('button,a,input,textarea,select,label,svg,img,canvas,.ublptt9,[data-testid*="layer-row"],[data-testid*="layer_row"],[contenteditable="true"],[draggable="true"],[role="button"],[role="treeitem"],[role="row"],[role="gridcell"],[role="tab"],[role="checkbox"],[role="menuitem"],[role="menu"],[role="dialog"],[role="listbox"]')) return false;
+        if (!['auto','default'].includes(getComputedStyle(node).cursor)) return false;
+        return !Array.from(node.childNodes).some(child => child.nodeType === Node.TEXT_NODE && child.textContent.trim());
+    })()`
+}
 function channels(color) { return [1, 3, 5].map(offset => parseInt(color.slice(offset, offset + 2), 16)) }
 function mix(background, foreground, amount) {
     const bg = channels(background), fg = channels(foreground)

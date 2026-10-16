@@ -3,6 +3,7 @@
 
 #include <QApplication>
 #include <QClipboard>
+#include <QNativeGestureEvent>
 #include <QColorDialog>
 #include <QCursor>
 #include <QDateTime>
@@ -1086,6 +1087,18 @@ signals:
 private:
     bool eventFilter(QObject *watched, QEvent *event) override
     {
+        if (event->type() == QEvent::NativeGesture) {
+            auto *window = qobject_cast<QWindow *>(watched);
+            const auto *gesture = static_cast<QNativeGestureEvent *>(event);
+            // Qt's PinchHandler tracks native scale, but ignores interleaved
+            // native pan events. Keep finger movement in the same transition.
+            if (registeredWindows.contains(window) && window->property("overviewPinchTracking").toBool()
+                    && gesture->gestureType() == Qt::PanNativeGesture && gesture->fingerCount() == 2
+                    && gesture->pointingDevice()->type() == QInputDevice::DeviceType::TouchPad) {
+                QMetaObject::invokeMethod(window, "panOverviewPinch", Q_ARG(QVariant, QVariant::fromValue(gesture->delta())));
+                if (window->property("overviewPinchAccepted").toBool()) return true;
+            }
+        }
         if (event->type() == QEvent::Close) {
             auto *window = qobject_cast<QWindow *>(watched);
             if (registeredWindows.contains(window)) saveOpenedTabs(window);

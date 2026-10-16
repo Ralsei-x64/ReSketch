@@ -164,6 +164,16 @@ Kirigami.ApplicationWindow {
     }
     property bool overviewClosing: false
     property real overviewProgress: 0
+    property bool overviewPinchTracking: false
+    property bool overviewPinchAccepted: false
+    property int overviewPinchGeneration: 0
+    property real overviewPinchScale: 1
+    property point overviewPinchOrigin: Qt.point(0, 0)
+    property point overviewPinchTranslation: Qt.point(0, 0)
+    property real overviewPinchOffsetX: 0
+    property real overviewPinchOffsetY: 0
+    property real overviewPinchVelocity: 0
+    property double overviewPinchUpdatedAt: 0
     readonly property bool overviewAnimationRunning: overviewAnimation.running
     readonly property bool overviewGroupAnimationRunning: tabGroups.some(group => overviewGroupContainer(group.id)?.transitioning)
     property var overviewSelectedView: null
@@ -1290,6 +1300,22 @@ Kirigami.ApplicationWindow {
             anchors.fill: parent
             clip: true
 
+            PinchHandler {
+                id: sidebarOverviewPinch
+                objectName: "sidebarOverviewPinch"
+                target: null
+                acceptedDevices: PointerDevice.TouchPad
+                minimumPointCount: 2
+                maximumPointCount: 2
+                enabled: active || (!root.overviewVisible && !root.allFrozen && !!root.activeView
+                                    && !root.dragView && !root.draggedGroupId && !root.keyboardPopupActive)
+                onActiveChanged: {
+                    if (active) root.beginOverviewPinch(centroid.position)
+                    else root.finishOverviewPinch()
+                }
+                onActiveScaleChanged: if (active) root.updateOverviewPinch(activeScale, root.overviewPinchTranslation)
+            }
+
             Rectangle {
                 objectName: "browserBackground"
                 anchors.fill: parent
@@ -1924,7 +1950,10 @@ Kirigami.ApplicationWindow {
                                          || (zooming && root.overviewProgress < 0.999)
                                 enabled: !closing && !container?.transitioning
                                 z: dragging || settling ? 20 : dragMember ? 19 : zooming ? 10 : closing ? 9 : 0
-                                transform: Translate { x: overviewCard.dragOffsetX; y: overviewCard.dragOffsetY }
+                                transform: Translate {
+                                    x: overviewCard.dragOffsetX + (overviewCard.zooming ? root.overviewPinchOffsetX : 0)
+                                    y: overviewCard.dragOffsetY + (overviewCard.zooming ? root.overviewPinchOffsetY : 0)
+                                }
                                 opacity: entrance
                                 x: (closing ? previewView.overviewCloseX
                                    : dragging ? dragOriginX
@@ -2679,6 +2708,12 @@ Kirigami.ApplicationWindow {
                 else overviewSearch.forceActiveFocus()
             }
         }
+    }
+
+    ParallelAnimation {
+        id: overviewPinchSettle
+        NumberAnimation { target: root; property: "overviewPinchOffsetX"; to: 0; duration: 300; easing.type: Easing.OutCubic }
+        NumberAnimation { target: root; property: "overviewPinchOffsetY"; to: 0; duration: 300; easing.type: Easing.OutCubic }
     }
 
     Timer {
@@ -3648,6 +3683,81 @@ Kirigami.ApplicationWindow {
         if (scroll !== position) overviewFlickable.scrollBy(position - scroll, false)
     }
 
+    function beginOverviewPinch(origin) {
+        if (overviewVisible || allFrozen || !activeView || !Policy.isFigmaUrl(activeView.tabUrl)) return
+        stopOverviewPinch(true)
+        overviewPinchTracking = true
+        overviewPinchOrigin = origin
+        overviewPinchScale = 1
+        overviewPinchTranslation = Qt.point(0, 0)
+        overviewPinchVelocity = 0
+        overviewPinchUpdatedAt = Date.now()
+        const generation = overviewPinchGeneration
+        const view = activeView
+        const local = view.mapFromItem(browserArea, origin.x, origin.y)
+        view.runJavaScript(FigmaTheme.sidebarPinchHitTest(local.x, local.y), allowed => {
+            if (!overviewPinchTracking || generation !== overviewPinchGeneration || activeView !== view) return
+            overviewPinchAccepted = allowed === true
+            updateOverviewPinch(overviewPinchScale, overviewPinchTranslation)
+        })
+    }
+
+    function updateOverviewPinch(scale, translation) {
+        if (!overviewPinchTracking || !Number.isFinite(scale) || scale <= 0) return
+        overviewPinchScale = scale
+        overviewPinchTranslation = translation
+        if (!overviewPinchAccepted || (!overviewVisible && scale >= 0.98)) return
+        if (!overviewVisible) openOverview(true)
+        const progress = Math.max(0, Math.min(1, (1 - scale) / Math.max(0.01, 1 - overviewScale)))
+        const now = Date.now()
+        const velocity = (progress - overviewProgress) * 1000 / Math.max(8, now - overviewPinchUpdatedAt)
+        overviewPinchVelocity = Math.max(-3, Math.min(3, velocity * 0.5 + overviewPinchVelocity * 0.5))
+        overviewPinchUpdatedAt = now
+        overviewProgress = progress
+        const slot = overviewFilteredSlot(overviewSlot(overviewSelectedView))
+        const shrink = (1 - overviewScale) * progress
+        overviewPinchOffsetX = appSettings.reduceMotion ? 0
+            : overviewPinchOrigin.x * shrink + translation.x - overviewCardX(slot) * progress
+        overviewPinchOffsetY = appSettings.reduceMotion ? 0
+            : overviewPinchOrigin.y * shrink + translation.y - (overviewCardY(slot) - overviewFlickable.contentY) * progress
+    }
+
+    function panOverviewPinch(delta) {
+        updateOverviewPinch(overviewPinchScale, Qt.point(overviewPinchTranslation.x + delta.x,
+                                                        overviewPinchTranslation.y + delta.y))
+    }
+
+    function finishOverviewPinch() {
+        if (!overviewPinchTracking) return
+        const velocity = Date.now() - overviewPinchUpdatedAt > 100 ? 0 : overviewPinchVelocity
+        const open = overviewProgress + velocity * 0.1 >= 0.45
+        stopOverviewPinch(false)
+        if (!overviewVisible) return
+        overviewClosing = !open
+        if (appSettings.reduceMotion) {
+            overviewProgress = open ? 1 : 0
+            overviewPinchOffsetX = 0
+            overviewPinchOffsetY = 0
+            if (!open) finishOverviewTransition()
+            else overviewSearch.forceActiveFocus()
+        } else {
+            overviewAnimation.from = overviewProgress
+            overviewAnimation.to = open ? 1 : 0
+            overviewAnimation.start()
+        }
+    }
+
+    function stopOverviewPinch(resetOffset) {
+        overviewPinchTracking = false
+        overviewPinchAccepted = false
+        ++overviewPinchGeneration
+        overviewPinchSettle.stop()
+        if (resetOffset || appSettings.reduceMotion) {
+            overviewPinchOffsetX = 0
+            overviewPinchOffsetY = 0
+        } else if (overviewPinchOffsetX || overviewPinchOffsetY) overviewPinchSettle.start()
+    }
+
     function toggleOverview() {
         if (allFrozen || !activeView)
             return
@@ -3667,6 +3777,11 @@ Kirigami.ApplicationWindow {
             }
             return
         }
+        openOverview(false)
+    }
+
+    function openOverview(interactive) {
+        if (!interactive) stopOverviewPinch(true)
         resetSlide()
         selectionGlide.stop()
         homeSelectionGlide = false
@@ -3683,7 +3798,7 @@ Kirigami.ApplicationWindow {
         const selectedCardY = overviewCardY(overviewFilteredSlot(overviewSlot(activeView)))
         overviewFlickable.resetScroll(selectedCardY - (overviewFlickable.height - overviewCardHeight) / 2)
         overviewVisible = true
-        overviewSearch.forceActiveFocus()
+        if (!interactive) overviewSearch.forceActiveFocus()
         overviewNavigationTarget = activeView
         for (const view of [homeView].concat(views)) {
             if (!view)
@@ -3691,6 +3806,7 @@ Kirigami.ApplicationWindow {
             attachOverviewFrame(view)
         }
         updateTabLifecycle()
+        if (interactive) return
         if (appSettings.reduceMotion) {
             overviewProgress = 1
             overviewSearch.forceActiveFocus()
@@ -3704,6 +3820,7 @@ Kirigami.ApplicationWindow {
     function selectOverviewView(target) {
         if (!target || (target !== homeView && views.indexOf(target) < 0))
             return
+        stopOverviewPinch(false)
         selectedTabViews = []
         if (!overviewVisible) {
             activateView(target, target === homeView ? -1 : views.indexOf(target))
@@ -3743,6 +3860,7 @@ Kirigami.ApplicationWindow {
     function finishOverviewTransition() {
         if (!overviewClosing || overviewProgress > 0.001)
             return
+        stopOverviewPinch(true)
         const target = overviewSelectedView
         overviewVisible = false
         pendingOverviewSelection = null
@@ -3764,6 +3882,7 @@ Kirigami.ApplicationWindow {
     }
 
     function dismissOverview() {
+        stopOverviewPinch(true)
         if (!overviewVisible)
             return
         overviewFinishTimer.stop()
