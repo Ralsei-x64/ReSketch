@@ -59,7 +59,40 @@ int main(int argc, char **argv)
 {
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
     qputenv("RESKETCH_CEF_FLAGS", "--disable-gpu --no-sandbox");
+    KIconTheme::initTheme();
     QApplication app(argc, argv);
+    if (app.arguments().contains(QStringLiteral("--icons"))) {
+        // This invocation has no external icon themes in its data paths.
+        QIcon::setThemeSearchPaths({QStringLiteral(":/icons")});
+        QIcon::setFallbackSearchPaths({});
+        QIcon::setThemeName(QStringLiteral("resketch-missing-icon-theme"));
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData("import QtQuick\nimport org.kde.kirigami as Kirigami\n"
+                          "Kirigami.Icon { width:22; height:22; source: \"tab-new\" }", QUrl());
+        std::unique_ptr<QObject> probe(component.create());
+        assert(probe);
+        for (const auto *name : {"tab-new", "view-grid", "view-refresh", "application-menu", "go-home",
+                                "window-close", "window-minimize", "window-maximize", "window-restore",
+                                "go-previous", "go-next", "go-up", "go-down", "arrow-left", "arrow-right", "arrow-down",
+                                "configure", "folder", "folder-open", "text-x-generic", "document-export", "document-open",
+                                "edit-copy", "edit-delete", "edit-rename", "edit-clear-all", "edit-find", "edit-undo",
+                                "overflow-menu", "system-suspend", "help-about", "dialog-password", "color-management",
+                                "preferences-desktop-theme", "preferences-desktop-notification", "preferences-desktop-keyboard",
+                                "preferences-desktop-icons", "preferences-system-performance", "tab-duplicate",
+                                "applications-development", "view-process-system", "view-process-all", "tools-report-bug",
+                                "view-visible", "process-stop", "drag-handle-symbolic"}) {
+            const QIcon icon = QIcon::fromTheme(QString::fromLatin1(name));
+            assert(!icon.isNull() && !icon.pixmap(22, 22).isNull());
+            probe->setProperty("source", QString::fromLatin1(name));
+            QCoreApplication::processEvents();
+            assert(probe->property("valid").toBool());
+        }
+        assert(QIcon::fromTheme(QStringLiteral("window-close")).pixmap(22, 22).toImage()
+               != QIcon::fromTheme(QStringLiteral("window-minimize")).pixmap(22, 22).toImage());
+        puts("Native and Kirigami icons render with no installed icon themes, using distinct embedded fallbacks");
+        return 0;
+    }
     QTemporaryDir temporary;
     assert(temporary.isValid());
     qputenv("RESKETCH_CEF_CACHE_ROOT", (temporary.path()+"/cef").toUtf8());

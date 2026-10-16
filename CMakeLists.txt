@@ -3,12 +3,13 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-project(ReSketch VERSION 1.2.8 LANGUAGES C CXX)
+project(ReSketch VERSION 1.2.9 LANGUAGES C CXX)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Network Quick QuickControls2 OpenGL Widgets)
 find_package(KF6WindowSystem REQUIRED)
 find_package(KF6Notifications REQUIRED)
 find_package(KF6ColorScheme 6.6 REQUIRED)
+find_package(KF6IconThemes 6.3 REQUIRED)
 find_package(Fontconfig REQUIRED)
 find_package(Freetype REQUIRED)
 
@@ -97,6 +98,7 @@ target_link_libraries(resketch PRIVATE
     KF6::WindowSystem
     KF6::Notifications
     KF6::ColorScheme
+    KF6::IconThemes
 )
 
 # Chromium's close() interposer uses RTLD_NEXT to reach libc. Retain the

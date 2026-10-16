@@ -47,6 +47,7 @@
 #include <KWindowEffects>
 #include <KNotification>
 #include <KColorSchemeManager>
+#include <KIconTheme>
 #include "CefView.h"
 #include "CefApp.h"
 #include <QProcess>
@@ -1214,6 +1215,8 @@ int main(int argc, char *argv[])
         qputenv("QT_XCB_GL_INTEGRATION", "xcb_egl");
     }
     QQuickWindow::setDefaultAlphaBuffer(true);
+    // Keep the desktop icon theme, with KDE's embedded Breeze icons as fallback.
+    KIconTheme::initTheme();
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("ReSketch"));
 #ifdef RESKETCH_VERSION
