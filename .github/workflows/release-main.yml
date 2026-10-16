@@ -1,0 +1,43 @@
+name: Build and release Qt WebEngine
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container: archlinux:latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      RELEASE_ENGINE: main
+    steps:
+      - name: Install packaging tools
+        run: pacman -Syu --noconfirm --needed base-devel git sudo github-cli
+
+      - name: Check out the triggering commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Build and verify the Arch package
+        run: bash .github/scripts/build-release.sh
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: bash .github/scripts/publish-release.sh
