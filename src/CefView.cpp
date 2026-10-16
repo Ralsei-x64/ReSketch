@@ -34,6 +34,7 @@
 #include <QSGSimpleTextureNode>
 #include <QSGTexture>
 #include <QScreen>
+#include <QSocketNotifier>
 #include <QStandardPaths>
 #include <QStyleHints>
 #include <QTcpServer>
@@ -42,6 +43,7 @@
 #include <chrono>
 #include <cmath>
 #include <glib.h>
+#include <set>
 
 namespace {
 // Keep Chromium's private/custom data when a page drags within or between
@@ -76,11 +78,14 @@ double monotonicSeconds() {
 struct Runtime {
     bool started = false, pumping = false, stopping = false;
     QTimer timer;
+    using NativeSocket = std::pair<int, QSocketNotifier::Type>;
+    std::map<NativeSocket, std::unique_ptr<QSocketNotifier>> nativeSockets;
     CefRefPtr<ReSketchCefApp> app;
     quint16 debugPort = 0;
     std::map<int, CefRefPtr<CefBrowser>> browsers;
     Runtime() {
         timer.setSingleShot(true);
+        timer.setTimerType(Qt::PreciseTimer);
         QObject::connect(&timer, &QTimer::timeout, qApp, [this] {
             if (pumping || !started)
                 return;
@@ -90,11 +95,51 @@ struct Runtime {
             g_main_context_iteration(nullptr, false);
             CefDoMessageLoopWork();
             pumping = false;
+            watchNativeSources();
             // As in CEF's external-pump example, poll idle work too: Chromium
             // does not schedule every native X11/GLib event through this hook.
             if (!timer.isActive())
                 timer.start(33);
         });
+    }
+    void watchNativeSources() {
+        auto *context = g_main_context_default();
+        if (!g_main_context_acquire(context)) return;
+        int priority = 0, timeout = -1;
+        const bool ready = g_main_context_prepare(context, &priority);
+        std::vector<GPollFD> descriptors(16);
+        int count = g_main_context_query(context, priority, &timeout, descriptors.data(), descriptors.size());
+        while (count > int(descriptors.size())) {
+            descriptors.resize(count);
+            count = g_main_context_query(context, priority, &timeout, descriptors.data(), descriptors.size());
+        }
+        g_main_context_release(context);
+        std::set<NativeSocket> sockets;
+        for (int i = 0; i < count; ++i) {
+            const auto &fd = descriptors[i];
+            if (fd.fd < 0) continue;
+            if (fd.events & (G_IO_IN | G_IO_HUP | G_IO_ERR)) sockets.emplace(fd.fd, QSocketNotifier::Read);
+            if (fd.events & G_IO_OUT) sockets.emplace(fd.fd, QSocketNotifier::Write);
+        }
+        std::erase_if(nativeSockets, [&](const auto &entry) { return !sockets.contains(entry.first); });
+        for (const auto &socket : sockets) {
+            auto &notifier = nativeSockets[socket];
+            if (!notifier) {
+                notifier = std::make_unique<QSocketNotifier>(socket.first, socket.second);
+                // Only wake Qt here. GLib/GTK callbacks still run inside the
+                // guarded CEF pump, including during clipboard INCR transfers.
+                QObject::connect(notifier.get(), &QSocketNotifier::activated, qApp, [this, source = notifier.get()] {
+                    source->setEnabled(false);
+                    schedule(0);
+                });
+            }
+            notifier->setEnabled(true);
+        }
+        // CEF's external pump can report a zero GLib timeout without ready
+        // work. Its real deadlines arrive through schedule(); polling that
+        // zero repeatedly would keep the UI thread busy while idle.
+        const int delay = ready ? 0 : timeout > 0 ? std::min(timeout, 33) : 33;
+        if (!timer.isActive() || timer.remainingTime() > delay) timer.start(delay);
     }
     void schedule(int64_t delay) {
         QMetaObject::invokeMethod(
@@ -371,6 +416,7 @@ void shutdown() {
         QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
     }
     state.timer.stop();
+    state.nativeSockets.clear();
     state.browsers.clear();
     state.app = nullptr;
     CefShutdown();

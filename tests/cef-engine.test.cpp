@@ -5,6 +5,8 @@
 #include "include/cef_client.h"
 #include "include/cef_dialog_handler.h"
 #include <QApplication>
+#include <QBuffer>
+#include <QClipboard>
 #include <QDragEnterEvent>
 #include <QElapsedTimer>
 #include <QEnterEvent>
@@ -13,6 +15,7 @@
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QMimeData>
+#include <QProcess>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickItemGrabResult>
@@ -27,6 +30,7 @@
 #include <QWheelEvent>
 #include <cstdio>
 #include <cstdlib>
+#include <time.h>
 
 static void require(bool ok, const char *message) {
     if (!ok) {
@@ -55,8 +59,14 @@ class CancelledPicker final : public CefFileDialogCallback {
 };
 int main(int argc, char **argv) {
     qputenv("QT_NO_GLIB", "1");
-    const bool gpu = argc > 1 && QByteArray(argv[1]) == "--gpu";
-    const bool sandbox = argc > 1 && QByteArray(argv[1]) == "--sandbox";
+    const auto hasArgument = [&](const char *argument) {
+        for (int i = 1; i < argc; ++i) if (QByteArray(argv[i]) == argument) return true;
+        return false;
+    };
+    const bool clipboardOwner = hasArgument("--clipboard-owner");
+    const bool clipboardBenchmark = hasArgument("--clipboard");
+    const bool gpu = hasArgument("--gpu");
+    const bool sandbox = hasArgument("--sandbox");
     if (!gpu) {
         qputenv("QT_QUICK_BACKEND", "software");
         qputenv("RESKETCH_CEF_FLAGS", sandbox ? "--disable-gpu" : "--disable-gpu --no-sandbox");
@@ -67,6 +77,33 @@ int main(int argc, char **argv) {
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
     QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication app(argc, argv);
+    if (clipboardOwner) {
+        require(argc > 2, "Clipboard owner payload type");
+        auto *mime = new QMimeData;
+        const QByteArray kind(argv[2]);
+        if (kind == "image") {
+            QImage image(2048, 2048, QImage::Format_RGB32);
+            quint32 noise = 1;
+            for (int y = 0; y < image.height(); ++y) {
+                auto *line = reinterpret_cast<quint32 *>(image.scanLine(y));
+                for (int x = 0; x < image.width(); ++x) {
+                    noise ^= noise << 13; noise ^= noise >> 17; noise ^= noise << 5;
+                    line[x] = noise | 0xff000000;
+                }
+            }
+            QByteArray png;
+            QBuffer buffer(&png);
+            buffer.open(QIODevice::WriteOnly);
+            require(image.save(&buffer, "PNG"), "Clipboard image encoding");
+            mime->setData("image/png", png);
+        } else {
+            mime->setText(QString(4 * 1024 * 1024, 'x'));
+            if (kind == "html") mime->setHtml("<b>" + QString(4 * 1024 * 1024, 'y') + "</b>");
+        }
+        app.clipboard()->setMimeData(mime);
+        puts("ready"); fflush(stdout);
+        return app.exec();
+    }
     QTemporaryDir directory;
     require(directory.isValid(), "temporary profile");
     qputenv("RESKETCH_CEF_CACHE_ROOT", directory.path().toUtf8());
@@ -159,6 +196,65 @@ CefView {
         QCoreApplication::sendEvent(view, &pasteDown);
         QCoreApplication::sendEvent(view, &pasteUp);
         until([&] { return js("pastes").toInt() == 2; }, "Ctrl+V delivers paste without stalling the renderer");
+        // Run --clipboard on an isolated X display: these cases own CLIPBOARD.
+        if (clipboardBenchmark) {
+            js("window.maxPasteGap=0;window.lastPasteTick=performance.now();"
+               "window.pasteHeartbeat=setInterval(()=>{const now=performance.now();maxPasteGap=Math.max(maxPasteGap,now-lastPasteTick);lastPasteTick=now},10);"
+               "addEventListener('paste',e=>{window.pasteTextSize=e.clipboardData.getData('text/plain').length;"
+               "window.pasteHtmlSize=e.clipboardData.getData('text/html').length;window.pasteFiles=[...e.clipboardData.files].map(f=>f.size)})");
+            for (const auto &kind : {"text", "html", "image"}) {
+                QProcess owner;
+                auto environment = QProcessEnvironment::systemEnvironment();
+                environment.insert("QT_QPA_PLATFORM", "xcb");
+                owner.setProcessEnvironment(environment);
+                owner.start(app.applicationFilePath(), {"--clipboard-owner", kind});
+                require(owner.waitForStarted() && owner.waitForReadyRead(15000), "External clipboard owner ready");
+                require(owner.readLine().trimmed() == "ready", "External clipboard payload ready");
+                const int previous = js("pastes").toInt();
+                js("window.maxPasteGap=0;window.lastPasteTick=performance.now()");
+                QElapsedTimer duration;
+                duration.start();
+                view->browser()->GetMainFrame()->Paste();
+                until([&] { return js("pastes").toInt() > previous; }, "Large native clipboard paste completes", 30000);
+                require(duration.elapsed() < 1500, "Clipboard transport does not stall for seconds");
+                require(js("maxPasteGap").toDouble() < 1500, "Renderer stays responsive during large paste");
+                fprintf(stderr, "CLIPBOARD: %s paste %lld ms; renderer gap %.0f ms; text %d html %d files %s\n",
+                    kind, duration.elapsed(), js("maxPasteGap").toDouble(), js("pasteTextSize").toInt(),
+                    js("pasteHtmlSize").toInt(), qPrintable(js("JSON.stringify(pasteFiles)").toString()));
+                if (QByteArray(kind) == "text") require(js("pasteTextSize").toInt() == 4 * 1024 * 1024, "Large text paste is intact");
+                if (QByteArray(kind) == "html") require(js("pasteHtmlSize").toInt() >= 4 * 1024 * 1024, "Large HTML paste is intact");
+                if (QByteArray(kind) == "image") require(js("pasteFiles.length").toInt() == 1, "Image paste is intact");
+                owner.terminate();
+                owner.waitForFinished();
+            }
+            js("window.copies=0;addEventListener('copy',e=>{e.preventDefault();copies++;"
+               "e.clipboardData.setData('text/plain','z'.repeat(4*1024*1024));"
+               "e.clipboardData.setData('text/html','<b>'+ 'w'.repeat(4*1024*1024)+'</b>')})");
+            QElapsedTimer roundTrip;
+            roundTrip.start();
+            view->browser()->GetMainFrame()->Copy();
+            until([&] { return js("copies").toInt() == 1; }, "Large native browser copy completes");
+            const int previous = js("pastes").toInt();
+            view->browser()->GetMainFrame()->Paste();
+            until([&] { return js("pastes").toInt() > previous; }, "Large native browser round trip completes");
+            require(roundTrip.elapsed() < 1500 && js("pasteHtmlSize").toInt() >= 4*1024*1024,
+                    "Large internal copy/paste is fast and preserves HTML");
+            fprintf(stderr, "CLIPBOARD: internal 4 MiB text/HTML copy and paste %lld ms\n", roundTrip.elapsed());
+            js("clearInterval(pasteHeartbeat)");
+            timespec beforeIdle{}, afterIdle{};
+            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &beforeIdle);
+            QElapsedTimer idle;
+            idle.start();
+            while (idle.elapsed() < 400) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+                QThread::msleep(1);
+            }
+            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &afterIdle);
+            const double idleCpuMs = (afterIdle.tv_sec - beforeIdle.tv_sec) * 1000.0
+                + (afterIdle.tv_nsec - beforeIdle.tv_nsec) / 1e6;
+            require(idleCpuMs < idle.elapsed() / 2.0, "Native event wakeups do not spin while idle");
+            fprintf(stderr, "CLIPBOARD: idle main-thread CPU %.1f%%\n", 100 * idleCpuMs / idle.elapsed());
+        }
         struct PickerFilters {
             std::vector<CefString> accepted, expanded;
             QStringList expected;
