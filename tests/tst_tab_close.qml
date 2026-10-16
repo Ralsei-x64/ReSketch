@@ -144,6 +144,9 @@ Item {
         id: app
         sharedProfile: testProfile
         property int systemMoveRequests: 0
+        property int groupIconRequests: 0
+        // Observe activation without opening a QWidget in the QGui test runner.
+        function chooseTabGroupIcon(id) { ++groupIconRequests }
         property var externalLinks: []
         function openExternalLink(address) {
             externalLinks = externalLinks.concat(String(address))
@@ -450,6 +453,43 @@ Item {
             keyClick(Qt.Key_Escape)
             tryCompare(dialog, "visible", false)
             compare(app.groupFor(view).title, "Keyboard group")
+        }
+
+        function test_tab_group_dialog_enter_data() {
+            const rows = []
+            for (const control of ["name", "icon", "color", "accept", "cancel"])
+                for (const key of [Qt.Key_Return, Qt.Key_Enter])
+                    rows.push({tag: control + "-" + (key === Qt.Key_Return ? "return" : "enter"), control, key})
+            return rows
+        }
+
+        function test_tab_group_dialog_enter(data) {
+            app.requestActivate()
+            tryVerify(() => app.active)
+            const view = app.views[0]
+            app.requestTabGroup(view)
+            const dialog = findChild(app, "tabGroupNameDialog")
+            const name = findChild(app, "tabGroupNameEditor")
+            name.text = "Enter test"
+            const controls = {name, icon: findChild(app, "tabGroupIconPicker"),
+                color: findChild(app, "tabGroupColorPicker"), accept: findChild(app, "tabGroupAcceptButton"),
+                cancel: findChild(app, "tabGroupCancelButton")}
+            tryCompare(dialog, "opened", true)
+            controls[data.control].forceActiveFocus()
+            tryCompare(controls[data.control], "activeFocus", true)
+            const iconRequests = app.groupIconRequests
+            keyClick(data.key)
+            if (data.control === "icon") {
+                compare(app.groupIconRequests, iconRequests + 1)
+                compare(dialog.visible, true, "Enter on a picker must not submit the group")
+            } else if (data.control === "color") {
+                compare(String(dialog.groupColor), "#e75d73")
+                compare(dialog.visible, true, "Enter on a picker must not submit the group")
+            } else {
+                tryCompare(dialog, "visible", false)
+                compare(app.tabGroups.length, data.control === "cancel" ? 0 : 1)
+                if (data.control !== "cancel") compare(app.groupFor(view).title, "Enter test")
+            }
         }
 
         function test_empty_groups_are_discarded_and_closing_members_are_not_saved() {

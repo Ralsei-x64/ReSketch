@@ -3,6 +3,9 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
 About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
+1.0.15 - 2026-10-16
+Fixed Enter and keypad Enter activation of the focused icon picker, color picker, and action buttons in the tab group popup.
+
 1.0.14 - 2026-10-15
 Redesigned the tab group popup with a live preview, clearer actions, keyboard focus cycling, picker shortcuts, and name validation.
 

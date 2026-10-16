@@ -5367,6 +5367,8 @@ Kirigami.ApplicationWindow {
                     Accessible.name: qsTr("Group name")
                     KeyNavigation.tab: groupIconButton
                     KeyNavigation.backtab: groupCancelButton
+                    Keys.onReturnPressed: if (groupRenameDialog.validName) groupRenameDialog.accept()
+                    Keys.onEnterPressed: if (groupRenameDialog.validName) groupRenameDialog.accept()
                     onAccepted: if (groupRenameDialog.validName) groupRenameDialog.accept()
                 }
             }
@@ -5383,6 +5385,8 @@ Kirigami.ApplicationWindow {
                     icon.width: 22
                     icon.height: 22
                     focusPolicy: Qt.StrongFocus
+                    Keys.onReturnPressed: groupIconButton.click()
+                    Keys.onEnterPressed: groupIconButton.click()
                     Accessible.name: qsTr("Choose group icon")
                     KeyNavigation.tab: groupColorButton
                     KeyNavigation.backtab: groupNameEditor
@@ -5399,6 +5403,8 @@ Kirigami.ApplicationWindow {
                     text: qsTr("Color…")
                     leftPadding: Kirigami.Units.largeSpacing + groupColorSwatch.width + Kirigami.Units.smallSpacing
                     focusPolicy: Qt.StrongFocus
+                    Keys.onReturnPressed: groupColorButton.click()
+                    Keys.onEnterPressed: groupColorButton.click()
                     Accessible.name: qsTr("Choose group color")
                     Accessible.description: qsTr("Current color: %1").arg(String(groupRenameDialog.groupColor))
                     KeyNavigation.tab: groupAcceptButton
@@ -5428,7 +5434,7 @@ Kirigami.ApplicationWindow {
             }
             Controls.Label {
                 Layout.fillWidth: true
-                text: qsTr("Tab to navigate · Ctrl+Enter to save · Esc to cancel")
+                text: qsTr("Tab to navigate · Enter to activate · Esc to cancel")
                 font: Kirigami.Theme.smallFont
                 opacity: 0.72
                 wrapMode: Text.WordWrap
@@ -5449,6 +5455,8 @@ Kirigami.ApplicationWindow {
                 text: qsTr("Cancel")
                 implicitHeight: 36
                 focusPolicy: Qt.StrongFocus
+                Keys.onReturnPressed: groupCancelButton.click()
+                Keys.onEnterPressed: groupCancelButton.click()
                 Controls.DialogButtonBox.buttonRole: Controls.DialogButtonBox.RejectRole
                 KeyNavigation.tab: groupNameEditor
                 KeyNavigation.backtab: groupAcceptButton
@@ -5461,6 +5469,8 @@ Kirigami.ApplicationWindow {
                 highlighted: true
                 enabled: groupRenameDialog.validName
                 focusPolicy: Qt.StrongFocus
+                Keys.onReturnPressed: groupAcceptButton.click()
+                Keys.onEnterPressed: groupAcceptButton.click()
                 Controls.DialogButtonBox.buttonRole: Controls.DialogButtonBox.AcceptRole
                 KeyNavigation.tab: groupCancelButton
                 KeyNavigation.backtab: groupColorButton
