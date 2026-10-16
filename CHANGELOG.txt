@@ -3,6 +3,9 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
 About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
+1.2.0 - 2026-10-16
+Added finger-following sidebar tab swipes and overview card pinch-out; restored canvas pinch zoom, added inertial scrolling including Home sidebars, and updated CEF build instructions.
+
 1.1.0 - 2026-10-16
 Added trackpad pinch-to-overview from empty Figma sidebar space, with finger-following scale and movement, reversible progress, and smooth release.
 

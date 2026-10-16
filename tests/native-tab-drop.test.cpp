@@ -625,7 +625,7 @@ int main(int argc, char **argv)
     assert(!overview->property("smoothWheel").toBool()); // A new gesture stops old mouse-wheel easing.
     puts("Native trackpad axes, pixels, momentum, natural scrolling, and mouse-wheel easing checks passed");
     evaluate("destination.dismissOverview(); destination.activateTab(0, false); var pinchFixtureReady = false;"
-             "destination.activeView.runJavaScript(\"document.body.innerHTML='<style>body{margin:0}nav{position:absolute;left:0;top:0;width:200px;height:100vh;background:gray}</style><nav data-onboarding-key=unified-design-onboarding-left-panel></nav>'\", () => pinchFixtureReady = true);");
+             "destination.activeView.runJavaScript(\"document.body.innerHTML='<style>body{margin:0}nav{position:absolute;left:0;top:0;width:200px;height:100vh;background:gray;z-index:1}.gpu-view-content{position:absolute;inset:0}</style><div class=gpu-view-content></div><nav data-onboarding-key=unified-design-onboarding-left-panel></nav>';window.zoomWheels=[];addEventListener('wheel',e=>{e.preventDefault();zoomWheels.push(e.deltaY)},{passive:false})\", () => pinchFixtureReady = true);");
     for (int i = 0; i < 50 && !evaluate("pinchFixtureReady").toBool(); ++i) render();
     assert(evaluate("pinchFixtureReady").toBool());
     evaluate("destination.activeView.restoreHistoryUrl('https://www.figma.com/design/PinchFixture/Test'); destination.activeView.hasLoadedFrame = true;");
@@ -666,5 +666,55 @@ int main(int argc, char **argv)
     render();
     nativePinch(Qt::EndNativeGesture, 0, {}, QPointF(400, 300));
     assert(!destination->property("overviewVisible").toBool());
-    puts("Native sidebar pinch, pan, completion, reversal and canvas exclusion checks passed");
+    puts("Native sidebar pinch, pan, completion and reversal checks passed");
+    evaluate("destination.activeView.runJavaScript('zoomWheels=[]')");
+    render();
+    nativePinch(Qt::BeginNativeGesture, 0, {}, QPointF(400,300));
+    nativePinch(Qt::ZoomNativeGesture, 0.2, {}, QPointF(400,300));
+    render();
+    assert(evaluate("destination.canvasPinchView === destination.activeView").toBool());
+    nativePinch(Qt::EndNativeGesture, 0, {}, QPointF(400,300));
+    evaluate("var zoomResult=[]");
+    for (int i=0; i<20 && !evaluate("zoomResult.some(delta=>delta<0)").toBool(); ++i) {
+        evaluate("destination.activeView.runJavaScript('zoomWheels',result=>zoomResult=result)");
+        render();
+    }
+    assert(evaluate("zoomResult.some(delta=>delta<0)").toBool());
+    // Deliver real Qt wheel events through the CEF item and its QML acceptance signal.
+    auto *swipeView = qobject_cast<QQuickItem *>(destination->property("activeView").value<QObject *>());
+    assert(swipeView);
+    const auto sidebarWheel = [&](QPoint pixels, Qt::ScrollPhase phase) {
+        const QPointF local(80,300);
+        QWheelEvent event(local, swipeView->mapToGlobal(local), pixels, {}, Qt::NoButton, Qt::NoModifier,
+                          phase, false, Qt::MouseEventSynthesizedBySystem, &touchpad);
+        QCoreApplication::sendEvent(swipeView, &event);
+    };
+    sidebarWheel({}, Qt::ScrollBegin);
+    render();
+    assert(destination->property("sidebarSwipeAllowed").toBool());
+    sidebarWheel(QPoint(-100,0), Qt::ScrollUpdate);
+    assert(qAbs(swipeView->property("slideX").toDouble() + 100) < 1);
+    render(); // Explicit scroll phases must hold the transition while fingers pause.
+    assert(qAbs(swipeView->property("slideX").toDouble() + 100) < 1);
+    sidebarWheel(QPoint(-500,0), Qt::ScrollUpdate);
+    sidebarWheel({}, Qt::ScrollEnd);
+    for(int i=0; i<10 && destination->property("activeView").value<QObject *>() == swipeView; ++i) render();
+    assert(destination->property("activeView").value<QObject *>() != swipeView);
+    evaluate("destination.openOverview(false)");
+    for(int i=0; i<10 && destination->property("overviewProgress").toDouble() < 0.999; ++i) render();
+    const auto cardPoint = evaluate("var pinchCard=destination.overviewNavigationCards().find(c=>typeof c.target!=='string' && c.target!==destination.activeView);"
+        "Qt.point(pinchCard.x+destination.overviewCardWidth/2,pinchCard.y+destination.overviewCardHeight/2)");
+    QPointF cardPosition(cardPoint.property("x").toNumber(),cardPoint.property("y").toNumber());
+    cardPosition.ry() -= overview->property("contentY").toDouble();
+    nativePinch(Qt::BeginNativeGesture, 0, {}, cardPosition);
+    nativePinch(Qt::ZoomNativeGesture, 0.2, {}, cardPosition);
+    render();
+    assert(destination->property("overviewPinchOpeningCard").toBool());
+    assert(destination->property("overviewProgress").toDouble() < 1);
+    nativePinch(Qt::ZoomNativeGesture, 0.5, {}, cardPosition);
+    nativePinch(Qt::EndNativeGesture, 0, {}, cardPosition);
+    for(int i=0; i<10 && destination->property("overviewVisible").toBool(); ++i) render();
+    assert(!destination->property("overviewVisible").toBool());
+    assert(evaluate("destination.activeView === pinchCard.target").toBool());
+    puts("Native canvas zoom, sidebar tab swipes and overview card pinch-out checks passed");
 }

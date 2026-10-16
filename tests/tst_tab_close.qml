@@ -2044,6 +2044,7 @@ Item {
         }
 
         function cleanup() {
+            app.cancelSidebarSwipe()
             findChild(app, "tabGroupContextMenu").close()
             findChild(app, "tabGroupNameDialog").reject()
             for (const group of app.tabGroups.slice()) app.ungroupTabs(group.id)
@@ -3154,6 +3155,112 @@ Item {
             app.finishOverviewPinch()
             tryCompare(app, "overviewProgress", 1)
             compare(app.overviewVisible, true, "A normal overview action cancels any pending gesture hit test")
+        }
+
+        function test_canvas_pinch_reaches_figma_with_control_wheel() {
+            const view = prepareSidebarPinchFixture()
+            let ready = false, result = null
+            view.runJavaScript('const gpu=document.createElement("div");gpu.className="gpu-view-content";gpu.style="position:absolute;inset:0;z-index:0";document.body.appendChild(gpu);'
+                + 'window.zoomWheels=[];addEventListener("wheel",e=>{if(e.ctrlKey){e.preventDefault();zoomWheels.push([e.deltaY,e.clientX,e.clientY])}},{passive:false})', () => ready = true)
+            tryVerify(() => ready)
+            app.beginOverviewPinch(Qt.point(400,300))
+            app.updateOverviewPinch(1.2,Qt.point(0,0))
+            tryCompare(app, "canvasPinchView", view)
+            function inspect() { view.runJavaScript('zoomWheels', value => result = value) }
+            tryVerify(() => { inspect(); return result && result.length === 1 })
+            verify(result[0][0] < 0, "Spreading fingers zooms in")
+            app.updateOverviewPinch(0.9,Qt.point(20,10))
+            tryVerify(() => { inspect(); return result && result.length === 2 })
+            verify(result[1][0] > 0, "Pinching inward zooms out")
+            compare(result[1][1], 420)
+            compare(result[1][2], 310)
+            app.finishOverviewPinch()
+            compare(app.overviewVisible, false)
+            compare(app.canvasPinchView, null)
+        }
+
+        function test_overview_card_pinch_tracks_pan_reversal_and_opens_target() {
+            const source = app.activeView
+            const target = app.views[app.views.indexOf(source) + 1]
+            app.openOverview(false)
+            tryCompare(app, "overviewProgress", 1)
+            const card = overviewCard(target)
+            const origin = card.mapToItem(app.browserContent, card.width / 2, card.height / 2)
+            app.beginOverviewPinch(origin)
+            compare(app.overviewPinchOpeningCard, true)
+            compare(app.overviewSelectedView, target)
+            app.updateOverviewPinch(1.2, Qt.point(0,0))
+            const progress = app.overviewProgress
+            verify(progress > 0 && progress < 1)
+            const width = card.width
+            const position = card.mapToItem(app.browserContent, 0, 0)
+            wait(50)
+            compare(app.overviewProgress, progress)
+            app.updateOverviewPinch(1.2, Qt.point(25,15))
+            const moved = card.mapToItem(app.browserContent, 0, 0)
+            fuzzyCompare(moved.x - position.x, 25, 1)
+            fuzzyCompare(moved.y - position.y, 15, 1)
+            app.updateOverviewPinch(1.05, Qt.point(0,0))
+            verify(card.width < width, "Reversing the pinch shrinks the card back")
+            app.finishOverviewPinch()
+            tryCompare(app, "overviewProgress", 1)
+            compare(app.overviewVisible, true)
+            compare(app.activeView, source)
+            const secondOrigin = card.mapToItem(app.browserContent, card.width / 2, card.height / 2)
+            app.beginOverviewPinch(secondOrigin)
+            app.updateOverviewPinch(1.7, Qt.point(20,10))
+            app.finishOverviewPinch()
+            tryCompare(app, "overviewVisible", false)
+            compare(app.activeView, target)
+            compare(target.frameContainer.previewCard, null)
+            compare(app.overviewPinchOffsetX, 0)
+        }
+
+        function test_sidebar_swipe_follows_fingers_commits_and_reverses() {
+            const source = prepareSidebarPinchFixture()
+            const sourceIndex = app.views.indexOf(source)
+            const next = app.views[sourceIndex + 1]
+            const position = Qt.point(100,300)
+            app.handleSidebarSwipe(source,0,0,Qt.ScrollBegin,position)
+            tryCompare(app, "sidebarSwipeAllowed", true)
+            compare(app.handleSidebarSwipe(source,-100,2,Qt.ScrollUpdate,position), true)
+            compare(app.activeView, source, "Selection commits after the slide finishes")
+            compare(source.slideX, -100)
+            compare(next.slideX, app.browserWidth - 100)
+            const selection = findChild(app, "selectionBar")
+            verify(selection.startOffset !== 0, "The selection bar follows swipe progress")
+            app.handleSidebarSwipe(source,40,0,Qt.ScrollUpdate,position)
+            compare(source.slideX, -60, "Reversing the fingers reverses the slide")
+            app.handleSidebarSwipe(source,-app.browserWidth * 0.5,0,Qt.ScrollUpdate,position)
+            app.handleSidebarSwipe(source,0,0,Qt.ScrollEnd,position)
+            tryVerify(() => app.activeView === next)
+            compare(next.slideX, 0)
+            compare(source.visible, false)
+            app.activateView(source,sourceIndex,false)
+            app.handleSidebarSwipe(source,0,0,Qt.ScrollBegin,position)
+            tryCompare(app, "sidebarSwipeAllowed", true)
+            app.handleSidebarSwipe(source,-60,0,Qt.ScrollUpdate,position)
+            app.handleSidebarSwipe(source,55,0,Qt.ScrollUpdate,position)
+            app.handleSidebarSwipe(source,0,0,Qt.ScrollEnd,position)
+            tryCompare(source,"slideX",0)
+            compare(app.activeView,source)
+        }
+
+        function test_sidebar_swipe_ignores_vertical_scrolling_and_controls() {
+            const source = prepareSidebarPinchFixture()
+            const position = Qt.point(100,300)
+            app.handleSidebarSwipe(source,0,0,Qt.ScrollBegin,position)
+            tryCompare(app,"sidebarSwipeAllowed",true)
+            compare(app.handleSidebarSwipe(source,2,-80,Qt.ScrollUpdate,position),false)
+            compare(source.slideX,0)
+            app.handleSidebarSwipe(source,0,0,Qt.ScrollEnd,position)
+            app.handleSidebarSwipe(source,0,0,Qt.ScrollBegin,Qt.point(30,15))
+            app.handleSidebarSwipe(source,-90,0,Qt.ScrollUpdate,Qt.point(30,15))
+            wait(100)
+            compare(app.sidebarSwipeAllowed,false)
+            compare(source.slideX,0)
+            app.handleSidebarSwipe(source,0,0,Qt.ScrollEnd,Qt.point(30,15))
+            compare(app.activeView,source)
         }
 
         function test_sidebar_pinch_respects_reduced_motion() {

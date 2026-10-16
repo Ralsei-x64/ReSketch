@@ -16,6 +16,7 @@
 #include <QMouseEvent>
 #include <QMimeData>
 #include <QProcess>
+#include <QPointingDevice>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickItemGrabResult>
@@ -46,6 +47,11 @@ template <class F> void until(F predicate, const char *message, int timeout = 15
         QThread::msleep(1);
     }
     require(predicate(), message);
+}
+static void processFor(int milliseconds) {
+    QEventLoop loop;
+    QTimer::singleShot(milliseconds, &loop, &QEventLoop::quit);
+    loop.exec();
 }
 class CancelledPicker final : public CefFileDialogCallback {
   public:
@@ -424,6 +430,46 @@ CefView {
             js(QString("scrollSamples.filter(y=>y>0 && y<%1).length").arg(wheelDistance)).toInt();
         fprintf(stderr, "Wheel animation intermediate samples: %d\n", samples);
         require(samples >= 2, "Chromium mouse wheel scrolling animates through intermediate positions");
+        js("document.body.insertAdjacentHTML('beforeend','<aside class=fb-sidebar id=homeScroll style=\"position:fixed;left:0;top:0;width:150px;height:280px;overflow:auto;z-index:1000\"><div style=\"height:3000px\"></div></aside>');"
+           "window.homeWheels=[];homeScroll.addEventListener('wheel',e=>{e.preventDefault();homeWheels.push(e.deltaY);homeScroll.scrollTop+=e.deltaY},{passive:false})");
+        QPointingDevice pad("Fixture touchpad", 101, QInputDevice::DeviceType::TouchPad,
+            QPointingDevice::PointerType::Finger, QInputDevice::Capability::Position | QInputDevice::Capability::Scroll, 2, 0);
+        const auto homeWheel = [&](QPoint pixels, Qt::ScrollPhase phase, bool inverted = false) {
+            QWheelEvent event(QPointF(80,160), QPointF(80,160), pixels, {}, Qt::NoButton, Qt::NoModifier,
+                              phase, inverted, Qt::MouseEventSynthesizedBySystem, &pad);
+            QCoreApplication::sendEvent(view, &event);
+        };
+        processFor(120); // Commit the new sidebar to Chromium’s hit-test tree.
+        QMouseEvent homeMove(QEvent::MouseMove, QPointF(80,160), QPointF(80,160), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &homeMove);
+        homeWheel({}, Qt::ScrollBegin);
+        for (int i = 0; i < 3; ++i) { homeWheel(QPoint(0,-24), Qt::ScrollUpdate); processFor(20); }
+        const int heldScroll = js("homeScroll.scrollTop").toInt();
+        require(heldScroll == 72, "Trackpad stays attached to finger motion in the Home sidebar");
+        homeWheel({}, Qt::ScrollEnd);
+        until([&] { return js("homeScroll.scrollTop").toInt() > heldScroll + 10; }, "Home sidebar continues with inertia after release");
+        homeWheel({}, Qt::ScrollBegin);
+        processFor(40);
+        const int stoppedScroll = js("homeScroll.scrollTop").toInt();
+        processFor(100);
+        require(js("homeScroll.scrollTop").toInt() == stoppedScroll, "A new touch stops synthesized inertia");
+        homeWheel(QPoint(0,-12), Qt::ScrollMomentum);
+        homeWheel({}, Qt::ScrollEnd);
+        processFor(200);
+        require(js("homeScroll.scrollTop").toInt() == stoppedScroll + 12, "Platform momentum is not duplicated");
+        homeWheel(QPoint(0,10), Qt::ScrollUpdate, true);
+        until([&] { return js("homeScroll.scrollTop").toInt() == stoppedScroll + 2; }, "System natural-scroll direction is preserved");
+        homeWheel({}, Qt::ScrollEnd);
+        processFor(150);
+        const int beforeMouse = js("homeScroll.scrollTop").toInt();
+        js("homeWheels=[]");
+        QWheelEvent homeMouse(QPointF(80,160), QPointF(80,160), {}, QPoint(0,-120), Qt::NoButton,
+                              Qt::NoModifier, Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(view, &homeMouse);
+        until([&] { return js("homeScroll.scrollTop").toInt() == beforeMouse + wheelDistance; }, "Mouse scrolling retains its full distance");
+        require(js("homeWheels.length>=3").toBool(), "Custom Figma/Home wheel handlers receive smooth mouse steps");
+        js("homeScroll.remove()");
+        fprintf(stderr, "PASS: Home sidebar finger tracking, inertia, cancellation, platform momentum and smooth mouse scrolling\n");
         // Exercise Qt -> Chromium drag delivery and its HTML drop data.
         js("scrollTo(0,0);window.dropped='';window.dragLeft=false;window.dragOvers="
            "0;"

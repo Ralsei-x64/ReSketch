@@ -7,6 +7,7 @@
 #include "include/cef_request_context.h"
 #include "include/cef_task_manager.h"
 #include <QColor>
+#include <QElapsedTimer>
 #include <QCursor>
 #include <QImage>
 #include <QJSValue>
@@ -15,6 +16,7 @@
 #include <QMutex>
 #include <QPointer>
 #include <QQuickItem>
+#include <QTimer>
 #include <QUrl>
 #include <QtQml/qqmlregistration.h>
 #include <functional>
@@ -217,6 +219,7 @@ class CefQuickView : public QQuickItem {
     Q_OBJECT
     QML_NAMED_ELEMENT(CefView)
     Q_PROPERTY(QUrl url READ url WRITE setUrl NOTIFY urlChanged)
+    Q_PROPERTY(bool trackpadScrollAccepted MEMBER m_trackpadScrollAccepted)
     Q_PROPERTY(QString title READ title NOTIFY titleChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY stateChanged)
     Q_PROPERTY(int loadProgress READ loadProgress NOTIFY loadProgressChanged)
@@ -271,6 +274,8 @@ class CefQuickView : public QQuickItem {
     Q_INVOKABLE void triggerWebAction(WebAction action);
     Q_INVOKABLE void reload();
     Q_INVOKABLE void restoreHistoryUrl(const QUrl &url);
+    Q_INVOKABLE void pinchZoom(qreal factor, const QPointF &position);
+    Q_INVOKABLE void replayWheel(const QPointF &delta, const QPointF &position);
     Q_INVOKABLE void stop();
     Q_INVOKABLE void goBack();
     Q_INVOKABLE void goForward();
@@ -295,6 +300,7 @@ class CefQuickView : public QQuickItem {
     void renderingBackendChanged();
     void overviewPreviewChanged();
     void useSystemCursorChanged();
+    void trackpadScroll(int dx, int dy, int phase, QPointF position);
     void windowCloseRequested();
     void newWindowRequested(CefNewWindowRequest *request);
     void navigationRequested(CefNavigationRequest *request);
@@ -334,6 +340,9 @@ class CefQuickView : public QQuickItem {
     void syncScreen();
     void syncCursor();
     void sendKey(QKeyEvent *, bool release);
+    void stopWheelScrolling();
+    void advanceWheelScrolling();
+    void sendWheelDelta(QPoint delta);
     int devTools(const QString &method, const QJsonObject &params = {}, QJSValue callback = {});
     QUrl m_url;
     QString m_title;
@@ -355,6 +364,15 @@ class CefQuickView : public QQuickItem {
     QColor m_background = Qt::transparent;
     CefScriptCollection m_scripts;
     CefViewSettings m_settings;
+    bool m_trackpadScrollAccepted = false;
+    QTimer m_wheelTimer, m_wheelEndTimer;
+    QElapsedTimer m_wheelFrameClock, m_wheelSampleClock;
+    QPoint m_wheelRemaining;
+    QPointF m_wheelVelocity, m_wheelFraction;
+    CefMouseEvent m_wheelEvent;
+    int m_wheelSamples = 0;
+    bool m_wheelKinetic = false, m_platformMomentum = false;
+    double m_pinchRemainder = 0;
     CefRefPtr<CefBrowser> m_browser;
     CefRefPtr<CefQuickClient> m_client;
     CefRefPtr<CefRegistration> m_observer;

@@ -12,22 +12,22 @@ Build and install, then launch ReSketch:
 
 ```sh
 sudo pacman -S --needed base-devel git
-git clone https://github.com/Ralsei-x64/ReSketch.git
+git clone --branch resketch-cef https://github.com/Ralsei-x64/ReSketch.git
 cd ReSketch/packaging/arch
 makepkg -si
 resketch
 ```
 
-The PKGBUILD installs dependencies and builds the latest `main` branch.
+The PKGBUILD installs dependencies and builds the latest `resketch-cef` branch.
 
 ## Build from source
 
-Requires Qt 6.8 or newer with Network, Quick, Quick Controls, WebEngine Quick, and Widgets, plus Kirigami, KF6 KWindowSystem, and the KDE desktop Qt Quick Controls style.
+Requires CMake, Ninja, a C++20 compiler, Qt 6.8+ (Concurrent, Network, Quick, Quick Controls, OpenGL, Widgets), Kirigami, KF6 KWindowSystem and KNotifications, Fontconfig, FreeType, GTK3, GLib, EGL, and the KDE desktop Qt Quick Controls style. CMake downloads CEF automatically.
 
 ```sh
-cmake -S . -B build -G Ninja
-cmake --build build
-./build/resketch
+cmake -S . -B build-cef -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build-cef
+./build-cef/resketch
 ```
 
 ## Desktop links and sign in
@@ -35,7 +35,7 @@ cmake --build build
 Install the app and register it for Figma desktop links:
 
 ```sh
-cmake --install build --prefix ~/.local
+cmake --install build-cef --prefix ~/.local
 xdg-mime default org.aether64.resketch.desktop x-scheme-handler/figma
 ```
 

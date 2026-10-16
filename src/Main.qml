@@ -166,6 +166,10 @@ Kirigami.ApplicationWindow {
     property real overviewProgress: 0
     property bool overviewPinchTracking: false
     property bool overviewPinchAccepted: false
+    property bool overviewPinchOpeningCard: false
+    property point overviewPinchCardAnchor: Qt.point(0, 0)
+    property var canvasPinchView: null
+    property real canvasPinchScale: 1
     property int overviewPinchGeneration: 0
     property real overviewPinchScale: 1
     property point overviewPinchOrigin: Qt.point(0, 0)
@@ -174,6 +178,22 @@ Kirigami.ApplicationWindow {
     property real overviewPinchOffsetY: 0
     property real overviewPinchVelocity: 0
     property double overviewPinchUpdatedAt: 0
+    property var sidebarSwipeView: null
+    property var sidebarSwipeTarget: null
+    property bool sidebarSwipePending: false
+    property bool sidebarSwipeAllowed: false
+    property bool sidebarSwipeHeld: false
+    property bool sidebarSwipeCommit: false
+    property int sidebarSwipeAxis: 0
+    property int sidebarSwipeGeneration: 0
+    property point sidebarSwipeDelta: Qt.point(0, 0)
+    property point sidebarSwipeBufferedDelta: Qt.point(0, 0)
+    property point sidebarSwipePosition: Qt.point(0, 0)
+    property real sidebarSwipeDistance: 0
+    property real sidebarSwipeVelocity: 0
+    property double sidebarSwipeUpdatedAt: 0
+    property double sidebarSwipeIgnoreMomentumUntil: 0
+    onSidebarSwipeDistanceChanged: applySidebarSwipe()
     readonly property bool overviewAnimationRunning: overviewAnimation.running
     readonly property bool overviewGroupAnimationRunning: tabGroups.some(group => overviewGroupContainer(group.id)?.transitioning)
     property var overviewSelectedView: null
@@ -1307,7 +1327,7 @@ Kirigami.ApplicationWindow {
                 acceptedDevices: PointerDevice.TouchPad
                 minimumPointCount: 2
                 maximumPointCount: 2
-                enabled: active || (!root.overviewVisible && !root.allFrozen && !!root.activeView
+                enabled: active || (!root.overviewClosing && !root.allFrozen && !!root.activeView
                                     && !root.dragView && !root.draggedGroupId && !root.keyboardPopupActive)
                 onActiveChanged: {
                     if (active) root.beginOverviewPinch(centroid.position)
@@ -2716,6 +2736,20 @@ Kirigami.ApplicationWindow {
         NumberAnimation { target: root; property: "overviewPinchOffsetY"; to: 0; duration: 300; easing.type: Easing.OutCubic }
     }
 
+    NumberAnimation {
+        id: sidebarSwipeAnimation
+        target: root
+        property: "sidebarSwipeDistance"
+        duration: 240
+        easing.type: Easing.OutCubic
+        onFinished: root.finishSidebarSwipeTransition()
+    }
+    Timer {
+        id: sidebarSwipeEndTimer
+        interval: 90
+        onTriggered: root.releaseSidebarSwipe()
+    }
+
     Timer {
         id: overviewFinishTimer
         interval: 16
@@ -2922,6 +2956,9 @@ Kirigami.ApplicationWindow {
             profile: webView.ownerWindow.browserProfile
             useSystemCursor: appSettings.useSystemCursor
             settings.scrollAnimatorEnabled: !appSettings.reduceMotion
+            onTrackpadScroll: (dx, dy, phase, position) => {
+                trackpadScrollAccepted = webView.ownerWindow.handleSidebarSwipe(webView, dx, dy, phase, position)
+            }
             backgroundColor: appSettings.toolbarOpacity < 100 && !googleSignIn ? "transparent" : "white"
             userScripts.collection: [{
                 name: "resketch-home-navigation",
@@ -3683,21 +3720,191 @@ Kirigami.ApplicationWindow {
         if (scroll !== position) overviewFlickable.scrollBy(position - scroll, false)
     }
 
+    function handleSidebarSwipe(view, dx, dy, phase, position) {
+        if (view !== activeView) return false
+        if (phase === Qt.ScrollBegin) sidebarSwipeIgnoreMomentumUntil = 0
+        if (phase === Qt.ScrollMomentum) return Date.now() < sidebarSwipeIgnoreMomentumUntil
+        if (sidebarSwipeAnimation.running) return Math.abs(dx) > Math.abs(dy)
+        if (overviewVisible || overviewPinchTracking || allFrozen || view !== activeView
+                || !Policy.isFigmaUrl(view.tabUrl) || dragView || keyboardPopupActive) return false
+        if (phase === Qt.ScrollEnd) return releaseSidebarSwipe()
+        if (phase === Qt.ScrollBegin || !sidebarSwipeView) {
+            cancelSidebarSwipe()
+            if (outgoingView) return false
+            sidebarSwipeView = view
+            sidebarSwipePosition = position
+            sidebarSwipePending = true
+            const generation = sidebarSwipeGeneration
+            view.runJavaScript(FigmaTheme.sidebarGestureHitTest(position.x, position.y), region => {
+                if (generation !== sidebarSwipeGeneration || sidebarSwipeView !== view) return
+                sidebarSwipePending = false
+                sidebarSwipeAllowed = region === "sidebar"
+                if (sidebarSwipeAllowed && sidebarSwipeAxis === 1) updateSidebarSwipe()
+                else if (!sidebarSwipeAllowed && sidebarSwipeHeld) {
+                    view.replayWheel(sidebarSwipeBufferedDelta, sidebarSwipePosition)
+                    sidebarSwipeHeld = false
+                }
+            })
+        }
+        if (!dx && !dy) return false
+        if (phase === Qt.NoScrollPhase) sidebarSwipeEndTimer.restart()
+        else sidebarSwipeEndTimer.stop()
+        sidebarSwipeDelta = Qt.point(sidebarSwipeDelta.x + dx, sidebarSwipeDelta.y + dy)
+        if (!sidebarSwipeAxis && Math.max(Math.abs(sidebarSwipeDelta.x), Math.abs(sidebarSwipeDelta.y)) >= 6)
+            sidebarSwipeAxis = Math.abs(sidebarSwipeDelta.x) > Math.abs(sidebarSwipeDelta.y) * 1.3 ? 1 : 2
+        if (sidebarSwipeAxis === 2 || (!sidebarSwipePending && !sidebarSwipeAllowed)) return false
+        if (Math.abs(sidebarSwipeDelta.x) <= Math.abs(sidebarSwipeDelta.y) && !sidebarSwipeHeld) return false
+        sidebarSwipeHeld = true
+        if (sidebarSwipePending) sidebarSwipeBufferedDelta = Qt.point(sidebarSwipeBufferedDelta.x + dx,
+                                                                     sidebarSwipeBufferedDelta.y + dy)
+        if (sidebarSwipeAllowed) updateSidebarSwipe()
+        return true
+    }
+
+    function updateSidebarSwipe() {
+        if (!sidebarSwipeView || sidebarSwipeAxis !== 1 || !sidebarSwipeAllowed) return
+        const sequence = [homeView].concat(views).filter(view => view && !view.overviewClosingCard
+            && !pendingCloseViews.includes(view) && !closingViews.includes(view))
+        const index = sequence.indexOf(sidebarSwipeView)
+        const direction = sidebarSwipeDelta.x < 0 ? 1 : -1
+        const target = sequence[index + direction] || null
+        if (target !== sidebarSwipeTarget) {
+            resetSlide()
+            sidebarSwipeTarget = target
+            if (target) {
+                outgoingView = target
+                target.memoryUnloaded = false
+                target.requestedSleepState = CefView.LifecycleState.Active
+                target.lifecycleState = CefView.LifecycleState.Active
+                loadRestoredTab(target)
+                target.visible = true
+                target.slideZ = 1
+            }
+            selectionGlide.stop()
+            homeSelectionGlide = !!target && (target === homeView || sidebarSwipeView === homeView)
+        }
+        const next = target ? Math.max(-browserWidth, Math.min(browserWidth, sidebarSwipeDelta.x))
+                            : sidebarSwipeDelta.x / (1 + Math.abs(sidebarSwipeDelta.x) / browserWidth) * 0.25
+        const now = Date.now()
+        if (sidebarSwipeUpdatedAt)
+            sidebarSwipeVelocity = Math.max(-3000, Math.min(3000, (next - sidebarSwipeDistance) * 500
+                / Math.max(8, now - sidebarSwipeUpdatedAt) + sidebarSwipeVelocity * 0.5))
+        sidebarSwipeUpdatedAt = now
+        sidebarSwipeDistance = next
+        applySidebarSwipe()
+    }
+
+    function applySidebarSwipe() {
+        if (!sidebarSwipeView) return
+        sidebarSwipeView.slideX = sidebarSwipeDistance
+        const target = sidebarSwipeTarget
+        if (!target) return
+        const direction = [homeView].concat(views).indexOf(target) > [homeView].concat(views).indexOf(sidebarSwipeView) ? 1 : -1
+        target.slideX = direction * browserWidth + sidebarSwipeDistance
+        const progress = Math.min(1, Math.abs(sidebarSwipeDistance) / browserWidth)
+        const group = groupFor(target)
+        const expansion = group ? target.groupExpansion : 1
+        const x = target === homeView ? 0 : tabsViewport.x - tabsViewport.contentX
+            + tabStripTabPosition(views.indexOf(target)) * expansion
+            + (group ? groupHeaderVisualPosition(group.id) : 0) * (1 - expansion)
+        const width = target === homeView ? homeButton.width - 1 : tabWidth * expansion + groupHeaderWidth * (1 - expansion)
+        selectionBar.startOffset = (x - selectionBar.targetX) * progress
+        selectionBar.endOffset = (x + width - selectionBar.targetX - selectionBar.targetWidth) * progress
+    }
+
+    function releaseSidebarSwipe() {
+        sidebarSwipeEndTimer.stop()
+        if (!sidebarSwipeView) return false
+        const captured = sidebarSwipeHeld
+        if (sidebarSwipePending && captured) sidebarSwipeView.replayWheel(sidebarSwipeBufferedDelta, sidebarSwipePosition)
+        if (!sidebarSwipeAllowed || sidebarSwipeAxis !== 1 || !captured) { cancelSidebarSwipe(); return false }
+        sidebarSwipeIgnoreMomentumUntil = Date.now() + 1000
+        const velocity = Date.now() - sidebarSwipeUpdatedAt > 100 ? 0 : sidebarSwipeVelocity
+        const predicted = sidebarSwipeDistance + velocity * 0.1
+        sidebarSwipeCommit = !!sidebarSwipeTarget && predicted * sidebarSwipeDistance > 0
+            && Math.abs(predicted) >= browserWidth * 0.25
+        const end = sidebarSwipeCommit ? Math.sign(sidebarSwipeDistance) * browserWidth : 0
+        if (appSettings.reduceMotion) {
+            sidebarSwipeDistance = end
+            finishSidebarSwipeTransition()
+        } else {
+            sidebarSwipeAnimation.from = sidebarSwipeDistance
+            sidebarSwipeAnimation.to = end
+            sidebarSwipeAnimation.start()
+        }
+        return true
+    }
+
+    function finishSidebarSwipeTransition() {
+        const target = sidebarSwipeCommit ? sidebarSwipeTarget : null
+        sidebarSwipeView = null
+        sidebarSwipeTarget = null
+        sidebarSwipeDistance = 0
+        ++sidebarSwipeGeneration
+        if (target && (target === homeView || views.includes(target)))
+            activateView(target, target === homeView ? -1 : views.indexOf(target), false)
+        else {
+            resetSlide()
+            selectionBar.startOffset = selectionBar.endOffset = 0
+        }
+        homeSelectionGlide = false
+    }
+
+    function cancelSidebarSwipe() {
+        sidebarSwipeAnimation.stop()
+        sidebarSwipeEndTimer.stop()
+        if (sidebarSwipeTarget || sidebarSwipeDistance) {
+            resetSlide()
+            selectionBar.startOffset = selectionBar.endOffset = 0
+            homeSelectionGlide = false
+        }
+        sidebarSwipeView = sidebarSwipeTarget = null
+        sidebarSwipeDelta = Qt.point(0, 0)
+        sidebarSwipeBufferedDelta = Qt.point(0, 0)
+        sidebarSwipeDistance = sidebarSwipeVelocity = 0
+        sidebarSwipeUpdatedAt = 0
+        sidebarSwipeAllowed = sidebarSwipePending = sidebarSwipeHeld = sidebarSwipeCommit = false
+        sidebarSwipeAxis = 0
+        ++sidebarSwipeGeneration
+    }
+
     function beginOverviewPinch(origin) {
-        if (overviewVisible || allFrozen || !activeView || !Policy.isFigmaUrl(activeView.tabUrl)) return
+        if (allFrozen || !activeView || overviewClosing) return
+        if (overviewVisible && overviewProgress < 0.999) return
+        if (!overviewVisible && !Policy.isFigmaUrl(activeView.tabUrl)) return
+        cancelSidebarSwipe()
         stopOverviewPinch(true)
+        if (overviewVisible) {
+            const card = overviewNavigationCards().find(item => typeof item.target !== "string"
+                && origin.x >= item.x && origin.x <= item.x + overviewCardWidth
+                && origin.y + overviewFlickable.contentY >= item.y
+                && origin.y + overviewFlickable.contentY <= item.y + overviewCardHeight)
+            if (!card) return
+            overviewAnimation.stop()
+            overviewWheelScroll.stop()
+            overviewFlickable.cancelFlick()
+            overviewFlickable.wheelTargetY = overviewFlickable.contentY
+            prepareOverviewView(card.target)
+            overviewPinchCardAnchor = Qt.point((origin.x - card.x) / overviewCardWidth,
+                (origin.y + overviewFlickable.contentY - card.y) / overviewCardHeight)
+            overviewPinchOpeningCard = true
+            overviewPinchAccepted = true
+        }
         overviewPinchTracking = true
         overviewPinchOrigin = origin
         overviewPinchScale = 1
         overviewPinchTranslation = Qt.point(0, 0)
         overviewPinchVelocity = 0
+        canvasPinchScale = 1
         overviewPinchUpdatedAt = Date.now()
+        if (overviewPinchOpeningCard) return
         const generation = overviewPinchGeneration
         const view = activeView
         const local = view.mapFromItem(browserArea, origin.x, origin.y)
-        view.runJavaScript(FigmaTheme.sidebarPinchHitTest(local.x, local.y), allowed => {
+        view.runJavaScript(FigmaTheme.sidebarGestureHitTest(local.x, local.y), region => {
             if (!overviewPinchTracking || generation !== overviewPinchGeneration || activeView !== view) return
-            overviewPinchAccepted = allowed === true
+            overviewPinchAccepted = region === "sidebar"
+            canvasPinchView = region === "canvas" ? view : null
             updateOverviewPinch(overviewPinchScale, overviewPinchTranslation)
         })
     }
@@ -3706,14 +3913,30 @@ Kirigami.ApplicationWindow {
         if (!overviewPinchTracking || !Number.isFinite(scale) || scale <= 0) return
         overviewPinchScale = scale
         overviewPinchTranslation = translation
+        if (canvasPinchView && canvasPinchView === activeView) {
+            const point = canvasPinchView.mapFromItem(browserArea, overviewPinchOrigin.x + translation.x,
+                                                     overviewPinchOrigin.y + translation.y)
+            canvasPinchView.pinchZoom(scale / canvasPinchScale, point)
+            canvasPinchScale = scale
+            return
+        }
         if (!overviewPinchAccepted || (!overviewVisible && scale >= 0.98)) return
         if (!overviewVisible) openOverview(true)
-        const progress = Math.max(0, Math.min(1, (1 - scale) / Math.max(0.01, 1 - overviewScale)))
+        const progress = Math.max(0, Math.min(1, overviewPinchOpeningCard
+            ? 1 - (scale - 1) / Math.max(0.01, 1 - overviewScale)
+            : (1 - scale) / Math.max(0.01, 1 - overviewScale)))
         const now = Date.now()
         const velocity = (progress - overviewProgress) * 1000 / Math.max(8, now - overviewPinchUpdatedAt)
         overviewPinchVelocity = Math.max(-3, Math.min(3, velocity * 0.5 + overviewPinchVelocity * 0.5))
         overviewPinchUpdatedAt = now
         overviewProgress = progress
+        if (overviewPinchOpeningCard) {
+            overviewPinchOffsetX = appSettings.reduceMotion ? 0
+                : (overviewPinchOrigin.x - overviewPinchCardAnchor.x * browserArea.width) * (1 - progress) + translation.x
+            overviewPinchOffsetY = appSettings.reduceMotion ? 0
+                : (overviewPinchOrigin.y - overviewPinchCardAnchor.y * browserArea.height) * (1 - progress) + translation.y
+            return
+        }
         const slot = overviewFilteredSlot(overviewSlot(overviewSelectedView))
         const shrink = (1 - overviewScale) * progress
         overviewPinchOffsetX = appSettings.reduceMotion ? 0
@@ -3734,6 +3957,10 @@ Kirigami.ApplicationWindow {
         stopOverviewPinch(false)
         if (!overviewVisible) return
         overviewClosing = !open
+        if (!open) {
+            selectedTabViews = []
+            selectTabInStrip(overviewSelectedView, overviewSelectedView === homeView ? -1 : views.indexOf(overviewSelectedView))
+        }
         if (appSettings.reduceMotion) {
             overviewProgress = open ? 1 : 0
             overviewPinchOffsetX = 0
@@ -3750,6 +3977,8 @@ Kirigami.ApplicationWindow {
     function stopOverviewPinch(resetOffset) {
         overviewPinchTracking = false
         overviewPinchAccepted = false
+        overviewPinchOpeningCard = false
+        canvasPinchView = null
         ++overviewPinchGeneration
         overviewPinchSettle.stop()
         if (resetOffset || appSettings.reduceMotion) {
@@ -3781,6 +4010,7 @@ Kirigami.ApplicationWindow {
     }
 
     function openOverview(interactive) {
+        cancelSidebarSwipe()
         if (!interactive) stopOverviewPinch(true)
         resetSlide()
         selectionGlide.stop()
@@ -3817,6 +4047,21 @@ Kirigami.ApplicationWindow {
         }
     }
 
+    function prepareOverviewView(target) {
+        target.memoryUnloaded = false
+        target.requestedSleepState = CefView.LifecycleState.Active
+        target.lifecycleState = CefView.LifecycleState.Active
+        target.lastUsedAt = Date.now()
+        loadRestoredTab(target)
+        for (const view of [homeView].concat(views))
+            view.finishOverviewEntrance()
+        overviewFinishTimer.stop()
+        overviewAnimation.stop()
+        overviewWheelScroll.stop()
+        overviewFlickable.wheelTargetY = overviewFlickable.contentY
+        overviewSelectedView = target
+    }
+
     function selectOverviewView(target) {
         if (!target || (target !== homeView && views.indexOf(target) < 0))
             return
@@ -3833,18 +4078,7 @@ Kirigami.ApplicationWindow {
             return
         }
         pendingOverviewSelection = null
-        target.memoryUnloaded = false
-        target.requestedSleepState = CefView.LifecycleState.Active
-        target.lifecycleState = CefView.LifecycleState.Active
-        target.lastUsedAt = Date.now()
-        loadRestoredTab(target)
-        for (const view of [homeView].concat(views))
-            view.finishOverviewEntrance()
-        overviewFinishTimer.stop()
-        overviewAnimation.stop()
-        overviewWheelScroll.stop()
-        overviewFlickable.wheelTargetY = overviewFlickable.contentY
-        overviewSelectedView = target
+        prepareOverviewView(target)
         selectTabInStrip(target, target === homeView ? -1 : views.indexOf(target))
         overviewClosing = true
         if (appSettings.reduceMotion) {
@@ -4608,6 +4842,7 @@ Kirigami.ApplicationWindow {
     }
 
     function activateView(next, index, animateWebSlide) {
+        cancelSidebarSwipe()
         selectedTabViews = []
         if (overviewVisible) {
             selectOverviewView(next)
@@ -4945,6 +5180,7 @@ Kirigami.ApplicationWindow {
         }
         const view = views[index]
         const closingSelected = view === activeView
+        if (view === sidebarSwipeView || view === sidebarSwipeTarget) cancelSidebarSwipe()
         const tab = tabRepeater.itemAt(index)
         if (!tab) {
             if (pendingCloseViews.indexOf(view) >= 0)

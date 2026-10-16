@@ -1118,6 +1118,20 @@ double CefQuickView::taskCpuUsage(qint64 taskId) {
 }
 
 CefQuickView::CefQuickView(QQuickItem *parent) : QQuickItem(parent), m_scripts(this), m_settings(this) {
+    m_wheelTimer.setInterval(16);
+    m_wheelTimer.setTimerType(Qt::PreciseTimer);
+    m_wheelEndTimer.setSingleShot(true);
+    m_wheelEndTimer.setInterval(40);
+    connect(&m_wheelTimer, &QTimer::timeout, this, &CefQuickView::advanceWheelScrolling);
+    connect(&m_wheelEndTimer, &QTimer::timeout, this, [this] {
+        if (!m_settings.scrollAnimatorEnabled || m_platformMomentum || m_wheelSamples < 2
+                || !m_wheelSampleClock.isValid() || m_wheelSampleClock.elapsed() > 120
+                || std::hypot(m_wheelVelocity.x(), m_wheelVelocity.y()) < 80) return;
+        m_wheelKinetic = true;
+        m_wheelFraction = {};
+        m_wheelFrameClock.start();
+        m_wheelTimer.start();
+    });
     setFlag(ItemHasContents);
     setFlag(ItemAcceptsInputMethod);
     setFlag(ItemAcceptsDrops);
@@ -1322,6 +1336,7 @@ void CefQuickView::setLifecycleState(LifecycleState value) {
         emit lifecycleStateChanged();
 }
 void CefQuickView::syncVisibility() {
+    if (!isVisible() || m_lifecycle != LifecycleState::Active) stopWheelScrolling();
     if (m_pointerInside && !isVisible()) {
         m_pointerInside = false;
         if (window()) window()->unsetCursor();
@@ -1489,8 +1504,10 @@ void CefQuickView::itemChange(ItemChange change, const ItemChangeData &data) {
     QQuickItem::itemChange(change, data);
     if (change == ItemVisibleHasChanged)
         syncVisibility();
+    if (change == ItemEnabledHasChanged && !isEnabled()) stopWheelScrolling();
 }
 void CefQuickView::mousePressEvent(QMouseEvent *event) {
+    stopWheelScrolling();
     forceActiveFocus(Qt::MouseFocusReason);
     if (m_browser)
         m_browser->GetHost()->SendMouseClickEvent(
@@ -1599,20 +1616,111 @@ void CefQuickView::dropEvent(QDropEvent *event) {
     }
     m_dropAction = {};
 }
+void CefQuickView::sendWheelDelta(QPoint delta) {
+    if (m_browser && !delta.isNull())
+        m_browser->GetHost()->SendMouseWheelEvent(m_wheelEvent, delta.x(), delta.y());
+}
+void CefQuickView::stopWheelScrolling() {
+    m_wheelTimer.stop();
+    m_wheelEndTimer.stop();
+    m_wheelRemaining = {};
+    m_wheelVelocity = m_wheelFraction = {};
+    m_wheelSamples = 0;
+    m_wheelKinetic = m_platformMomentum = false;
+    m_wheelSampleClock.invalidate();
+}
+void CefQuickView::advanceWheelScrolling() {
+    if (!m_browser || !isEnabled() || !isVisible() || m_lifecycle != LifecycleState::Active
+            || !m_settings.scrollAnimatorEnabled) { stopWheelScrolling(); return; }
+    const double dt = std::clamp(m_wheelFrameClock.restart() / 1000.0, 0.001, 0.05);
+    m_wheelEvent.modifiers |= EVENTFLAG_PRECISION_SCROLLING_DELTA;
+    if (m_wheelKinetic) {
+        m_wheelFraction += m_wheelVelocity * ((1 - std::exp(-8 * dt)) / 8);
+        const QPoint delta(qRound(m_wheelFraction.x()), qRound(m_wheelFraction.y()));
+        m_wheelFraction -= delta;
+        m_wheelVelocity *= std::exp(-8 * dt);
+        sendWheelDelta(delta);
+        if (std::hypot(m_wheelVelocity.x(), m_wheelVelocity.y()) < 8) stopWheelScrolling();
+    } else {
+        const double fraction = 1 - std::exp(-20 * dt);
+        const auto step = [fraction](int remaining) {
+            if (!remaining) return 0;
+            const int amount = std::max(1, qRound(std::abs(remaining) * fraction));
+            return remaining < 0 ? -amount : amount;
+        };
+        const QPoint delta(step(m_wheelRemaining.x()), step(m_wheelRemaining.y()));
+        m_wheelRemaining -= delta;
+        sendWheelDelta(delta);
+        if (m_wheelRemaining.isNull()) m_wheelTimer.stop();
+    }
+}
+void CefQuickView::pinchZoom(qreal factor, const QPointF &position) {
+    if (!m_browser || !std::isfinite(factor) || factor <= 0) return;
+    stopWheelScrolling();
+    // Figma consumes Ctrl+wheel as canvas zoom, with negative DOM delta zooming in.
+    m_pinchRemainder += 100 * std::log(std::clamp(factor, 0.01, 100.0));
+    const int delta = qRound(m_pinchRemainder);
+    m_pinchRemainder -= delta;
+    m_wheelEvent = mouse(position, Qt::ControlModifier);
+    m_wheelEvent.modifiers |= EVENTFLAG_PRECISION_SCROLLING_DELTA;
+    sendWheelDelta(QPoint(0, delta));
+}
+void CefQuickView::replayWheel(const QPointF &delta, const QPointF &position) {
+    m_wheelEvent = mouse(position, {});
+    m_wheelEvent.modifiers |= EVENTFLAG_PRECISION_SCROLLING_DELTA;
+    sendWheelDelta(delta.toPoint());
+}
 void CefQuickView::wheelEvent(QWheelEvent *event) {
-    if (m_browser) {
-        auto value = mouse(event->position(), event->modifiers(), event->buttons());
-        QPoint delta = event->pixelDelta();
-        if (!delta.isNull())
-            value.modifiers |= EVENTFLAG_PRECISION_SCROLLING_DELTA;
-        else {
-            // CEF expects pixel distances: one notch is the configured number
-            // of lines, at Chromium's usual 40 pixels per line.
-            delta = event->angleDelta() * QGuiApplication::styleHints()->wheelScrollLines() / 3;
-            if (event->phase() != Qt::NoScrollPhase)
-                value.modifiers |= EVENTFLAG_PRECISION_SCROLLING_DELTA;
+    const auto phase = event->phase();
+    const QPoint delta = event->pixelDelta().isNull()
+        ? event->angleDelta() * QGuiApplication::styleHints()->wheelScrollLines() / 3 : event->pixelDelta();
+    const bool trackpad = event->pointingDevice()->type() == QInputDevice::DeviceType::TouchPad
+        || phase != Qt::NoScrollPhase || !event->pixelDelta().isNull();
+    m_trackpadScrollAccepted = false;
+    if (trackpad && event->modifiers() == Qt::NoModifier)
+        emit trackpadScroll(delta.x(), delta.y(), int(phase), event->position());
+    if (m_trackpadScrollAccepted) {
+        stopWheelScrolling();
+        event->accept();
+        return;
+    }
+    if (phase == Qt::ScrollBegin) stopWheelScrolling();
+    if (!delta.isNull()) {
+        if (!m_settings.scrollAnimatorEnabled || event->modifiers().testFlag(Qt::ControlModifier)) {
+            stopWheelScrolling();
+            m_wheelEvent = mouse(event->position(), event->modifiers(), event->buttons());
+            if (trackpad || !m_settings.scrollAnimatorEnabled) m_wheelEvent.modifiers |= EVENTFLAG_PRECISION_SCROLLING_DELTA;
+            sendWheelDelta(delta);
+        } else if (trackpad) {
+            // Follow fingers directly; add a tail only when the platform has no momentum.
+            if (m_wheelKinetic || phase == Qt::ScrollMomentum) stopWheelScrolling();
+            m_wheelTimer.stop();
+            m_wheelEndTimer.stop();
+            m_wheelRemaining = {};
+            m_wheelEvent = mouse(event->position(), event->modifiers(), event->buttons());
+            m_wheelEvent.modifiers |= EVENTFLAG_PRECISION_SCROLLING_DELTA;
+            if (phase == Qt::ScrollMomentum) m_platformMomentum = true;
+            else {
+                const auto elapsed = m_wheelSampleClock.isValid() ? m_wheelSampleClock.restart() : 0;
+                if (!elapsed || elapsed > 120) { m_wheelVelocity = {}; m_wheelSamples = 0; m_platformMomentum = false; m_wheelSampleClock.start(); }
+                else m_wheelVelocity = m_wheelVelocity * 0.5 + QPointF(delta) * (500.0 / std::max<qint64>(8, elapsed));
+                ++m_wheelSamples;
+                if (phase == Qt::NoScrollPhase) m_wheelEndTimer.start(60);
+            }
+            sendWheelDelta(delta);
+        } else {
+            if (m_wheelKinetic) stopWheelScrolling();
+            m_wheelEndTimer.stop();
+            m_wheelEvent = mouse(event->position(), event->modifiers(), event->buttons());
+            if (delta.x() * m_wheelRemaining.x() < 0) m_wheelRemaining.setX(0);
+            if (delta.y() * m_wheelRemaining.y() < 0) m_wheelRemaining.setY(0);
+            m_wheelRemaining += delta;
+            if (!m_wheelTimer.isActive()) { m_wheelFrameClock.start(); m_wheelTimer.start(); }
         }
-        m_browser->GetHost()->SendMouseWheelEvent(value, delta.x(), delta.y());
+    }
+    if (phase == Qt::ScrollEnd) {
+        if (m_platformMomentum) stopWheelScrolling();
+        else if (m_settings.scrollAnimatorEnabled) m_wheelEndTimer.start(40);
     }
     event->accept();
 }
