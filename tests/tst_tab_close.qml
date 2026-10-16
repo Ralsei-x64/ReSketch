@@ -30,6 +30,8 @@ Item {
         property int sidebarMargin: 8
         property bool hideFloatingScrollbars: true
         property string sidebarBackdrop: "desktop"
+        property int sidebarCanvasBlur: 0
+        property int sidebarCanvasOpacity: 100
         property bool reduceMotion: false
         property int toolbarOpacity: 100
         function defaultToolbarItems() {
@@ -2070,6 +2072,8 @@ Item {
             appSettings.toolbarOpacity = 100
             appSettings.toolbarItems = appSettings.defaultToolbarItems()
             appSettings.sidebarBackdrop = "desktop"
+            appSettings.sidebarCanvasBlur = 0
+            appSettings.sidebarCanvasOpacity = 100
             appSettings.memoryLimitMiB = 0
             appSettings.sleepMinutes = 5
             appSettings.maximumLoadedTabs = 5
@@ -2416,6 +2420,103 @@ Item {
             scrollbars.toggle(); scrollbars.toggled()
             compare(appSettings.hideFloatingScrollbars, false)
             window.close()
+        }
+
+        function test_canvas_backdrop_extends_behind_docked_panels_and_blurs() {
+            const view = app.activeView
+            const html = '<style>body{margin:0;--color-bg:#eee;--color-border:#8899aa}'
+                + '.gpu-view-content{position:absolute;inset:0 200px;background:linear-gradient(90deg,red 100px,blue 100px)}'
+                + 'nav,aside{position:absolute;top:0;width:200px;height:400px;background:var(--color-bg)}'
+                + 'nav{left:0}aside{right:0}</style><div class="gpu-view-content"></div>'
+                + '<nav data-onboarding-key="unified-design-onboarding-left-panel"></nav><aside data-testid="properties-panel"></aside>'
+                + '<div class="comments_view--outerAnchorContainer--fixture" style="position:absolute;inset:0;pointer-events:none"></div>'
+            let ready = false, result = null
+            view.runJavaScript('window.__resketchSidebars?.dispose();delete window.__resketchSidebars;document.body.innerHTML='
+                + JSON.stringify(html) + ';window.sidebarOriginalAppearance=window.__resketchAppearance;'
+                + '(()=>{const flags={left:false,right:true};const field=key=>({getCopy:()=>flags[key],set:v=>flags[key]=v});'
+                + 'const state={leftPanelCollapsed:field("left"),showPropertiesPanel:field("right")};'
+                + 'class UI{getLeftRailWidth(){return 0}}'
+                + 'const api={updateLayoutForMinimizeUI(){const c=document.querySelector(".gpu-view-content");'
+                + 'c.style.left=(flags.left?0:200)+"px";c.style.right=(flags.right?200:0)+"px"}};'
+                + 'const engine={uiState:()=>state,editorPreferences:()=>({})};'
+                + 'const runtime=id=>id==="17"?{engine}:{api};'
+                + 'runtime.m={17:function(){return "__getProperty_leftPanelCollapsed"},'
+                + '23:function(e,x,r){r(29).api.updateLayoutForMinimizeUI()},29:function(){}};'
+                + 'window.__resketchAppearance={runtime};window._fullscreen_={_getTsApisForWasm:()=>({FigmaAppUi:()=>new UI()})};})()',
+                () => ready = true)
+            tryVerify(() => ready)
+            const options = {theme:"light",floatingSidebars:false,translucentSidebars:true,sidebarBackdrop:"canvas",
+                sidebarCanvasOpacity:0,sidebarCanvasBlur:0,opacity:100,sidebarMargin:8,sidebarCornerRadius:12}
+            function apply() {
+                view.runJavaScript('(()=>{const location={pathname:"/design/Test/File"};'
+                    + FigmaTheme.sidebarMaskSource + ';' + FigmaTheme.sidebarSource
+                    + ';sidebarAppearance(' + JSON.stringify(options) + ',(id,css)=>{'
+                    + 'let s=document.getElementById(id);if(!css){s?.remove();return}'
+                    + 'if(!s){s=document.createElement("style");s.id=id;document.head.appendChild(s)}s.textContent=css;});})()')
+            }
+            function inspect() {
+                view.runJavaScript('(()=>{const p=document.querySelector("nav"),s=getComputedStyle(p),'
+                    + 'c=document.querySelector(".gpu-view-content"),r=c.getBoundingClientRect();'
+                    + 'return {left:r.left,right:r.right,fullWidth:innerWidth,panelWidth:p.getBoundingClientRect().width,'
+                    + 'bg:s.backgroundColor,blur:s.backdropFilter,floating:p.hasAttribute("data-resketch-floating-sidebar"),'
+                    + 'clip:getComputedStyle(c).clipPath,pins:getComputedStyle(document.querySelector("[class*=comments_view--]")).clipPath}})()',
+                    value => result = value)
+            }
+            apply()
+            tryVerify(() => { inspect(); return result && result.left === 0 && result.right === result.fullWidth })
+            compare(result.panelWidth, 200, "Docked sidebars retain their normal dimensions")
+            compare(result.floating, false)
+            verify(["rgba(0, 0, 0, 0)", "color(srgb 0 0 0 / 0)"].includes(result.bg),
+                   "Canvas opacity is independent of the opaque toolbar")
+            compare(result.clip, "none", "The canvas stays visible under docked sidebars")
+            verify(result.pins.startsWith("polygon"), "Comment pins remain clipped out of docked panels")
+            view.hasLoadedFrame = true
+            function pixel() {
+                const point = view.mapToItem(app.contentItem, 95, 200)
+                return grabImage(app.contentItem).pixel(Math.floor(point.x), Math.floor(point.y))
+            }
+            tryVerify(() => String(pixel()) === "#ff0000", 5000, "Actual canvas content shows through the docked sidebar")
+            options.sidebarCanvasBlur = 16
+            apply()
+            tryVerify(() => { inspect(); return result.blur === "blur(16px)" })
+            tryVerify(() => { const color = pixel(); return color.r < 0.95 && color.b > 0.05 }, 5000,
+                      "Backdrop blur softens the actual canvas pixels")
+            options.sidebarCanvasOpacity = 35
+            apply()
+            tryVerify(() => { inspect(); return result.bg.includes("0.35") })
+            options.floatingSidebars = true
+            apply()
+            tryVerify(() => { inspect(); return result.floating && result.blur === "blur(16px)" })
+            verify(result.bg.includes("0.35"), "Floating panels share canvas blur and opacity")
+            options.floatingSidebars = false
+            options.sidebarCanvasOpacity = 100
+            apply()
+            tryVerify(() => { inspect(); return result.left === 200 && result.blur === "none" })
+            compare(result.bg, "rgb(238, 238, 238)")
+            options.sidebarCanvasOpacity = 35
+            apply()
+            tryVerify(() => { inspect(); return result.left === 0 })
+            options.sidebarBackdrop = "desktop"
+            options.opacity = 60
+            apply()
+            tryVerify(() => { inspect(); return result.left === 200 && result.blur === "none" })
+            compare(result.bg, "rgba(0, 0, 0, 0)")
+            view.runJavaScript('window.__resketchSidebars?.dispose();delete window.__resketchSidebars;'
+                + 'window.__resketchAppearance=window.sidebarOriginalAppearance;delete window._fullscreen_')
+
+            app.openSettings()
+            const settings = findChild(app, "settingsWindow")
+            const blur = findChild(settings, "sidebarCanvasBlurControl")
+            const opacity = findChild(settings, "sidebarCanvasOpacityControl")
+            verify(blur && opacity)
+            appSettings.sidebarBackdrop = "canvas"
+            appSettings.translucentSidebars = true
+            tryCompare(blur, "enabled", true)
+            blur.value = 24; blur.moved()
+            opacity.value = 45; opacity.moved()
+            compare(appSettings.sidebarCanvasBlur, 24)
+            compare(appSettings.sidebarCanvasOpacity, 45)
+            settings.close()
         }
 
         function test_sidebar_transparency_uses_native_tint_once() {

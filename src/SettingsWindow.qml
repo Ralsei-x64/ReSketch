@@ -444,11 +444,60 @@ Kirigami.ApplicationWindow {
                                     }
 
                                     Controls.ComboBox {
+                                        objectName: "sidebarBackdropControl"
                                         Kirigami.FormData.label: "Sidebar backdrop:"
                                         enabled: appSettings.translucentSidebars || appSettings.floatingSidebars
                                         model: ["Desktop", "Figma canvas"]
                                         currentIndex: appSettings.sidebarBackdrop === "canvas" ? 1 : 0
                                         onActivated: appSettings.sidebarBackdrop = currentIndex === 1 ? "canvas" : "desktop"
+                                    }
+
+                                    RowLayout {
+                                        Kirigami.FormData.label: "Canvas backdrop blur:"
+                                        visible: appSettings.sidebarBackdrop === "canvas"
+                                        enabled: appSettings.translucentSidebars || appSettings.floatingSidebars
+                                        Layout.fillWidth: true
+                                        Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
+
+                                        Controls.Slider {
+                                            objectName: "sidebarCanvasBlurControl"
+                                            Layout.fillWidth: true
+                                            from: 0
+                                            to: 40
+                                            stepSize: 1
+                                            value: appSettings.sidebarCanvasBlur
+                                            onMoved: appSettings.sidebarCanvasBlur = Math.round(value)
+                                            Accessible.name: "Canvas backdrop blur"
+                                        }
+                                        Controls.Label {
+                                            text: appSettings.sidebarCanvasBlur + " px"
+                                            Layout.minimumWidth: Kirigami.Units.gridUnit * 3
+                                            horizontalAlignment: Text.AlignRight
+                                        }
+                                    }
+
+                                    RowLayout {
+                                        Kirigami.FormData.label: "Canvas backdrop opacity:"
+                                        visible: appSettings.sidebarBackdrop === "canvas"
+                                        enabled: appSettings.translucentSidebars || appSettings.floatingSidebars
+                                        Layout.fillWidth: true
+                                        Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
+
+                                        Controls.Slider {
+                                            objectName: "sidebarCanvasOpacityControl"
+                                            Layout.fillWidth: true
+                                            from: 0
+                                            to: 100
+                                            stepSize: 1
+                                            value: appSettings.sidebarCanvasOpacity
+                                            onMoved: appSettings.sidebarCanvasOpacity = Math.round(value)
+                                            Accessible.name: "Canvas backdrop opacity"
+                                        }
+                                        Controls.Label {
+                                            text: appSettings.sidebarCanvasOpacity + "%"
+                                            Layout.minimumWidth: Kirigami.Units.gridUnit * 3
+                                            horizontalAlignment: Text.AlignRight
+                                        }
                                     }
 
                                     Controls.CheckBox {
@@ -494,7 +543,7 @@ Kirigami.ApplicationWindow {
                                     Controls.Label {
                                         Layout.fillWidth: true
                                         Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
-                                        text: "Background opacity controls the toolbar and translucent or floating sidebars. Canvas uses the canvas background where Figma's canvas does not extend behind the sidebars."
+                                        text: "Background opacity controls the toolbar and desktop backdrop. Canvas backdrop blur and opacity apply to both floating and docked sidebars; 0% opacity shows the canvas fully."
                                         opacity: 0.72
                                         wrapMode: Text.WordWrap
                                     }

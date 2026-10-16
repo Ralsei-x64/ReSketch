@@ -224,6 +224,8 @@ class AppSettings : public QObject
     Q_PROPERTY(int sidebarMargin READ sidebarMargin WRITE setSidebarMargin NOTIFY changed)
     Q_PROPERTY(bool hideFloatingScrollbars READ hideFloatingScrollbars WRITE setHideFloatingScrollbars NOTIFY changed)
     Q_PROPERTY(QString sidebarBackdrop READ sidebarBackdrop WRITE setSidebarBackdrop NOTIFY changed)
+    Q_PROPERTY(int sidebarCanvasBlur READ sidebarCanvasBlur WRITE setSidebarCanvasBlur NOTIFY changed)
+    Q_PROPERTY(int sidebarCanvasOpacity READ sidebarCanvasOpacity WRITE setSidebarCanvasOpacity NOTIFY changed)
     Q_PROPERTY(bool menuIntegration READ menuIntegration WRITE setMenuIntegration NOTIFY changed)
     Q_PROPERTY(bool reduceMotion READ reduceMotion WRITE setReduceMotion NOTIFY changed)
     Q_PROPERTY(int toolbarOpacity READ toolbarOpacity WRITE setToolbarOpacity NOTIFY changed)
@@ -465,6 +467,8 @@ public:
     int sidebarMargin() const { return qBound(0, store.value(QStringLiteral("sidebarMargin"), 8).toInt(), 40); }
     bool hideFloatingScrollbars() const { return store.value(QStringLiteral("hideFloatingScrollbars"), true).toBool(); }
     QString sidebarBackdrop() const { return store.value(QStringLiteral("sidebarBackdrop"), QStringLiteral("desktop")).toString(); }
+    int sidebarCanvasBlur() const { return qBound(0, store.value(QStringLiteral("sidebarCanvasBlur"), 0).toInt(), 40); }
+    int sidebarCanvasOpacity() const { return qBound(0, store.value(QStringLiteral("sidebarCanvasOpacity"), toolbarOpacity()).toInt(), 100); }
     QVariantMap figmaPalette() const
     {
         const QPalette palette = QGuiApplication::palette();
@@ -829,6 +833,22 @@ public:
         if ((value != QStringLiteral("desktop") && value != QStringLiteral("canvas")) || sidebarBackdrop() == value)
             return;
         store.setValue(QStringLiteral("sidebarBackdrop"), value);
+        emit changed();
+        emit figmaAppearanceChanged();
+    }
+    void setSidebarCanvasBlur(int value)
+    {
+        value = qBound(0, value, 40);
+        if (sidebarCanvasBlur() == value) return;
+        store.setValue(QStringLiteral("sidebarCanvasBlur"), value);
+        emit changed();
+        emit figmaAppearanceChanged();
+    }
+    void setSidebarCanvasOpacity(int value)
+    {
+        value = qBound(0, value, 100);
+        if (store.contains(QStringLiteral("sidebarCanvasOpacity")) && sidebarCanvasOpacity() == value) return;
+        store.setValue(QStringLiteral("sidebarCanvasOpacity"), value);
         emit changed();
         emit figmaAppearanceChanged();
     }

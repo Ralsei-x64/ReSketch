@@ -289,6 +289,8 @@ var sidebarSource = sidebarLayoutSource + `;function floatingFilePage() {
     return /^\\/(file|design|board|proto|slides|deck|site|buzz|make)\\/[^/]+/i.test(location.pathname);
 }
 function sidebarAppearance(options, stylesheet) {
+    options = {...options, opacity: options.sidebarBackdrop === 'canvas' && Number.isFinite(options.sidebarCanvasOpacity)
+        ? options.sidebarCanvasOpacity : options.opacity};
     let controller = window.__resketchSidebars;
     if (!options.floatingSidebars && (!options.translucentSidebars || options.opacity >= 100)) {
         controller?.dispose();
@@ -316,7 +318,7 @@ function sidebarAppearance(options, stylesheet) {
     document.body.prepend(underlay);
     stylesheet('resketch-sidebars',
         '[data-resketch-sidebar], [data-resketch-sidebar] [data-preferred-theme] { --color-bg:var(--resketch-sidebar-content) !important; }'
-        + '[data-resketch-sidebar] { background-color:var(--resketch-sidebar-tint) !important; }'
+        + '[data-resketch-sidebar] { background-color:var(--resketch-sidebar-tint) !important; backdrop-filter:var(--resketch-sidebar-blur) !important; }'
         + '[data-resketch-floating-sidebar] { box-sizing:border-box !important;'
         + 'width:var(--resketch-sidebar-width) !important; min-width:0 !important; max-width:none !important;'
         + 'height:var(--resketch-sidebar-height) !important; min-height:0 !important;'
@@ -353,7 +355,7 @@ function sidebarAppearance(options, stylesheet) {
             panel.removeAttribute('data-resketch-sidebar');
             panel.removeAttribute('data-resketch-floating-sidebar');
             panel.removeAttribute('data-resketch-sidebar-join');
-            for (const name of ['tint','surface','content','width','height','gap-left','gap-right','gap-vertical','radius'])
+            for (const name of ['tint','surface','content','blur','width','height','gap-left','gap-right','gap-vertical','radius'])
                 panel.style.removeProperty('--resketch-sidebar-' + name);
         }
         for (const ancestor of ancestors) ancestor.removeAttribute('data-resketch-sidebar-ancestor');
@@ -367,9 +369,11 @@ function sidebarAppearance(options, stylesheet) {
         frame = 0;
         clear();
         const options = {...controller.options, floatingSidebars:controller.options.floatingSidebars && floatingFilePage()};
-        if (!options.floatingSidebars && layout) { layout.dispose(); layout = null; }
+        const canvasBehind = floatingFilePage() && (options.floatingSidebars
+            || options.translucentSidebars && options.sidebarBackdrop === 'canvas' && options.opacity < 100);
+        if (!canvasBehind && layout) { layout.dispose(); layout = null; }
         const canvasView = document.querySelector('.gpu-view-content');
-        if (options.floatingSidebars && canvasView) {
+        if (canvasBehind && canvasView) {
             layout ||= floatingCanvasLayout();
             const bounds = canvasView.getBoundingClientRect();
             if (bounds.left > 1 || Math.abs(bounds.width - innerWidth) > 1) layout?.update();
@@ -383,7 +387,7 @@ function sidebarAppearance(options, stylesheet) {
         observer.observe(document.body, {childList:true, subtree:true});
         for (const panel of panels) observer.observe(panel, {attributes:true, attributeFilter:['style']});
         canvases = Array.from(document.querySelectorAll('.gpu-view-content'));
-        comments = options.floatingSidebars ? Array.from(document.querySelectorAll(commentSelector)) : [];
+        comments = canvasBehind ? Array.from(document.querySelectorAll(commentSelector)) : [];
         // Native layout can move the canvas after updating the panel flags.
         // Watch its actual layout, ignoring our mask variables to avoid a loop.
         for (const canvas of canvases.concat(comments)) for (let node = canvas; node && node !== document.body; node = node.parentElement) {
@@ -411,6 +415,8 @@ function sidebarAppearance(options, stylesheet) {
             panel.style.setProperty('--resketch-sidebar-tint', tint);
             panel.style.setProperty('--resketch-sidebar-surface', bg);
             panel.style.setProperty('--resketch-sidebar-content', translucent ? 'transparent' : bg);
+            panel.style.setProperty('--resketch-sidebar-blur', translucent && options.sidebarBackdrop === 'canvas'
+                && options.sidebarCanvasBlur > 0 ? 'blur(' + options.sidebarCanvasBlur + 'px)' : 'none');
             const bounds = panel.getBoundingClientRect();
             if (options.floatingSidebars && bounds.width && bounds.height) {
                 const margin = options.sidebarMargin;
@@ -588,6 +594,9 @@ function script(options, storeSource) {
         sidebarCornerRadius: Math.max(0, Math.min(40, Number.isFinite(options.sidebarCornerRadius) ? options.sidebarCornerRadius : 12)),
         sidebarMargin: Math.max(0, Math.min(40, Number.isFinite(options.sidebarMargin) ? options.sidebarMargin : 8)),
         sidebarBackdrop: options.sidebarBackdrop === "canvas" ? "canvas" : "desktop",
+        sidebarCanvasBlur: Math.max(0, Math.min(40, Number.isFinite(options.sidebarCanvasBlur) ? options.sidebarCanvasBlur : 0)),
+        sidebarCanvasOpacity: Math.max(0, Math.min(100, Number.isFinite(options.sidebarCanvasOpacity) ? options.sidebarCanvasOpacity
+            : Number.isFinite(options.opacity) ? options.opacity : 100)),
         opacity: Math.max(0, Math.min(100, Number.isFinite(options.opacity) ? options.opacity : 100))
     }
     return "(function() {" + storeSource + ";" + sidebarMaskSource + ";" + sidebarSource

@@ -75,6 +75,8 @@ Kirigami.ApplicationWindow {
         sidebarCornerRadius: appSettings.sidebarCornerRadius,
         sidebarMargin: appSettings.sidebarMargin,
         sidebarBackdrop: appSettings.sidebarBackdrop,
+        sidebarCanvasBlur: appSettings.sidebarCanvasBlur,
+        sidebarCanvasOpacity: appSettings.sidebarCanvasOpacity,
         opacity: appSettings.toolbarOpacity
     }, FigmaMenu.storeSource)
     property var views: []
