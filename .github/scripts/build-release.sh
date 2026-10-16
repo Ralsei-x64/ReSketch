@@ -36,6 +36,12 @@ reported=$(sudo -u resketch-builder env QT_QPA_PLATFORM=offscreen QT_QUICK_BACKE
     "$package_dir/staged/usr/bin/resketch" --version)
 [[ "$reported" == "ReSketch $version (commit $short_commit)" ]]
 printf '%s\n' "$reported"
+if [[ "$RELEASE_ENGINE" == cef ]]; then
+    # The container cannot provide Chromium's user-namespace sandbox. This
+    # exception is only for the isolated smoke test, never the packaged app.
+    sudo -u resketch-builder env RESKETCH_CEF_FLAGS='--disable-gpu --no-sandbox' \
+        bash "$workspace/tests/check-cef-startup.sh" "$package_dir/staged/usr/bin/resketch"
+fi
 asset="resketch-$RELEASE_ENGINE-$version-$short_commit-x86_64.pkg.tar.zst"
 cp "${packages[0]}" "$workspace/dist/$asset"
 cd "$workspace/dist"

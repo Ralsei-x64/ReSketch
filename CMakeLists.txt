@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-project(ReSketch VERSION 1.2.5 LANGUAGES C CXX)
+project(ReSketch VERSION 1.2.6 LANGUAGES C CXX)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Network Quick QuickControls2 OpenGL Widgets)
 find_package(KF6WindowSystem REQUIRED)
@@ -97,6 +97,9 @@ target_link_libraries(resketch PRIVATE
     KF6::Notifications
 )
 
+# Chromium's close() interposer uses RTLD_NEXT to reach libc. Retain the
+# transitive CEF dependency here so it loads before libc in release builds.
+target_link_options(resketch PRIVATE "LINKER:--no-as-needed")
 set_target_properties(resketch PROPERTIES INSTALL_RPATH "$ORIGIN/../lib/ReSketch;$ORIGIN/../lib/ReSketch/cef")
 set_target_properties(resketch_cefplugin PROPERTIES INSTALL_RPATH "$ORIGIN/../../../../ReSketch;$ORIGIN/../../../../ReSketch/cef")
 install(TARGETS resketch RUNTIME DESTINATION bin)
