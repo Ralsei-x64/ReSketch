@@ -18,6 +18,7 @@ Item {
         property bool safeMode: false
         property bool desktopNotifications: false
         property string theme: "auto"
+        property bool useSystemColors: true
         property bool menuIntegration: false
         property bool darkTheme: false
         property bool figmaSystemColors: false

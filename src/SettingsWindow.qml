@@ -364,11 +364,20 @@ Kirigami.ApplicationWindow {
                                     Layout.fillWidth: true
                                     wideMode: width >= 560
 
+                                    Controls.CheckBox {
+                                        objectName: "useSystemColorsCheck"
+                                        Kirigami.FormData.label: qsTr("Colors:")
+                                        text: qsTr("Use system colors")
+                                        checked: appSettings.useSystemColors
+                                        onToggled: appSettings.useSystemColors = checked
+                                    }
                                     Controls.ComboBox {
+                                        objectName: "appThemeCombo"
                                         Kirigami.FormData.label: "App theme:"
-                                        model: ["Auto", "Light", "Dark"]
-                                        currentIndex: Math.max(0, ["auto", "light", "dark"].indexOf(appSettings.theme))
-                                        onActivated: appSettings.theme = ["auto", "light", "dark"][currentIndex]
+                                        enabled: !appSettings.useSystemColors
+                                        model: [qsTr("Light"), qsTr("Dark")]
+                                        currentIndex: appSettings.theme === "dark" ? 1 : 0
+                                        onActivated: appSettings.theme = ["light", "dark"][currentIndex]
                                     }
 
                                     Controls.CheckBox {
@@ -401,7 +410,7 @@ Kirigami.ApplicationWindow {
 
                                     Controls.CheckBox {
                                         Kirigami.FormData.label: "Figma colors:"
-                                        text: "Use KDE colors (experimental)"
+                                        text: qsTr("Use app colors (experimental)")
                                         checked: appSettings.figmaSystemColors
                                         onToggled: appSettings.figmaSystemColors = checked
                                     }

@@ -3,6 +3,9 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
 About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
+1.2.8 - 2026-10-16
+Added a default-on system colors toggle; disabling it enables Breeze Light/Dark selection across the app, with saved preferences and matching theme menu actions.
+
 1.2.7 - 2026-10-16
 Used Chromium's headless display backend for the release startup check in CI containers without a display server.
 

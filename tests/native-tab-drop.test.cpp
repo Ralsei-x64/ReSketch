@@ -95,6 +95,56 @@ int main(int argc, char **argv)
         assert(saved.value(QStringLiteral("settingsInitialized")).toBool());
     }
     {
+        AppSettings colors;
+        assert(colors.useSystemColors());
+        assert(KColorSchemeManager::instance()->activeSchemeId().isEmpty());
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("appSettings", &colors);
+        engine.load(QUrl::fromLocalFile(QDir::current().absoluteFilePath("src/SettingsWindow.qml")));
+        assert(!engine.rootObjects().isEmpty());
+        auto *window = engine.rootObjects().first();
+        auto *systemCheck = window->findChild<QObject *>("useSystemColorsCheck");
+        auto *combo = window->findChild<QObject *>("appThemeCombo");
+        assert(systemCheck && combo);
+        assert(systemCheck->property("checked").toBool() && !combo->property("enabled").toBool());
+        assert(QMetaObject::invokeMethod(systemCheck, "toggle"));
+        assert(QMetaObject::invokeMethod(systemCheck, "toggled"));
+        QCoreApplication::processEvents();
+        assert(!colors.useSystemColors() && combo->property("enabled").toBool());
+        const auto checkScheme = [&](const QString &id) {
+            QCoreApplication::processEvents();
+            assert(KColorSchemeManager::instance()->activeSchemeId() == id);
+            const QSettings scheme(QStandardPaths::locate(QStandardPaths::GenericDataLocation,
+                QStringLiteral("color-schemes/") + id + QStringLiteral(".colors")), QSettings::IniFormat);
+            const auto rgb = scheme.value(QStringLiteral("Colors:Window/BackgroundNormal")).toStringList();
+            assert(rgb.size() == 3);
+            const QColor expected(rgb[0].toInt(), rgb[1].toInt(), rgb[2].toInt());
+            assert(QGuiApplication::palette().color(QPalette::Window) == expected);
+            assert(window->property("color").value<QColor>() == expected);
+            assert(colors.figmaPalette().value("window").toString() == expected.name());
+        };
+        colors.setTheme(QStringLiteral("dark"));
+        checkScheme(QStringLiteral("BreezeDark"));
+        assert(colors.darkTheme() && combo->property("currentIndex").toInt() == 1);
+        {
+            AppSettings restored;
+            assert(!restored.useSystemColors() && restored.theme() == QStringLiteral("dark"));
+            checkScheme(QStringLiteral("BreezeDark"));
+        }
+        colors.setTheme(QStringLiteral("light"));
+        checkScheme(QStringLiteral("BreezeLight"));
+        assert(!colors.darkTheme() && combo->property("currentIndex").toInt() == 0);
+        colors.setTheme(QStringLiteral("auto")); // The menu's system action uses the same toggle.
+        QCoreApplication::processEvents();
+        assert(colors.useSystemColors() && !combo->property("enabled").toBool());
+        assert(KColorSchemeManager::instance()->activeSchemeId().isEmpty());
+        assert(!QGuiApplication::instance()->property("KDE_COLOR_SCHEME_PATH").toString().contains("BreezeLight.colors"));
+        colors.setUseSystemColors(false);
+        checkScheme(QStringLiteral("BreezeLight")); // Retains the last manual choice.
+        colors.setUseSystemColors(true);
+        puts("System color default, Breeze palettes, live settings controls and theme persistence checks passed");
+    }
+    {
         AppSettings toolbar;
         const auto defaults = toolbar.toolbarItems();
         assert(defaults.size() == 8);

@@ -23,6 +23,7 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QMap>
+#include <QModelIndex>
 #include <QPalette>
 #include <QPointer>
 #include <QOpenGLContext>
@@ -45,6 +46,7 @@
 #include "FontHelper.h"
 #include <KWindowEffects>
 #include <KNotification>
+#include <KColorSchemeManager>
 #include "CefView.h"
 #include "CefApp.h"
 #include <QProcess>
@@ -214,6 +216,7 @@ class AppSettings : public QObject
     Q_OBJECT
     Q_PROPERTY(QString buildCommit READ buildCommit CONSTANT)
     Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY changed)
+    Q_PROPERTY(bool useSystemColors READ useSystemColors WRITE setUseSystemColors NOTIFY changed)
     Q_PROPERTY(bool darkTheme READ darkTheme NOTIFY effectiveThemeChanged)
     Q_PROPERTY(bool figmaSystemColors READ figmaSystemColors WRITE setFigmaSystemColors NOTIFY changed)
     Q_PROPERTY(bool figmaCustomCssEnabled READ figmaCustomCssEnabled WRITE setFigmaCustomCssEnabled NOTIFY changed)
@@ -296,12 +299,11 @@ public:
     }
 
     QString theme() const { return store.value(QStringLiteral("theme"), QStringLiteral("auto")).toString(); }
+    bool useSystemColors() const { return store.value(QStringLiteral("useSystemColors"), true).toBool(); }
     bool darkTheme() const
     {
-        if (theme() == QStringLiteral("dark"))
-            return true;
-        if (theme() == QStringLiteral("light"))
-            return false;
+        if (!safeMode() && !useSystemColors())
+            return theme() == QStringLiteral("dark");
         const auto scheme = QGuiApplication::styleHints()->colorScheme();
         return scheme == Qt::ColorScheme::Dark
                || (scheme == Qt::ColorScheme::Unknown
@@ -788,10 +790,24 @@ public:
 
     void setTheme(const QString &value)
     {
-        if ((value != QStringLiteral("auto") && value != QStringLiteral("light")
-             && value != QStringLiteral("dark")) || theme() == value)
+        if (value == QStringLiteral("auto")) {
+            setUseSystemColors(true);
+            return;
+        }
+        if ((value != QStringLiteral("light") && value != QStringLiteral("dark"))
+                || (theme() == value && !useSystemColors()))
             return;
         store.setValue(QStringLiteral("theme"), value);
+        store.setValue(QStringLiteral("useSystemColors"), false);
+        applyTheme();
+        emit effectiveThemeChanged();
+        emit changed();
+    }
+    void setUseSystemColors(bool value)
+    {
+        if (useSystemColors() == value)
+            return;
+        store.setValue(QStringLiteral("useSystemColors"), value);
         applyTheme();
         emit effectiveThemeChanged();
         emit changed();
@@ -1148,11 +1164,15 @@ private:
 
     void applyTheme()
     {
-        const Qt::ColorScheme scheme = safeMode() ? Qt::ColorScheme::Unknown
+        const bool system = safeMode() || useSystemColors();
+        const Qt::ColorScheme scheme = system ? Qt::ColorScheme::Unknown
                                        : theme() == QStringLiteral("dark") ? Qt::ColorScheme::Dark
-                                       : theme() == QStringLiteral("light") ? Qt::ColorScheme::Light
-                                                                            : Qt::ColorScheme::Unknown;
+                                                                            : Qt::ColorScheme::Light;
         QGuiApplication::styleHints()->setColorScheme(scheme);
+        auto *manager = KColorSchemeManager::instance();
+        manager->setAutosaveChanges(false); // Preferences are persisted in our QSettings.
+        manager->activateScheme(manager->indexForSchemeId(system ? QString()
+            : theme() == QStringLiteral("dark") ? QStringLiteral("BreezeDark") : QStringLiteral("BreezeLight")));
     }
 
     QSettings store;

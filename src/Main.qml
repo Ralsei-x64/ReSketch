@@ -268,7 +268,7 @@ Kirigami.ApplicationWindow {
         filePopup: filePopupMenu
         preferencesMenu: nativePreferencesMenu
         preferencesPopup: preferencesPopupMenu
-        theme: appSettings.theme
+        theme: appSettings.useSystemColors ? "auto" : appSettings.theme === "dark" ? "dark" : "light"
         integrationEnabled: appSettings.menuIntegration
         onApplicationCommand: command => root.triggerHomeMenuAction(command)
         onCommandFailed: message => root.showPassiveNotification(message)
