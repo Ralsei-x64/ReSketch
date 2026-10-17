@@ -1673,10 +1673,12 @@ void CefQuickView::replayWheel(const QPointF &delta, const QPointF &position) {
 }
 void CefQuickView::wheelEvent(QWheelEvent *event) {
     const auto phase = event->phase();
-    const QPoint delta = event->pixelDelta().isNull()
+    QPoint delta = event->pixelDelta().isNull()
         ? event->angleDelta() * QGuiApplication::styleHints()->wheelScrollLines() / 3 : event->pixelDelta();
     const bool trackpad = event->pointingDevice()->type() == QInputDevice::DeviceType::TouchPad
         || phase != Qt::NoScrollPhase || !event->pixelDelta().isNull();
+    if (!trackpad && !event->modifiers().testFlag(Qt::ControlModifier))
+        delta = (QPointF(delta) * (std::clamp(m_settings.mouseScrollSensitivity, 25, 300) / 100.0)).toPoint();
     m_trackpadScrollAccepted = false;
     if (trackpad && event->modifiers() == Qt::NoModifier)
         emit trackpadScroll(delta.x(), delta.y(), int(phase), event->position());

@@ -8,7 +8,7 @@
 - **Tab groups:** Name, color, choose icons for, collapse, and rearrange groups, with context menus to edit, ungroup, or close all their tabs.
 - **Animated tabs:** Opening, closing, selection, and rearrangement use smooth transitions.
 - **Tab overview:** Browse searchable live previews in a responsive grid using the arrow keys and Enter, with 2×2 group previews and one expanded group container at a time.
-- **Trackpad overview gesture:** Pinch inward over empty Figma sidebar space to reveal overview, following finger movement and settling smoothly on release; pinch outward on an overview card to open it.
+- **Trackpad overview gesture:** Pinch inward over empty Figma sidebar space to reveal overview, following finger movement with adjustable sensitivity, elastic scaling and settling on release; pinch outward on an overview card to open it.
 - **Trackpad tab switching:** Swipe horizontally over empty sidebar space to switch adjacent tabs with a reversible animation that follows your fingers.
 - **Canvas zoom:** Pinch on the Figma canvas to zoom around the gesture position.
 - **Overview dragging:** Rearrange cards or entire group containers, with a Home card that returns to its fixed position.
@@ -16,7 +16,7 @@
 - **Fullscreen:** Use the fullscreen shortcut (F11 by default) to enter or exit, and hover the top edge to reveal the tab strip; Escape clears selections or closes the overview while keeping fullscreen active.
 - **Titlebar autohide:** Press Shift+F11 to hide the tab strip and reveal it at the top edge without entering fullscreen.
 - **Keyboard shortcuts:** Customize every app shortcut in Settings, reset individual bindings or all defaults, and use Delete, Alt+Delete, and Ctrl+G to manage selected tabs and groups.
-- **Scrolling controls:** Toggle smooth scrolling and inertia for both Figma and the app interface in Settings, with direction following desktop preferences.
+- **Scrolling controls:** Adjust mouse scroll speed and toggle smooth scrolling and inertia for both Figma and the app interface, with direction following desktop preferences.
 - **Session restore:** Optionally remember file tabs and their group names, colors, and collapsed states, with deferred loading until selected.
 - **Tab sleeping:** Configure idle time and minimum and maximum loaded-tab counts to manage background tabs.
 - **Sleeping previews:** Optionally show saved, blurred previews with a sleep icon for sleeping tabs.
@@ -26,12 +26,13 @@
 - **Local fonts:** Make installed computer fonts available to Figma through the local font service.
 - **Figma menus:** Optionally expose Figma actions through native menus and Plasma AppMenu, with a hamburger menu fallback.
 - **Chromium tools:** Open Developer Tools and a tab task manager with renderer CPU and memory usage from the menu without keyboard shortcuts.
-- **Update checks:** Check GitHub releases at startup or manually, choose a branch, skip versions, and read update or installed-version changelogs in Settings.
+- **Updates:** Check CEF GitHub releases, skip versions, read changelogs, and install verified Arch packages with progress, optional restart and a one-time completion notice.
 - **App themes:** Use system colors by default, or turn them off to choose Breeze Light or Dark.
 - **Canvas cursors:** Show Figma’s custom cursors by default, with an option to use the system cursor.
 - **KDE colors:** Optionally apply the system color palette to Figma's web interface.
 - **Custom CSS:** Optionally customize Figma's interface with your own CSS.
 - **Transparency and blur:** Adjust background opacity and optional translucent or floating Figma sidebars with desktop or canvas backdrops, canvas blur and opacity controls, and configurable corner radius and floating sidebar shadows.
+- **Scrollbar visibility:** Hide Figma sidebar scrollbars by default, with independent controls for sidebar and floating-mode canvas scrollbars.
 - **Window controls:** Use theme icons for integrated controls, optionally keeping the desktop titlebar and decorations.
 - **Reduced motion:** Disable interface animations through settings.
 - **Export folders:** Choose and remember a separate export folder for each Figma file.

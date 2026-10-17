@@ -43,7 +43,7 @@ Kirigami.ApplicationWindow {
             ? Object.assign({}, item, {enabled: checked}) : item)
     }
     readonly property var sections: [
-        {title: "Appearance", icon: "preferences-desktop-theme", keywords: "theme colors CSS transparency opacity blur shadow strength floating sidebars corners radius cursor window controls decorations motion scrolling smooth inertia mouse trackpad"},
+        {title: "Appearance", icon: "preferences-desktop-theme", keywords: "theme colors CSS transparency opacity blur shadow strength floating sidebars corners radius cursor window controls decorations motion scrolling smooth inertia mouse trackpad gestures pinch swipe sensitivity speed scrollbars"},
         {title: "Tabs", icon: "tab-duplicate", keywords: "sleep remember restore loaded Home"},
         {title: "Performance", icon: "preferences-system-performance", keywords: "memory preview quality menus Chromium GPU Vulkan canvas flags switches"},
         {title: "Notifications", icon: "preferences-desktop-notification", keywords: "desktop alerts enable disable Home"},
@@ -427,6 +427,61 @@ Kirigami.ApplicationWindow {
                                         text: qsTr("Applies to Figma and the app interface. Reduce motion pauses these effects. Scrolling direction follows your desktop settings.")
                                         opacity: 0.72
                                         wrapMode: Text.WordWrap
+                                    }
+
+                                    RowLayout {
+                                        Kirigami.FormData.label: qsTr("Mouse scroll speed:")
+                                        Layout.fillWidth: true
+                                        Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
+                                        Controls.Slider {
+                                            objectName: "mouseScrollSensitivityControl"
+                                            Layout.fillWidth: true
+                                            from: 25
+                                            to: 300
+                                            stepSize: 5
+                                            value: appSettings.mouseScrollSensitivity
+                                            onMoved: appSettings.mouseScrollSensitivity = Math.round(value)
+                                            Accessible.name: qsTr("Mouse scroll speed")
+                                        }
+                                        Controls.Label {
+                                            text: appSettings.mouseScrollSensitivity + "%"
+                                            Layout.minimumWidth: Kirigami.Units.gridUnit * 3
+                                            horizontalAlignment: Text.AlignRight
+                                        }
+                                    }
+                                    RowLayout {
+                                        Kirigami.FormData.label: qsTr("Gesture sensitivity:")
+                                        Layout.fillWidth: true
+                                        Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
+                                        Controls.Slider {
+                                            objectName: "gestureSensitivityControl"
+                                            Layout.fillWidth: true
+                                            from: 25
+                                            to: 300
+                                            stepSize: 5
+                                            value: appSettings.gestureSensitivity
+                                            onMoved: appSettings.gestureSensitivity = Math.round(value)
+                                            Accessible.name: qsTr("Gesture sensitivity")
+                                        }
+                                        Controls.Label {
+                                            text: appSettings.gestureSensitivity + "%"
+                                            Layout.minimumWidth: Kirigami.Units.gridUnit * 3
+                                            horizontalAlignment: Text.AlignRight
+                                        }
+                                    }
+                                    Controls.Label {
+                                        Layout.fillWidth: true
+                                        Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
+                                        text: qsTr("Gesture sensitivity adjusts pinch zoom, pinch overview and sidebar tab swipes. 100% is the normal sensitivity.")
+                                        opacity: 0.72
+                                        wrapMode: Text.WordWrap
+                                    }
+                                    Controls.CheckBox {
+                                        objectName: "hideSidebarScrollbarsToggle"
+                                        Kirigami.FormData.label: qsTr("Sidebar scrollbars:")
+                                        text: qsTr("Hide Figma sidebar scrollbars")
+                                        checked: appSettings.hideSidebarScrollbars
+                                        onToggled: appSettings.hideSidebarScrollbars = checked
                                     }
 
                                     Controls.CheckBox {

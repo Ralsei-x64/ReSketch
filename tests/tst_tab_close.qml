@@ -33,12 +33,15 @@ Item {
         property int sidebarShadowTransparency: 65
         property int sidebarShadowStrength: 40
         property bool hideFloatingScrollbars: true
+        property bool hideSidebarScrollbars: true
         property string sidebarBackdrop: "desktop"
         property int sidebarCanvasBlur: 0
         property int sidebarCanvasOpacity: 100
         property bool reduceMotion: false
         property bool smoothScrolling: true
         property bool inertialScrolling: true
+        property int gestureSensitivity: 100
+        property int mouseScrollSensitivity: 100
         property int toolbarOpacity: 100
         function defaultToolbarItems() {
             return [{id: "new-tab", title: "New tab", icon: "tab-new", enabled: true},
@@ -204,6 +207,9 @@ Item {
             app.dismissOverview()
             appSettings.smoothScrolling = true
             appSettings.inertialScrolling = true
+            appSettings.gestureSensitivity = 100
+            appSettings.mouseScrollSensitivity = 100
+            appSettings.hideSidebarScrollbars = true
             appSettings.reduceMotion = true
             appSettings.changed()
             for (const view of app.views.slice())
@@ -3282,6 +3288,56 @@ Item {
             compare(app.overviewVisible, true)
             compare(app.overviewPinchTracking, false)
             compare(app.activeView, view)
+        }
+
+        function test_pinch_elastic_scale_reverses_and_keeps_finger_anchor() {
+            const view = prepareSidebarPinchFixture()
+            appSettings.gestureSensitivity = 150
+            app.openOverview(false)
+            tryCompare(app, "overviewProgress", 1)
+            const card = overviewCard(view)
+            const anchor = Qt.point(0.3, 0.6)
+            const origin = card.mapToItem(app.browserContent, card.width * anchor.x, card.height * anchor.y)
+            app.beginOverviewPinch(origin)
+            verify(app.overviewPinchOpeningCard)
+            app.updateOverviewPinch(3, Qt.point(20,15))
+            compare(app.overviewProgress, 0)
+            const firstStretch = app.overviewPinchStretch
+            verify(firstStretch > 1)
+            const point = card.mapToItem(app.browserContent, card.width * anchor.x, card.height * anchor.y)
+            fuzzyCompare(point.x, origin.x + 20, 1)
+            fuzzyCompare(point.y, origin.y + 15, 1)
+            app.updateOverviewPinch(100, Qt.point(20,15))
+            verify(app.overviewPinchStretch > firstStretch)
+            app.updateOverviewPinch(1, Qt.point(0,0))
+            compare(app.overviewPinchStretch, 1)
+            compare(app.overviewProgress, 1)
+            app.updateOverviewPinch(0.5, Qt.point(0,0))
+            verify(app.overviewPinchStretch > 0 && app.overviewPinchStretch < 1)
+            app.finishOverviewPinch()
+            tryCompare(app, "overviewPinchStretch", 1)
+            tryCompare(app, "overviewProgress", 1)
+            verify(app.overviewVisible)
+        }
+
+        function test_sidebar_scrollbars_hide_without_affecting_canvas_or_scrolling() {
+            const view = app.activeView
+            let result = null
+            view.runJavaScript("document.body.innerHTML=" + JSON.stringify("<aside class=\"fb-sidebar\"><div id=\"sidebar\" style=\"height:100px;overflow:auto\"><div style=\"height:600px\"></div></div></aside><div id=\"canvas\" class=\"gpu-view-content\" style=\"height:100px;overflow:auto\"><div style=\"height:600px\"></div></div>"), () => result = true)
+            tryVerify(() => result === true)
+            function apply(hidden) {
+                result = null
+                view.runJavaScript('(()=>{let style=document.getElementById("bars");if(!style){style=document.createElement("style");style.id="bars";document.head.appendChild(style)}style.textContent='
+                    + JSON.stringify(FigmaTheme.sidebarScrollbarsCss(hidden)) + ';document.getElementById("sidebar").scrollTop=120;return [getComputedStyle(document.getElementById("sidebar")).scrollbarWidth,getComputedStyle(document.getElementById("canvas")).scrollbarWidth,document.getElementById("sidebar").scrollTop]})()', value => result = value)
+                tryVerify(() => result !== null)
+            }
+            apply(true)
+            compare(result[0], "none")
+            compare(result[1], "auto")
+            compare(result[2], 120)
+            apply(false)
+            compare(result[0], "auto")
+            compare(result[2], 120)
         }
 
         function test_sidebar_pinch_reversal_cancel_and_late_hit_test() {

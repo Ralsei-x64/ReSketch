@@ -273,6 +273,16 @@ int main(int argc, char **argv)
     settings.resetSettings();
     assert(!settings.floatingSidebars() && settings.sidebarCornerRadius() == 12 && settings.sidebarMargin() == 8 && settings.hideFloatingScrollbars());
     assert(settings.smoothScrolling() && settings.inertialScrolling());
+    assert(settings.gestureSensitivity() == 100 && settings.mouseScrollSensitivity() == 100 && settings.hideSidebarScrollbars());
+    settings.setGestureSensitivity(200);
+    settings.setMouseScrollSensitivity(150);
+    settings.setHideSidebarScrollbars(false);
+    { AppSettings saved; assert(saved.gestureSensitivity() == 200 && saved.mouseScrollSensitivity() == 150 && !saved.hideSidebarScrollbars()); }
+    settings.setGestureSensitivity(900);
+    settings.setMouseScrollSensitivity(-10);
+    assert(settings.gestureSensitivity() == 300 && settings.mouseScrollSensitivity() == 25);
+    settings.resetSettings();
+    assert(settings.gestureSensitivity() == 100 && settings.mouseScrollSensitivity() == 100 && settings.hideSidebarScrollbars());
     settings.setSmoothScrolling(false);
     settings.setInertialScrolling(false);
     { AppSettings saved; assert(!saved.smoothScrolling() && !saved.inertialScrolling()); }
@@ -741,6 +751,14 @@ int main(int argc, char **argv)
     uiWheel({}, QPoint(0,-120), Qt::NoScrollPhase, false, QPointingDevice::primaryPointingDevice());
     assert(!overview->property("smoothWheel").toBool());
     assert(position(overview,"contentY") > 100);
+    overview->setProperty("contentY", 100.0);
+    settings.setMouseScrollSensitivity(200);
+    uiWheel({}, QPoint(0,-120), Qt::NoScrollPhase, false, QPointingDevice::primaryPointingDevice());
+    const double fasterMouseTarget = 100 + uiScroll->property("wheelStep").toDouble() * 2;
+    assert(qAbs(position(overview,"contentY") - fasterMouseTarget) < 1);
+    uiWheel(QPoint(0,-12), {}, Qt::ScrollUpdate);
+    assert(qAbs(position(overview,"contentY") - fasterMouseTarget - 12) < 1); // Mouse speed leaves finger scrolling unchanged.
+    settings.setMouseScrollSensitivity(100);
     uiWheel({}, {}, Qt::ScrollBegin);
     for(int i=0;i<3;++i) { uiWheel(QPoint(0,-12), {}, Qt::ScrollUpdate); render(); }
     uiWheel({}, {}, Qt::ScrollEnd);
@@ -782,6 +800,11 @@ int main(int argc, char **argv)
     assert(evaluate("destination.overviewPinchTracking && destination.overviewPinchAccepted && destination.overviewVisible").toBool());
     const double pinchProgress = destination->property("overviewProgress").toDouble();
     assert(pinchProgress > 0 && pinchProgress < 0.5);
+    settings.setGestureSensitivity(200);
+    evaluate("destination.updateOverviewPinch(destination.overviewPinchScale, destination.overviewPinchTranslation)");
+    assert(destination->property("overviewProgress").toDouble() > pinchProgress * 1.5);
+    settings.setGestureSensitivity(100);
+    evaluate("destination.updateOverviewPinch(destination.overviewPinchScale, destination.overviewPinchTranslation)");
     const double pinchX = destination->property("overviewPinchOffsetX").toDouble();
     nativePinch(Qt::PanNativeGesture, 0, QPointF(30, 15));
     render();
@@ -797,6 +820,24 @@ int main(int argc, char **argv)
             destination->property("overviewProgress").toDouble(),destination->property("overviewClosing").toBool(),destination->property("overviewPinchTracking").toBool(),destination->property("overviewVisible").toBool(),destination->property("overviewAnimationRunning").toBool());
     assert(destination->property("overviewProgress").toDouble() == 1 && destination->property("overviewVisible").toBool());
     assert(!destination->property("overviewPinchTracking").toBool());
+    evaluate(QString("var card = destination.overviewNavigationCards().find(c=>c.target===destination.activeView);"
+             "destination.beginOverviewPinch(Qt.point(card.x+destination.overviewCardWidth/2,"
+             "card.y+destination.overviewCardHeight/2-%1));").arg(position(overview, "contentY")));
+    assert(destination->property("overviewPinchOpeningCard").toBool());
+    evaluate("destination.updateOverviewPinch(3, Qt.point(0,0))");
+    const double stretch3 = destination->property("overviewPinchStretch").toDouble();
+    assert(stretch3 > 1 && stretch3 < 2);
+    evaluate("destination.updateOverviewPinch(4, Qt.point(0,0))");
+    const double stretch4 = destination->property("overviewPinchStretch").toDouble();
+    evaluate("destination.updateOverviewPinch(5, Qt.point(0,0))");
+    const double stretch5 = destination->property("overviewPinchStretch").toDouble();
+    assert(stretch5 > stretch4 && stretch4 > stretch3 && stretch5 - stretch4 < stretch4 - stretch3);
+    evaluate("destination.updateOverviewPinch(10000, Qt.point(0,0))");
+    assert(destination->property("overviewPinchStretch").toDouble() > stretch5); // No hard upper scale cap.
+    evaluate("destination.updateOverviewPinch(3, Qt.point(0,0)); destination.finishOverviewPinch()");
+    for (int i = 0; i < 30 && destination->property("overviewVisible").toBool(); ++i) render();
+    assert(!destination->property("overviewVisible").toBool());
+    assert(destination->property("overviewPinchStretch").toDouble() == 1);
     evaluate("destination.dismissOverview();");
     nativePinch(Qt::BeginNativeGesture);
     nativePinch(Qt::ZoomNativeGesture, -0.25);

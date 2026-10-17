@@ -13,6 +13,12 @@ function sidebarGestureHitTest(x, y) {
         return Array.from(node.childNodes).some(child => child.nodeType === Node.TEXT_NODE && child.textContent.trim()) ? 'none' : 'sidebar';
     })()`
 }
+function sidebarScrollbarsCss(hidden) {
+    if (!hidden) return ""
+    const panel = ':is([data-resketch-sidebar],[data-testid="navigation-bar"],[data-onboarding-key="unified-design-onboarding-left-panel"],[data-testid="properties-panel"],[class*="left_panel_container--sizeContainer--"],[class*="sidebar--navDefault--"],.fb-sidebar)'
+    return panel + ', ' + panel + ' * { scrollbar-width:none !important; }'
+        + panel + '::-webkit-scrollbar, ' + panel + ' *::-webkit-scrollbar { display:none !important; }'
+}
 function channels(color) { return [1, 3, 5].map(offset => parseInt(color.slice(offset, offset + 2), 16)) }
 function mix(background, foreground, amount) {
     const bg = channels(background), fg = channels(foreground)
@@ -594,6 +600,7 @@ var pageThemeSource = `function applyAppearance(options) {
 
     stylesheet("resketch-system-colors", options.paletteCss);
     stylesheet("resketch-loading-background", options.loadingCss);
+    stylesheet("resketch-sidebar-scrollbars", options.sidebarScrollbarsCss);
     stylesheet("resketch-custom-css", options.customCss);
     // Keep custom CSS after palette overrides when the palette is enabled later.
     const custom = document.getElementById("resketch-custom-css");
@@ -614,6 +621,7 @@ function script(options, storeSource) {
         paletteCss: options.systemColors ? paletteCss(options.palette || {}) : "",
         customCss: options.customCssEnabled ? options.customCss : "",
         loadingCss: loadingCss(Number.isFinite(options.opacity) ? options.opacity : 100),
+        sidebarScrollbarsCss: sidebarScrollbarsCss(options.hideSidebarScrollbars !== false),
         translucentSidebars: !!options.translucentSidebars,
         floatingSidebars: !!options.floatingSidebars,
         hideFloatingScrollbars: !!options.hideFloatingScrollbars,

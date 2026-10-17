@@ -233,6 +233,7 @@ class AppSettings : public QObject
     Q_PROPERTY(int sidebarShadowTransparency READ sidebarShadowTransparency WRITE setSidebarShadowTransparency NOTIFY changed)
     Q_PROPERTY(int sidebarShadowStrength READ sidebarShadowStrength WRITE setSidebarShadowStrength NOTIFY changed)
     Q_PROPERTY(bool hideFloatingScrollbars READ hideFloatingScrollbars WRITE setHideFloatingScrollbars NOTIFY changed)
+    Q_PROPERTY(bool hideSidebarScrollbars READ hideSidebarScrollbars WRITE setHideSidebarScrollbars NOTIFY changed)
     Q_PROPERTY(QString sidebarBackdrop READ sidebarBackdrop WRITE setSidebarBackdrop NOTIFY changed)
     Q_PROPERTY(int sidebarCanvasBlur READ sidebarCanvasBlur WRITE setSidebarCanvasBlur NOTIFY changed)
     Q_PROPERTY(int sidebarCanvasOpacity READ sidebarCanvasOpacity WRITE setSidebarCanvasOpacity NOTIFY changed)
@@ -240,6 +241,8 @@ class AppSettings : public QObject
     Q_PROPERTY(bool reduceMotion READ reduceMotion WRITE setReduceMotion NOTIFY changed)
     Q_PROPERTY(bool smoothScrolling READ smoothScrolling WRITE setSmoothScrolling NOTIFY changed)
     Q_PROPERTY(bool inertialScrolling READ inertialScrolling WRITE setInertialScrolling NOTIFY changed)
+    Q_PROPERTY(int gestureSensitivity READ gestureSensitivity WRITE setGestureSensitivity NOTIFY changed)
+    Q_PROPERTY(int mouseScrollSensitivity READ mouseScrollSensitivity WRITE setMouseScrollSensitivity NOTIFY changed)
     Q_PROPERTY(int toolbarOpacity READ toolbarOpacity WRITE setToolbarOpacity NOTIFY changed)
     Q_PROPERTY(QVariantList toolbarItems READ toolbarItems WRITE setToolbarItems NOTIFY changed)
     Q_PROPERTY(QVariantMap shortcutOverrides READ shortcutOverrides WRITE setShortcutOverrides NOTIFY changed)
@@ -480,6 +483,7 @@ public:
     int sidebarShadowTransparency() const { return qBound(0, store.value(QStringLiteral("sidebarShadowTransparency"), 65).toInt(), 100); }
     int sidebarShadowStrength() const { return qBound(0, store.value(QStringLiteral("sidebarShadowStrength"), 40).toInt(), 100); }
     bool hideFloatingScrollbars() const { return store.value(QStringLiteral("hideFloatingScrollbars"), true).toBool(); }
+    bool hideSidebarScrollbars() const { return store.value(QStringLiteral("hideSidebarScrollbars"), true).toBool(); }
     QString sidebarBackdrop() const { return store.value(QStringLiteral("sidebarBackdrop"), QStringLiteral("desktop")).toString(); }
     int sidebarCanvasBlur() const { return qBound(0, store.value(QStringLiteral("sidebarCanvasBlur"), 0).toInt(), 40); }
     int sidebarCanvasOpacity() const { return qBound(0, store.value(QStringLiteral("sidebarCanvasOpacity"), toolbarOpacity()).toInt(), 100); }
@@ -504,6 +508,8 @@ public:
     }
     bool smoothScrolling() const { return store.value(QStringLiteral("smoothScrolling"), true).toBool(); }
     bool inertialScrolling() const { return store.value(QStringLiteral("inertialScrolling"), true).toBool(); }
+    int gestureSensitivity() const { return qBound(25, store.value(QStringLiteral("gestureSensitivity"), 100).toInt(), 300); }
+    int mouseScrollSensitivity() const { return qBound(25, store.value(QStringLiteral("mouseScrollSensitivity"), 100).toInt(), 300); }
     bool reduceMotion() const { return store.value(QStringLiteral("reduceMotion"), false).toBool(); }
     int toolbarOpacity() const { return qBound(0, store.value(QStringLiteral("toolbarOpacity"), 100).toInt(), 100); }
     QVariantList toolbarItems() const
@@ -938,10 +944,31 @@ public:
         store.setValue(QStringLiteral("smoothScrolling"), value);
         emit changed();
     }
+    void setHideSidebarScrollbars(bool value)
+    {
+        if (hideSidebarScrollbars() == value) return;
+        store.setValue(QStringLiteral("hideSidebarScrollbars"), value);
+        emit changed();
+        emit figmaAppearanceChanged();
+    }
     void setInertialScrolling(bool value)
     {
         if (inertialScrolling() == value) return;
         store.setValue(QStringLiteral("inertialScrolling"), value);
+        emit changed();
+    }
+    void setGestureSensitivity(int value)
+    {
+        value = qBound(25, value, 300);
+        if (gestureSensitivity() == value) return;
+        store.setValue(QStringLiteral("gestureSensitivity"), value);
+        emit changed();
+    }
+    void setMouseScrollSensitivity(int value)
+    {
+        value = qBound(25, value, 300);
+        if (mouseScrollSensitivity() == value) return;
+        store.setValue(QStringLiteral("mouseScrollSensitivity"), value);
         emit changed();
     }
     void setReduceMotion(bool value)

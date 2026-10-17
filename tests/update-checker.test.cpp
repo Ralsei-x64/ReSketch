@@ -12,6 +12,7 @@
 #include <QTcpSocket>
 #include <QTimer>
 #include <QDir>
+#include <QTemporaryDir>
 #include <cassert>
 #include <cstdio>
 
@@ -31,6 +32,9 @@ void checkUpdates()
         "1.2.9 - 2026-10-15\nAlready installed\n";
     int requests = 0, pageTwo = 0, httpStatus = 200;
     bool malformed = false, olderBranch = false, notesFail = false;
+    const QByteArray packageData(512 * 1024, 'x');
+    const QString packageName = "resketch-cef-1.2.10-abcdef0-x86_64.pkg.tar.zst";
+    bool corruptPackage = false, invalidChecksum = false;
     QObject::connect(&server, &QTcpServer::newConnection, &server, [&] {
         while (auto *socket = server.nextPendingConnection()) {
             QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
@@ -43,11 +47,15 @@ void checkUpdates()
                 const bool secondPage = input.contains("page=2 ");
                 if (secondPage) ++pageTwo;
                 QByteArray body;
-                if (notes) body = changelog.toUtf8();
+                if (input.startsWith("GET /downloads/") && input.contains("/SHA256SUMS "))
+                    body = (invalidChecksum ? QByteArray("invalid") : QCryptographicHash::hash(packageData, QCryptographicHash::Sha256).toHex())
+                        + "  " + packageName.toUtf8() + "\n";
+                else if (input.startsWith("GET /downloads/")) body = corruptPackage ? QByteArray("corrupted") : packageData;
+                else if (notes) body = changelog.toUtf8();
                 else if (malformed) body = "not json";
                 else if (olderBranch && !secondPage) {
                     QJsonArray page;
-                    for (int i = 0; i < 100; ++i) page.append(release("cef-v1.2.10-abcdef0"));
+                    for (int i = 0; i < 100; ++i) page.append(release("main-v9.0.0-abcdef0"));
                     body = QJsonDocument(page).toJson();
                 } else body = QJsonDocument(releases).toJson();
                 const int status = notes && notesFail ? 404 : httpStatus;
@@ -84,6 +92,7 @@ void checkUpdates()
         loop.exec();
         assert(dialog->property("opened").toBool());
     };
+    QSettings(QStringLiteral("aether64"), QStringLiteral("ReSketch")).setValue("updates/branch", "main");
     UpdateChecker checker(nullptr, "1.2.9", api);
     assert(checker.currentChangelog().startsWith("1.2.9 -"));
     assert(checker.enabled() && checker.branch() == "resketch-cef");
@@ -109,6 +118,9 @@ ApplicationWindow {
     visible: true; width: 880; height: 700
     App.UpdateSettings { anchors.fill: parent; updater: testUpdater }
     App.UpdateDialog { updater: testUpdater }
+    App.UpdateCompleteDialog { id: complete; updater: testUpdater }
+    App.UpdateCompleteDialog { updater: testUpdater; afterRestart: true }
+    Connections { target: testUpdater; function onInstallationComplete() { complete.open() } }
 })", QUrl::fromLocalFile(QDir::current().absoluteFilePath("tests/update-fixture.qml")));
     assert(!engine.rootObjects().isEmpty());
     auto *window = engine.rootObjects().first();
@@ -120,6 +132,7 @@ ApplicationWindow {
     };
     const auto child = [&](const char *name) { auto *item = window->findChild<QObject *>(QString::fromLatin1(name)); assert(item); return item; };
     assert(child("updateStatusHeading")->property("text") == "Update Found");
+    assert(!window->findChild<QObject *>("updateBranchCombo"));
     assert(child("updateChangelogPreview")->property("maximumLineCount").toInt() == 3);
     snapshot("found");
     assert(QMetaObject::invokeMethod(child("startupUpdateCheck"), "toggle"));
@@ -173,12 +186,11 @@ ApplicationWindow {
     { UpdateChecker disabled(nullptr, "1.2.9", api); disabled.checkAtStartup(); assert(!disabled.checking() && requests == before); }
     checker.checkForUpdates(); wait(checker);
     assert(checker.available().value("version") == "1.3.0");
-    checker.setBranch("main");
     olderBranch = true;
     checker.checkForUpdates(); wait(checker);
-    assert(pageTwo == 1 && checker.available().value("version") == "9.0.0");
-    { UpdateChecker saved(nullptr, "1.2.9", api); assert(!saved.enabled() && saved.branch() == "main"); }
-    releases = {release("main-v0.3.8-abcdef0")}; olderBranch = false;
+    assert(pageTwo == 1 && checker.available().value("version") == "1.3.0");
+    { UpdateChecker saved(nullptr, "1.2.9", api); assert(!saved.enabled() && saved.branch() == "resketch-cef"); }
+    releases = {release("cef-v1.2.8-abcdef0")}; olderBranch = false;
     checker.checkForUpdates(); wait(checker);
     assert(checker.available().isEmpty() && checker.error().isEmpty());
     QCoreApplication::processEvents();
@@ -186,7 +198,7 @@ ApplicationWindow {
     assert(child("updateVersionLabel")->property("text") == "1.2.9");
     assert(child("updateChangelogPreview")->property("text") == checker.currentChangelog());
     snapshot("current");
-    releases = {release("main-v9.0.0-abcdef0")}; notesFail = true;
+    releases = {release("cef-v9.0.0-abcdef0")}; notesFail = true;
     checker.checkForUpdates(); wait(checker);
     assert(checker.available().value("changelog") == "Release notes fallback");
     malformed = true;
@@ -198,9 +210,91 @@ ApplicationWindow {
     QCoreApplication::processEvents();
     assert(child("updateStatusHeading")->property("text") == "Couldn't fetch updates.");
     httpStatus = 200;
-    checker.checkForUpdates(); checker.setBranch("resketch-cef");
+    checker.checkForUpdates(); checker.reset();
     assert(!checker.checking() && checker.available().isEmpty());
     checker.reset();
     assert(checker.enabled() && checker.branch() == "resketch-cef");
+    notesFail = false;
+    QTemporaryDir installerDirectory;
+    assert(installerDirectory.isValid());
+    const QString script = installerDirectory.filePath("installer");
+    const QString receipt = installerDirectory.filePath("receipt");
+    const auto writeInstaller = [&](int exitCode) {
+        QFile executable(script);
+        assert(executable.open(QIODevice::WriteOnly));
+        executable.write(("#!/bin/sh\ntest -f \"$1\" || exit 9\nprintf '%s\\n' \"$1\" > '" + receipt + "'\nexit "
+            + QString::number(exitCode) + "\n").toUtf8());
+        executable.close();
+        assert(executable.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+    };
+    writeInstaller(0);
+    auto installRelease = release("cef-v1.2.10-abcdef0");
+    installRelease["assets"] = QJsonArray{QJsonObject{{"name", packageName}}, QJsonObject{{"name", "SHA256SUMS"}}};
+    releases = {installRelease};
+    UpdateChecker installer(nullptr, "1.2.9", api, api.resolved(QUrl("downloads/")));
+    installer.m_installCommand = {script}; // Never invoke pacman or authenticate from tests.
+    installer.checkForUpdates(); wait(installer);
+    assert(installer.canInstall());
+    engine.rootContext()->setContextProperty("testUpdater", &installer);
+    const auto waitInstall = [&] {
+        QEventLoop loop;
+        QObject::connect(&installer, &UpdateChecker::changed, &loop, [&] { if (!installer.installing()) loop.quit(); });
+        QTimer::singleShot(5000, &loop, &QEventLoop::quit);
+        if (installer.installing()) loop.exec();
+        assert(!installer.installing());
+    };
+    installer.installUpdate();
+    assert(installer.installing());
+    assert(child("updateProgressBar")->property("visible").toBool());
+    installer.cancelDownload();
+    assert(!installer.installing() && !installer.installed() && !QFile::exists(receipt));
+    corruptPackage = true;
+    installer.installUpdate(); waitInstall();
+    assert(installer.installError().contains("checksum") && !QFile::exists(receipt));
+    corruptPackage = false; invalidChecksum = true;
+    installer.installUpdate(); waitInstall();
+    assert(installer.installError().contains("checksum") && !QFile::exists(receipt));
+    invalidChecksum = false;
+    writeInstaller(126);
+    installer.installUpdate(); waitInstall();
+    assert(installer.installError().contains("cancelled") && !installer.installed());
+    QFile::remove(receipt);
+    writeInstaller(0);
+    installer.installUpdate(); waitInstall();
+    assert(installer.installed() && installer.installError().isEmpty() && QFile::exists(receipt));
+    QFile installedPackage(receipt);
+    assert(installedPackage.open(QIODevice::ReadOnly));
+    assert(!QFile::exists(QString::fromUtf8(installedPackage.readAll()).trimmed())); // Temporary package removed after installation.
+    auto *complete = child("updateCompleteDialog");
+    waitOpened(complete);
+    assert(complete->property("title") == "Update Complete");
+    assert(child("finishUpdateButton")->property("text") == "Finish Update");
+    assert(child("updateLaterButton")->property("text") == "Update Later");
+    assert(QMetaObject::invokeMethod(child("updateLaterButton"), "clicked"));
+    waitClosed(complete);
+    assert(installer.installed()); // Deferring restart keeps the completed update available.
+    assert(child("installUpdateButton")->property("text") == "Finish Update");
+    snapshot("installed-later");
+    assert(!child("viewUpdateOnGitHubButton")->property("visible").toBool());
+    assert(!child("checkForUpdatesButton")->property("visible").toBool());
+    assert(!child("viewChangelogButton")->property("visible").toBool());
+    assert(installer.completedUpdate().isEmpty()); // It has not restarted into the new version yet.
+    UpdateChecker restarted(nullptr, "1.2.10", api);
+    assert(restarted.completedUpdate().value("version") == "1.2.10");
+    assert(restarted.completedUpdate().value("changelog").toString().contains("Fourth line"));
+    engine.rootContext()->setContextProperty("testUpdater", &restarted);
+    auto *postRestart = child("updatedVersionDialog");
+    assert(QMetaObject::invokeMethod(postRestart, "open"));
+    waitOpened(postRestart);
+    snapshot("restarted");
+    assert(postRestart->property("title") == "Update Complete");
+    auto *okay = postRestart->findChild<QObject *>("acknowledgeUpdateButton");
+    assert(okay && okay->property("text") == "Okay" && okay->property("visible").toBool());
+    assert(QMetaObject::invokeMethod(okay, "clicked"));
+    waitClosed(postRestart);
+    assert(restarted.completedUpdate().isEmpty());
+    { UpdateChecker later(nullptr, "1.2.10", api); assert(later.completedUpdate().isEmpty()); }
+    engine.rootContext()->setContextProperty("testUpdater", &checker);
     puts("Update startup, semantic versions, branch pagination, skip persistence, errors, cancellation and QML dialogs passed");
+    puts("Update package streaming, checksum verification, cancellation, installer outcomes and restart-later dialog checks passed");
 }

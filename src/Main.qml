@@ -72,6 +72,7 @@ Kirigami.ApplicationWindow {
         translucentSidebars: appSettings.translucentSidebars,
         floatingSidebars: appSettings.floatingSidebars,
         hideFloatingScrollbars: appSettings.hideFloatingScrollbars,
+        hideSidebarScrollbars: appSettings.hideSidebarScrollbars,
         sidebarCornerRadius: appSettings.sidebarCornerRadius,
         sidebarMargin: appSettings.sidebarMargin,
         sidebarShadowTransparency: appSettings.sidebarShadowTransparency,
@@ -176,6 +177,7 @@ Kirigami.ApplicationWindow {
     property point overviewPinchTranslation: Qt.point(0, 0)
     property real overviewPinchOffsetX: 0
     property real overviewPinchOffsetY: 0
+    property real overviewPinchStretch: 1
     property real overviewPinchVelocity: 0
     property double overviewPinchUpdatedAt: 0
     property var sidebarSwipeView: null
@@ -1934,7 +1936,8 @@ Kirigami.ApplicationWindow {
                                 readonly property var container: group ? root.overviewGroupContainer(group.id) : null
                                 readonly property bool dragMember: !!root.dragView && root.dragViews.includes(previewView)
                                 readonly property bool floating: dragging || dragMember || settling || closing
-                                    || zooming && (root.overviewClosing || root.overviewProgress < 0.999)
+                                    || zooming && (root.overviewClosing || root.overviewProgress < 0.999
+                                                   || root.overviewPinchTracking || root.overviewPinchStretch !== 1)
                                 parent: container && root.overviewVisible && !floating
                                         ? container.cardArea : overviewFlickable.contentItem
                                 readonly property bool hosted: !!container && parent === container.cardArea
@@ -1970,10 +1973,18 @@ Kirigami.ApplicationWindow {
                                          || (zooming && root.overviewProgress < 0.999)
                                 enabled: !closing && !container?.transitioning
                                 z: dragging || settling ? 20 : dragMember ? 19 : zooming ? 10 : closing ? 9 : 0
-                                transform: Translate {
-                                    x: overviewCard.dragOffsetX + (overviewCard.zooming ? root.overviewPinchOffsetX : 0)
-                                    y: overviewCard.dragOffsetY + (overviewCard.zooming ? root.overviewPinchOffsetY : 0)
-                                }
+                                transform: [
+                                    Scale {
+                                        origin.x: root.overviewPinchCardAnchor.x * overviewCard.width
+                                        origin.y: root.overviewPinchCardAnchor.y * overviewCard.height
+                                        xScale: overviewCard.zooming ? root.overviewPinchStretch : 1
+                                        yScale: xScale
+                                    },
+                                    Translate {
+                                        x: overviewCard.dragOffsetX + (overviewCard.zooming ? root.overviewPinchOffsetX : 0)
+                                        y: overviewCard.dragOffsetY + (overviewCard.zooming ? root.overviewPinchOffsetY : 0)
+                                    }
+                                ]
                                 opacity: entrance
                                 x: (closing ? previewView.overviewCloseX
                                    : dragging ? dragOriginX
@@ -1999,32 +2010,47 @@ Kirigami.ApplicationWindow {
                                         root.attachOverviewFrame(previewView)
                                 }
                                 Component.onDestruction: root.detachFrameForCard(overviewCard)
+                                Connections {
+                                    target: root
+                                    function onOverviewPinchTrackingChanged() {
+                                        if (root.overviewPinchTracking && overviewCard.zooming) {
+                                            cardMoveX.complete()
+                                            cardMoveY.complete()
+                                            cardResizeWidth.complete()
+                                            cardResizeHeight.complete()
+                                        }
+                                    }
+                                }
                                 Behavior on x {
                                     enabled: root.overviewVisible && root.overviewProgress >= 0.999
+                                             && !root.overviewPinchTracking
                                              && overviewCard.entrance >= 0.999 && !root.overviewAnimationRunning
                                              && !overviewCard.dragging && !overviewCard.settling
                                              && !overviewCard.changingParent && !overviewCard.container?.transitioning
                                              && !appSettings.reduceMotion
-                                    NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                                    NumberAnimation { id: cardMoveX; duration: 240; easing.type: Easing.OutCubic }
                                 }
                                 Behavior on y {
                                     enabled: root.overviewVisible && root.overviewProgress >= 0.999
+                                             && !root.overviewPinchTracking
                                              && overviewCard.entrance >= 0.999 && !root.overviewAnimationRunning
                                              && !root.overviewGroupAnimationRunning
                                              && !overviewCard.dragging && !overviewCard.settling
                                              && !overviewCard.changingParent && !overviewCard.container?.transitioning
                                              && !appSettings.reduceMotion
-                                    NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                                    NumberAnimation { id: cardMoveY; duration: 240; easing.type: Easing.OutCubic }
                                 }
                                 Behavior on width {
                                     enabled: !overviewCard.closing && root.overviewVisible
+                                             && !root.overviewPinchTracking
                                              && root.overviewProgress >= 0.999 && !appSettings.reduceMotion
-                                    NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                                    NumberAnimation { id: cardResizeWidth; duration: 240; easing.type: Easing.OutCubic }
                                 }
                                 Behavior on height {
                                     enabled: !overviewCard.closing && root.overviewVisible
+                                             && !root.overviewPinchTracking
                                              && root.overviewProgress >= 0.999 && !appSettings.reduceMotion
-                                    NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                                    NumberAnimation { id: cardResizeHeight; duration: 240; easing.type: Easing.OutCubic }
                                 }
 
                                 function settleFrom(point) {
@@ -2535,14 +2561,43 @@ Kirigami.ApplicationWindow {
         sourceComponent: SettingsWindow { visible: false }
     }
     UpdateDialog { id: updateNotice; updater: appSettings.updates }
+    UpdateCompleteDialog { id: updateCompleteNotice; updater: appSettings.updates }
+    property bool pendingUpdateNotice: false
+    UpdateCompleteDialog {
+        id: updatedVersionNotice
+        updater: appSettings.updates
+        afterRestart: true
+        onClosed: {
+            if (root.pendingUpdateNotice) {
+                root.pendingUpdateNotice = false
+                updateNotice.open()
+            }
+        }
+    }
     Connections {
         target: appSettings.updates
-        function onUpdateAvailable() { if (!root.primaryWindow) updateNotice.open() }
+        function onUpdateAvailable() {
+            if (!root.primaryWindow) {
+                if (updatedVersionNotice.visible) root.pendingUpdateNotice = true
+                else updateNotice.open()
+            }
+        }
+        function onInstallationComplete() {
+            if (!root.primaryWindow) {
+                root.raise()
+                root.requestActivate()
+                updateCompleteNotice.open()
+            }
+        }
     }
     Timer {
         interval: 1500
-        running: !root.primaryWindow && !appSettings.safeMode
-        onTriggered: if (appSettings.updates) appSettings.updates.checkAtStartup()
+        running: !root.primaryWindow
+        onTriggered: {
+            if (!appSettings.updates) return
+            if (appSettings.updates.completedUpdate.version) updatedVersionNotice.open()
+            if (!appSettings.safeMode) appSettings.updates.checkAtStartup()
+        }
     }
     AuxiliaryWindowLoader {
         id: aboutWindowLoader
@@ -2702,6 +2757,7 @@ Kirigami.ApplicationWindow {
 
     ParallelAnimation {
         id: overviewPinchSettle
+        NumberAnimation { target: root; property: "overviewPinchStretch"; to: 1; duration: 300; easing.type: Easing.OutCubic }
         NumberAnimation { target: root; property: "overviewPinchOffsetX"; to: 0; duration: 300; easing.type: Easing.OutCubic }
         NumberAnimation { target: root; property: "overviewPinchOffsetY"; to: 0; duration: 300; easing.type: Easing.OutCubic }
     }
@@ -2927,6 +2983,7 @@ Kirigami.ApplicationWindow {
             useSystemCursor: appSettings.useSystemCursor
             settings.scrollAnimatorEnabled: appSettings.smoothScrolling && !appSettings.reduceMotion
             settings.inertialScrollingEnabled: appSettings.inertialScrolling && !appSettings.reduceMotion
+            settings.mouseScrollSensitivity: appSettings.mouseScrollSensitivity
             onTrackpadScroll: (dx, dy, phase, position) => {
                 trackpadScrollAccepted = webView.ownerWindow.handleSidebarSwipe(webView, dx, dy, phase, position)
             }
@@ -3754,8 +3811,9 @@ Kirigami.ApplicationWindow {
             selectionGlide.stop()
             homeSelectionGlide = !!target && (target === homeView || sidebarSwipeView === homeView)
         }
-        const next = target ? Math.max(-browserWidth, Math.min(browserWidth, sidebarSwipeDelta.x))
-                            : sidebarSwipeDelta.x / (1 + Math.abs(sidebarSwipeDelta.x) / browserWidth) * 0.25
+        const distance = sidebarSwipeDelta.x * appSettings.gestureSensitivity / 100
+        const next = target ? Math.max(-browserWidth, Math.min(browserWidth, distance))
+                            : distance / (1 + Math.abs(distance) / browserWidth) * 0.25
         const now = Date.now()
         if (sidebarSwipeUpdatedAt)
             sidebarSwipeVelocity = Math.max(-3000, Math.min(3000, (next - sidebarSwipeDistance) * 500
@@ -3863,6 +3921,8 @@ Kirigami.ApplicationWindow {
         }
         overviewPinchTracking = true
         overviewPinchOrigin = origin
+        if (!overviewPinchOpeningCard)
+            overviewPinchCardAnchor = Qt.point(origin.x / browserArea.width, origin.y / browserArea.height)
         overviewPinchScale = 1
         overviewPinchTranslation = Qt.point(0, 0)
         overviewPinchVelocity = 0
@@ -3884,18 +3944,27 @@ Kirigami.ApplicationWindow {
         if (!overviewPinchTracking || !Number.isFinite(scale) || scale <= 0) return
         overviewPinchScale = scale
         overviewPinchTranslation = translation
+        const adjustedScale = Math.pow(scale, appSettings.gestureSensitivity / 100)
         if (canvasPinchView && canvasPinchView === activeView) {
             const point = canvasPinchView.mapFromItem(browserArea, overviewPinchOrigin.x + translation.x,
                                                      overviewPinchOrigin.y + translation.y)
-            canvasPinchView.pinchZoom(scale / canvasPinchScale, point)
-            canvasPinchScale = scale
+            canvasPinchView.pinchZoom(adjustedScale / canvasPinchScale, point)
+            canvasPinchScale = adjustedScale
             return
         }
-        if (!overviewPinchAccepted || (!overviewVisible && scale >= 0.98)) return
+        if (!overviewPinchAccepted || (!overviewVisible && adjustedScale >= 0.98)) return
         if (!overviewVisible) openOverview(true)
-        const progress = Math.max(0, Math.min(1, overviewPinchOpeningCard
-            ? 1 - (scale - 1) / Math.max(0.01, 1 - overviewScale)
-            : (1 - scale) / Math.max(0.01, 1 - overviewScale)))
+        const rawProgress = overviewPinchOpeningCard
+            ? 1 - (adjustedScale - 1) / Math.max(0.01, 1 - overviewScale)
+            : (1 - adjustedScale) / Math.max(0.01, 1 - overviewScale)
+        const progress = Math.max(0, Math.min(1, rawProgress))
+        // Keep layout progress bounded; only the selected preview stretches.
+        // Logarithmic resistance keeps growing without a hard scale limit.
+        const requestedSize = 1 - (1 - overviewScale) * rawProgress
+        overviewPinchStretch = appSettings.reduceMotion ? 1 : requestedSize > 1
+            ? 1 + 0.2 * Math.log1p((requestedSize - 1) / 0.2)
+            : requestedSize < overviewScale
+                ? 1 / (1 + Math.log1p((overviewScale - requestedSize) / overviewScale)) : 1
         const now = Date.now()
         const velocity = (progress - overviewProgress) * 1000 / Math.max(8, now - overviewPinchUpdatedAt)
         overviewPinchVelocity = Math.max(-3, Math.min(3, velocity * 0.5 + overviewPinchVelocity * 0.5))
@@ -3953,9 +4022,10 @@ Kirigami.ApplicationWindow {
         ++overviewPinchGeneration
         overviewPinchSettle.stop()
         if (resetOffset || appSettings.reduceMotion) {
+            overviewPinchStretch = 1
             overviewPinchOffsetX = 0
             overviewPinchOffsetY = 0
-        } else if (overviewPinchOffsetX || overviewPinchOffsetY) overviewPinchSettle.start()
+        } else if (overviewPinchOffsetX || overviewPinchOffsetY || overviewPinchStretch !== 1) overviewPinchSettle.start()
     }
 
     function toggleOverview() {

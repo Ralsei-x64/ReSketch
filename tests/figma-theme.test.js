@@ -71,6 +71,12 @@ function page(hostname = 'www.figma.com', native = true) {
     }
 }
 
+const scrollbarPage = page();
+scrollbarPage.run({});
+assert.match(scrollbarPage.elements.get('resketch-sidebar-scrollbars').textContent, /scrollbar-width:none/);
+assert.doesNotMatch(scrollbarPage.elements.get('resketch-sidebar-scrollbars').textContent, /gpu-view-content|overflow:hidden/);
+scrollbarPage.run({hideSidebarScrollbars:false});
+assert(!scrollbarPage.elements.has('resketch-sidebar-scrollbars'), 'Sidebar scrollbars can be restored independently of canvas scrollbars');
 const editorPage = page();
 const attributes = new Map();
 const commentEditor = {matches: () => true, setAttribute: (key, value) => attributes.set(key, value)};
@@ -160,7 +166,7 @@ app.run({dark: false, systemColors: true, palette: {text: '#123456', window: '#a
 assert.match(app.elements.get('resketch-system-colors').textContent, /--color-text:#123456 !important/)
 assert.doesNotMatch(app.elements.get('resketch-system-colors').textContent, /canvas/)
 assert.equal(app.children.at(-1).id, 'resketch-custom-css')
-app.run({dark: true})
+app.run({dark: true, hideSidebarScrollbars:false})
 assert.equal(app.elements.size, 0, 'disabling overrides restores Figma styles')
 assert.doesNotMatch(app.context.paletteCss({text: 'red; } body {display:none'}), /display:none/)
 

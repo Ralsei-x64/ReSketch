@@ -60,10 +60,12 @@ class CefViewSettings : public QObject {
     QML_ANONYMOUS
     Q_PROPERTY(bool scrollAnimatorEnabled MEMBER scrollAnimatorEnabled NOTIFY changed)
     Q_PROPERTY(bool inertialScrollingEnabled MEMBER inertialScrollingEnabled NOTIFY changed)
+    Q_PROPERTY(int mouseScrollSensitivity MEMBER mouseScrollSensitivity NOTIFY changed)
   public:
     explicit CefViewSettings(QObject *parent) : QObject(parent) {}
     bool scrollAnimatorEnabled = true;
     bool inertialScrollingEnabled = true;
+    int mouseScrollSensitivity = 100;
   signals:
     void changed();
 };
