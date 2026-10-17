@@ -3,6 +3,9 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
 About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
+1.4.18 - 2026-10-17
+Fixed right-sidebar positioning and clipping below banners, enabled tab swipes and overview pinches over vertical-only scroll areas, and applied sidebar transparency and blur to the toolbox.
+
 1.4.17 - 2026-10-17
 Replaced greyed-out managed update settings with an Updates are disabled card, package-manager explanation, version information and an offline View Changelog button.
 

@@ -2,14 +2,23 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 function validColor(color) { return /^#[0-9a-f]{6}$/i.test(color || "") }
+var toolboxSelector = '[class^="toolbelt--root--"],[class*=" toolbelt--root--"]'
 function sidebarGestureHitTest(x, y) {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return "'none'"
     return `(()=>{
         const node = document.elementFromPoint(${x}, ${y});
-        if (node?.closest('[class*="toolbelt--root--"]'))
-            return node.closest('input,textarea,select,[contenteditable="true"],[role="textbox"],[role="menu"],[role="dialog"],[role="listbox"]') ? 'none' : 'dock';
+        if (node?.closest('input,textarea,select,[contenteditable="true"],[role="textbox"],[role="slider"],[role="spinbutton"],[role="menu"],[role="dialog"],[role="listbox"]')) return 'none';
+        if (node?.closest(${JSON.stringify(toolboxSelector)})) return 'dock';
+        if (node?.closest('.gpu-view-content')) return 'canvas';
+        let verticalScroll = false;
+        for (let parent = node; parent; parent = parent.parentElement) {
+            const style = getComputedStyle(parent);
+            if (['auto','scroll','overlay'].includes(style.overflowX) && parent.scrollWidth > parent.clientWidth + 1) return 'none';
+            verticalScroll ||= ['auto','scroll','overlay'].includes(style.overflowY) && parent.scrollHeight > parent.clientHeight + 1;
+        }
+        if (verticalScroll) return 'scroll';
         const panel = node?.closest('[data-resketch-sidebar],[data-testid="navigation-bar"],[data-onboarding-key="unified-design-onboarding-left-panel"],[data-testid="properties-panel"],[class*="left_panel_container--sizeContainer--"],[class*="sidebar--navDefault--"],.fb-sidebar');
-        if (!panel) return node?.closest('.gpu-view-content') ? 'canvas' : 'none';
+        if (!panel) return 'none';
         if (node.closest('button,a,input,textarea,select,label,svg,img,canvas,.ublptt9,[data-testid*="layer-row"],[data-testid*="layer_row"],[contenteditable="true"],[draggable="true"],[role="button"],[role="treeitem"],[role="row"],[role="gridcell"],[role="tab"],[role="checkbox"],[role="menuitem"],[role="menu"],[role="dialog"],[role="listbox"]')) return 'none';
         if (!['auto','default'].includes(getComputedStyle(node).cursor)) return 'none';
         return Array.from(node.childNodes).some(child => child.nodeType === Node.TEXT_NODE && child.textContent.trim()) ? 'none' : 'sidebar';
@@ -357,7 +366,8 @@ function sidebarAppearance(options, stylesheet) {
         return;
     }
     const minimized = '[class*="left_panel_island_container--islandContainer--"][class*="left_panel_island_container--collapsed--"], [class*="properties_panel--panelContainerCollapsed"]';
-    const selector = '[data-testid="navigation-bar"], [data-onboarding-key="unified-design-onboarding-left-panel"], [data-testid="properties-panel"]:not(:has([class*="properties_panel--panelContainerCollapsed"])), [class*="left_panel_container--sizeContainer--"]:not(:has([data-onboarding-key="unified-design-onboarding-left-panel"])), [class*="sidebar--navDefault--"], .fb-sidebar, ' + minimized;
+    const toolbox = ${JSON.stringify(toolboxSelector)};
+    const selector = '[data-testid="navigation-bar"], [data-onboarding-key="unified-design-onboarding-left-panel"], [data-testid="properties-panel"]:not(:has([class*="properties_panel--panelContainerCollapsed"])), [class*="left_panel_container--sizeContainer--"]:not(:has([data-onboarding-key="unified-design-onboarding-left-panel"])), [class*="sidebar--navDefault--"], .fb-sidebar, ' + minimized + ', ' + toolbox;
     // Comments and collaborator cursors are separate from the WebGL canvas.
     const commentSelector = '[class*="comments_view--outerAnchorContainer--"], [class*="multiplayer_cursors--root--"], [class*="viewport_overlay--overflowContainer--"]';
     let panels = [], ancestors = new Set(), canvases = [], comments = [], frame = 0;
@@ -379,7 +389,7 @@ function sidebarAppearance(options, stylesheet) {
         + 'height:var(--resketch-sidebar-height) !important; min-height:0 !important;'
         + 'border:1px solid var(--color-border) !important;'
         + 'box-shadow:var(--resketch-sidebar-shadow) !important;'
-        + 'margin:var(--resketch-sidebar-gap-vertical) var(--resketch-sidebar-gap-right) var(--resketch-sidebar-gap-vertical) var(--resketch-sidebar-gap-left) !important; border-radius:var(--resketch-sidebar-radius) !important; overflow:hidden !important; }'
+        + 'margin:calc(var(--resketch-sidebar-gap-vertical) + var(--resketch-sidebar-offset-top, 0px)) var(--resketch-sidebar-gap-right) var(--resketch-sidebar-gap-vertical) var(--resketch-sidebar-gap-left) !important; border-radius:var(--resketch-sidebar-radius) !important; overflow:hidden !important; }'
         + '[data-resketch-sidebar-join="start"] { border-right:1px solid var(--color-border) !important; border-radius:var(--resketch-sidebar-radius) 0 0 var(--resketch-sidebar-radius) !important; }'
         + '[data-resketch-sidebar-join="end"] { border-left:0 !important; border-radius:0 var(--resketch-sidebar-radius) var(--resketch-sidebar-radius) 0 !important; }'
         // Joined panels only cast a shadow on the outside of their shared card.
@@ -387,6 +397,7 @@ function sidebarAppearance(options, stylesheet) {
         + '[data-resketch-sidebar-join="end"] { clip-path:inset(-100px -100px -100px 0) !important; }'
         + '[data-resketch-floating-sidebar] :is([class*="left_panel_container--panel--"],[class*="properties_panel--panelPosition--"]) '
         + '{ box-sizing:border-box !important; width:100% !important; height:100% !important; border:0 !important; }'
+        + '[data-resketch-floating-sidebar] [class*="properties_panel--panelPosition--"] { top:0 !important; bottom:0 !important; }'
         + '[data-resketch-floating-sidebar] [class*="properties_panel--panelContainer--"] { border-left:0 !important; }'
         + '[data-resketch-floating-sidebar] [class*="comments_sidebar--container--"] { width:100% !important; min-width:0 !important; }'
         + '[data-resketch-floating-sidebar][class*="sidebar--navDefault--"] > *, '
@@ -414,7 +425,7 @@ function sidebarAppearance(options, stylesheet) {
             panel.removeAttribute('data-resketch-sidebar');
             panel.removeAttribute('data-resketch-floating-sidebar');
             panel.removeAttribute('data-resketch-sidebar-join');
-            for (const name of ['tint','surface','content','blur','shadow','width','height','gap-left','gap-right','gap-vertical','radius'])
+            for (const name of ['tint','surface','content','blur','shadow','width','height','offset-top','gap-left','gap-right','gap-vertical','radius'])
                 panel.style.removeProperty('--resketch-sidebar-' + name);
         }
         for (const ancestor of ancestors) ancestor.removeAttribute('data-resketch-sidebar-ancestor');
@@ -435,7 +446,7 @@ function sidebarAppearance(options, stylesheet) {
         if (canvasBehind && canvasView) {
             layout ||= floatingCanvasLayout();
             const bounds = canvasView.getBoundingClientRect();
-            if (Math.abs(bounds.left) > 1 || Math.abs(bounds.top) > 1
+            if (Math.abs(bounds.left) > 1
                     || Math.abs(bounds.right - innerWidth) > 1
                     || Math.abs(bounds.bottom - innerHeight) > 1) layout?.update();
         }
@@ -487,14 +498,23 @@ function sidebarAppearance(options, stylesheet) {
             panel.style.setProperty('--resketch-sidebar-blur', translucent && options.sidebarBackdrop === 'canvas'
                 && options.sidebarCanvasBlur > 0 ? 'blur(' + options.sidebarCanvasBlur + 'px)' : 'none');
             const bounds = panel.getBoundingClientRect();
-            // Figma's minimized controls already float at their native size.
-            if (options.floatingSidebars && !panel.matches(minimized) && bounds.width && bounds.height) {
+            // Minimized controls and the toolbox retain their native geometry.
+            if (options.floatingSidebars && !panel.matches(minimized + ', ' + toolbox) && bounds.width && bounds.height) {
                 const margin = options.sidebarMargin;
+                const rightPanel = panel.matches('[data-testid="properties-panel"]');
+                const position = rightPanel ? panel.querySelector('[class*="properties_panel--panelPosition--"]') : null;
+                // Figma offsets the inner right panel for banners, while its
+                // outer wrapper still spans the viewport. Apply that inset once.
+                // The canvas offset is available even before panel CSS loads.
+                const insetTop = rightPanel ? Math.max(0,
+                    (position?.getBoundingClientRect().top ?? bounds.top) - bounds.top,
+                    (canvasView?.getBoundingClientRect().top ?? bounds.top) - bounds.top) : 0;
                 const gap = bounds.width < 100 ? margin / 2 : margin;
                 const gapLeft = joined && panel === leftPanel ? 0 : joined && panel === rail ? margin : gap;
                 const gapRight = joined && panel === rail ? 0 : gap;
                 panel.style.setProperty('--resketch-sidebar-width', Math.max(1, bounds.width - gapLeft - gapRight) + 'px');
-                panel.style.setProperty('--resketch-sidebar-height', Math.max(1, bounds.height - 2 * margin) + 'px');
+                panel.style.setProperty('--resketch-sidebar-height', Math.max(1, bounds.height - insetTop - 2 * margin) + 'px');
+                panel.style.setProperty('--resketch-sidebar-offset-top', insetTop + 'px');
                 panel.style.setProperty('--resketch-sidebar-gap-vertical', margin + 'px');
                 panel.style.setProperty('--resketch-sidebar-gap-left', gapLeft + 'px');
                 panel.style.setProperty('--resketch-sidebar-gap-right', gapRight + 'px');

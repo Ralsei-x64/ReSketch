@@ -3775,7 +3775,7 @@ Kirigami.ApplicationWindow {
             view.runJavaScript(FigmaTheme.sidebarGestureHitTest(position.x, position.y), region => {
                 if (generation !== sidebarSwipeGeneration || sidebarSwipeView !== view) return
                 sidebarSwipePending = false
-                sidebarSwipeAllowed = region === "sidebar" || region === "dock"
+                sidebarSwipeAllowed = region === "sidebar" || region === "dock" || region === "scroll"
                 if (sidebarSwipeAllowed && sidebarSwipeAxis === 1) updateSidebarSwipe()
                 else if (!sidebarSwipeAllowed && sidebarSwipeHeld) {
                     view.replayWheel(sidebarSwipeBufferedDelta, sidebarSwipePosition)
@@ -3943,7 +3943,7 @@ Kirigami.ApplicationWindow {
         const local = view.mapFromItem(browserArea, origin.x, origin.y)
         view.runJavaScript(FigmaTheme.sidebarGestureHitTest(local.x, local.y), region => {
             if (!overviewPinchTracking || generation !== overviewPinchGeneration || activeView !== view) return
-            overviewPinchAccepted = region === "sidebar" || region === "dock"
+            overviewPinchAccepted = region === "sidebar" || region === "dock" || region === "scroll"
             canvasPinchView = region === "canvas" ? view : null
             updateOverviewPinch(overviewPinchScale, overviewPinchTranslation)
         })

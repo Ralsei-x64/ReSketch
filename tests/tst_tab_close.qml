@@ -2827,6 +2827,64 @@ Item {
             settings.close()
         }
 
+        function test_banner_sidebar_layout_and_toolbox_effects_data() {
+            return [{tag:"panel inset",innerInset:true}, {tag:"canvas before panel styles",innerInset:false}]
+        }
+        function test_banner_sidebar_layout_and_toolbox_effects(data) {
+            const view = app.activeView
+            const fixtureHtml = '<style>:root{--banner-height:40px}body{margin:0;--color-bg:#eeeeee}'
+                + '.gpu-view-content{position:absolute;top:var(--banner-height);bottom:0;width:100%;background:#444}'
+                + '[data-testid="properties-panel"]{position:absolute;right:0;top:0;bottom:0;width:240px}'
+                + '.properties_panel--panelPosition--fixture{position:absolute;top:' + (data.innerInset ? 'var(--banner-height)' : '0') + ';bottom:0;width:100%;background:var(--color-bg)}'
+                + '.positioned_design_toolbelt--root--fixture{position:fixed;left:0;right:0;bottom:12px;height:48px}'
+                + '.toolbelt--root--fixture{position:relative;margin:auto;width:320px;height:48px;border-radius:12px;background:white}</style>'
+                + '<div class="gpu-view-content"></div><div data-testid="properties-panel">'
+                + '<div class="properties_panel--panelPosition--fixture">Properties</div></div>'
+                + '<div class="positioned_design_toolbelt--root--fixture"><div class="toolbelt--root--fixture">Tools</div></div>'
+            let ready = false
+            view.runJavaScript('document.body.innerHTML=' + JSON.stringify(fixtureHtml), () => ready = true)
+            tryVerify(() => ready)
+            const options = {theme:"light",floatingSidebars:true,translucentSidebars:true,opacity:65,
+                sidebarBackdrop:"canvas",sidebarCanvasBlur:24,sidebarMargin:8,sidebarCornerRadius:12,
+                sidebarShadowStrength:40,sidebarShadowTransparency:65}
+            function apply() {
+                view.runJavaScript('(()=>{const location={pathname:"/design/Test/File"};' + FigmaTheme.sidebarMaskSource + ';'
+                    + FigmaTheme.sidebarSource + ';sidebarAppearance(' + JSON.stringify(options) + ',(id,css)=>{'
+                    + 'let s=document.getElementById(id);if(!s){s=document.createElement("style");s.id=id;document.head.append(s)}s.textContent=css;});})()')
+            }
+            let result = null
+            function inspect() {
+                view.runJavaScript('(()=>{const p=document.querySelector("[data-testid=properties-panel]"),'
+                    + 'c=p.firstElementChild,t=document.querySelector(".toolbelt--root--fixture"),'
+                    + 'r=p.getBoundingClientRect(),i=c.getBoundingClientRect(),b=t.getBoundingClientRect(),s=getComputedStyle(t);'
+                    + 'return {top:r.top,bottom:r.bottom,innerTop:i.top,innerBottom:i.bottom,viewport:innerHeight,'
+                    + 'toolbox:{width:b.width,height:b.height,bottom:b.bottom,bg:s.backgroundColor,blur:s.backdropFilter,'
+                    + 'marked:t.hasAttribute("data-resketch-sidebar"),floating:t.hasAttribute("data-resketch-floating-sidebar")},'
+                    + 'wrapperMarked:t.parentElement.hasAttribute("data-resketch-sidebar")}})()', value => result = value)
+            }
+            apply()
+            tryVerify(() => { inspect(); return result && result.toolbox.marked && result.top === 48 })
+            compare(result.bottom, result.viewport - 8)
+            verify(result.innerTop >= result.top && result.innerBottom <= result.bottom, "Banner inset is applied once, without clipping content")
+            compare(result.toolbox.width, 320)
+            compare(result.toolbox.height, 48)
+            compare(result.toolbox.bottom, result.viewport - 12)
+            compare(result.toolbox.floating, false)
+            compare(result.wrapperMarked, false, "The full-width toolbelt positioner is not a surface")
+            verify(result.toolbox.bg.includes("0.65"))
+            compare(result.toolbox.blur, "blur(24px)")
+            for (const height of [72, 0]) {
+                view.runJavaScript('document.documentElement.style.setProperty("--banner-height",' + JSON.stringify(height + "px") + ')')
+                tryVerify(() => { inspect(); return result && result.top === height + 8 })
+                compare(result.bottom, result.viewport - 8)
+                verify(result.innerBottom <= result.bottom)
+            }
+            options.sidebarBackdrop = "desktop"
+            apply()
+            tryVerify(() => { inspect(); return result && result.toolbox.bg === "rgba(0, 0, 0, 0)" })
+            compare(result.toolbox.blur, "none")
+        }
+
         function test_sidebar_transparency_uses_native_tint_once() {
             appSettings.reduceMotion = true
             appSettings.translucentSidebars = true
@@ -3361,6 +3419,56 @@ Item {
 
         function test_sidebar_pinch_tracks_scale_pan_and_settles_data() {
             return [{tag:"left",right:false}, {tag:"right",right:true}]
+        }
+
+        function test_vertical_scroll_regions_support_gestures_data() {
+            return [{tag:"vertical over button",horizontal:false,y:145,region:"scroll",accepted:true},
+                    {tag:"horizontal scroll",horizontal:true,y:145,region:"none",accepted:false},
+                    {tag:"text input",horizontal:false,y:215,region:"none",accepted:false},
+                    {tag:"canvas",horizontal:false,y:285,region:"canvas",accepted:false}]
+        }
+        function test_vertical_scroll_regions_support_gestures(data) {
+            const source = prepareSidebarPinchFixture()
+            appSettings.reduceMotion = true
+            let ready = false
+            const html = '<div style="position:absolute;left:300px;top:120px;width:260px;height:240px;overflow-y:auto;overflow-x:'
+                + (data.horizontal ? 'auto' : 'hidden') + '"><div style="width:' + (data.horizontal ? '700px' : '100%') + ';height:900px">'
+                + '<button role="treeitem" style="width:100%;height:60px;cursor:pointer">Layer</button>'
+                + '<input style="position:absolute;left:0;top:80px;width:200px;height:40px">'
+                + '<div class="gpu-view-content" style="position:absolute;left:0;top:140px;width:240px;height:80px"></div></div></div>'
+            source.runJavaScript('document.body.innerHTML=' + JSON.stringify(html), () => ready = true)
+            tryVerify(() => ready)
+            const point = Qt.point(340, data.y)
+            let region = null
+            source.runJavaScript(FigmaTheme.sidebarGestureHitTest(point.x, point.y), value => region = value)
+            tryVerify(() => region !== null)
+            compare(region, data.region)
+            app.beginOverviewPinch(point)
+            app.updateOverviewPinch(0.7, Qt.point(0,0))
+            if (data.accepted) {
+                tryCompare(app, "overviewPinchAccepted", true)
+                verify(app.overviewProgress > 0)
+            } else {
+                wait(100)
+                compare(app.overviewPinchAccepted, false)
+            }
+            app.updateOverviewPinch(1, Qt.point(0,0))
+            app.finishOverviewPinch()
+            tryCompare(app, "overviewVisible", false)
+            const target = app.views[app.views.indexOf(source) + 1]
+            app.handleSidebarSwipe(source,0,0,Qt.ScrollBegin,point)
+            tryCompare(app, "sidebarSwipePending", false)
+            compare(app.sidebarSwipeAllowed, data.accepted)
+            if (data.accepted) {
+                compare(app.handleSidebarSwipe(source,2,-80,Qt.ScrollUpdate,point), false, "Vertical scrolling is passed through")
+                compare(source.slideX, 0)
+                app.handleSidebarSwipe(source,0,0,Qt.ScrollEnd,point)
+                app.handleSidebarSwipe(source,0,0,Qt.ScrollBegin,point)
+                tryCompare(app, "sidebarSwipePending", false)
+            }
+            app.handleSidebarSwipe(source,-app.tabSlideDistance * 0.6,0,Qt.ScrollUpdate,point)
+            app.handleSidebarSwipe(source,0,0,Qt.ScrollEnd,point)
+            tryVerify(() => app.activeView === (data.accepted ? target : source))
         }
         function test_sidebar_pinch_tracks_scale_pan_and_settles(data) {
             const view = prepareSidebarPinchFixture()
