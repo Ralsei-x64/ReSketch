@@ -276,15 +276,19 @@ Item {
             // ScrollView disables flicking when a mouse is used. Wheels must still use our settings.
             scroller.interactive = false
             appSettings.smoothScrolling = false
-            appSettings.mouseScrollSensitivity = 200
+            const slider = findChild(window, "mouseScrollSensitivityControl")
+            compare(slider.to, 500)
+            slider.value = 500
+            slider.moved()
+            compare(appSettings.mouseScrollSensitivity, 500)
             const wheelArea = visualChild(section, "scrollGestureArea")
             verify(wheelArea && wheelArea.enabled, "Mouse mode must not disable the custom wheel handler")
             scroller.contentY = 0
-            mouseWheel(section, 30, 70, 0, -120)
-            compare(scroller.contentY, 240)
+            mouseWheel(section, 30, 70, 0, -60)
+            compare(scroller.contentY, 300)
             appSettings.mouseScrollSensitivity = 50
             mouseWheel(section, 30, 70, 0, -120)
-            compare(scroller.contentY, 300)
+            compare(scroller.contentY, 360)
             window.close()
         }
 

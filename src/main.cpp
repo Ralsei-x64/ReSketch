@@ -509,7 +509,7 @@ public:
     bool smoothScrolling() const { return store.value(QStringLiteral("smoothScrolling"), true).toBool(); }
     bool inertialScrolling() const { return store.value(QStringLiteral("inertialScrolling"), true).toBool(); }
     int gestureSensitivity() const { return qBound(25, store.value(QStringLiteral("gestureSensitivity"), 100).toInt(), 300); }
-    int mouseScrollSensitivity() const { return qBound(25, store.value(QStringLiteral("mouseScrollSensitivity"), 100).toInt(), 300); }
+    int mouseScrollSensitivity() const { return qBound(25, store.value(QStringLiteral("mouseScrollSensitivity"), 100).toInt(), 500); }
     bool reduceMotion() const { return store.value(QStringLiteral("reduceMotion"), false).toBool(); }
     int toolbarOpacity() const { return qBound(0, store.value(QStringLiteral("toolbarOpacity"), 100).toInt(), 100); }
     QVariantList toolbarItems() const
@@ -966,7 +966,7 @@ public:
     }
     void setMouseScrollSensitivity(int value)
     {
-        value = qBound(25, value, 300);
+        value = qBound(25, value, 500);
         if (mouseScrollSensitivity() == value) return;
         store.setValue(QStringLiteral("mouseScrollSensitivity"), value);
         emit changed();

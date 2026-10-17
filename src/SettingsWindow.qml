@@ -437,7 +437,7 @@ Kirigami.ApplicationWindow {
                                             objectName: "mouseScrollSensitivityControl"
                                             Layout.fillWidth: true
                                             from: 25
-                                            to: 300
+                                            to: 500
                                             stepSize: 5
                                             value: appSettings.mouseScrollSensitivity
                                             onMoved: appSettings.mouseScrollSensitivity = Math.round(value)

@@ -475,6 +475,10 @@ CefView {
         QCoreApplication::sendEvent(view, &homeMouse);
         until([&] { return js("homeScroll.scrollTop").toInt() == noEffectsStart + wheelDistance; }, "Disabled mouse smoothing still scrolls");
         require(js("homeWheels.length").toInt() == 1, "Disabling smoothing sends one mouse step");
+        view->settings()->setProperty("mouseScrollSensitivity", 500);
+        const int maximumSpeedStart = js("homeScroll.scrollTop").toInt();
+        QCoreApplication::sendEvent(view, &homeMouse);
+        until([&] { return js("homeScroll.scrollTop").toInt() == maximumSpeedStart + wheelDistance * 5; }, "Maximum scroll sensitivity sends the full 500 percent distance");
         view->settings()->setProperty("mouseScrollSensitivity", 200);
         const int sensitivityStart = js("homeScroll.scrollTop").toInt();
         QCoreApplication::sendEvent(view, &homeMouse);

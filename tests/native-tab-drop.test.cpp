@@ -279,6 +279,9 @@ int main(int argc, char **argv)
     settings.setHideSidebarScrollbars(false);
     { AppSettings saved; assert(saved.gestureSensitivity() == 200 && saved.mouseScrollSensitivity() == 150 && !saved.hideSidebarScrollbars()); }
     settings.setGestureSensitivity(900);
+    settings.setMouseScrollSensitivity(900);
+    assert(settings.mouseScrollSensitivity() == 500);
+    { AppSettings saved; assert(saved.mouseScrollSensitivity() == 500); }
     settings.setMouseScrollSensitivity(-10);
     assert(settings.gestureSensitivity() == 300 && settings.mouseScrollSensitivity() == 25);
     settings.resetSettings();

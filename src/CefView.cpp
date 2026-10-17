@@ -1698,7 +1698,7 @@ void CefQuickView::wheelEvent(QWheelEvent *event) {
         m_scrollSensitivityRemainder = {};
     if (!event->modifiers().testFlag(Qt::ControlModifier)) {
         // Preserve subpixel input at low speeds instead of dropping small steps.
-        const QPointF scaled = QPointF(delta) * (std::clamp(m_settings.mouseScrollSensitivity, 25, 300) / 100.0)
+        const QPointF scaled = QPointF(delta) * (std::clamp(m_settings.mouseScrollSensitivity, 25, 500) / 100.0)
             + m_scrollSensitivityRemainder;
         delta = scaled.toPoint();
         m_scrollSensitivityRemainder = scaled - delta;
