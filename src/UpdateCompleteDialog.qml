@@ -17,7 +17,7 @@ Controls.Dialog {
     parent: Controls.Overlay.overlay
     anchors.centerIn: parent
     width: Math.min(afterRestart ? 520 : 440, parent ? parent.width - 40 : 520)
-    padding: 20
+    padding: 16
     modal: true
     focus: true
     title: qsTr("Update Complete")

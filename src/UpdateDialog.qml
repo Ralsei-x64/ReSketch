@@ -12,7 +12,7 @@ Controls.Dialog {
     parent: Controls.Overlay.overlay
     anchors.centerIn: parent
     width: Math.min(520, parent ? parent.width - 40 : 520)
-    padding: 20
+    padding: 16
     background: Rectangle {
         radius: 12
         color: Kirigami.Theme.backgroundColor
@@ -26,7 +26,7 @@ Controls.Dialog {
         wrapMode: Text.Wrap
         leftPadding: dialog.leftPadding
         rightPadding: dialog.rightPadding
-        topPadding: Kirigami.Units.largeSpacing
+        topPadding: dialog.topPadding
     }
     modal: true
     focus: true

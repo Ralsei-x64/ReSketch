@@ -16,7 +16,7 @@ Controls.Dialog {
     height: Math.min(560, parent ? parent.height - 40 : 560,
                      notesText.contentHeight + topPadding + bottomPadding
                      + implicitHeaderHeight + implicitFooterHeight + spacing * 2)
-    padding: 20
+    padding: 16
     background: Rectangle {
         radius: 12
         color: Kirigami.Theme.backgroundColor
