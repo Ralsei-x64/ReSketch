@@ -338,6 +338,32 @@ CefView {
             view->browser()->GetHost()->GetClient()->GetRenderHandler()->GetViewRect(view->browser(), rect);
             return QSize(rect.width, rect.height);
         };
+        js("window.liveResizeWidths=[];window.liveResizeListener=()=>liveResizeWidths.push(innerWidth);addEventListener('resize',liveResizeListener)");
+        int resizeSteps = 0;
+        QTimer liveResize;
+        liveResize.setInterval(16);
+        QObject::connect(&liveResize, &QTimer::timeout, [&] {
+            ++resizeSteps;
+            const QSize size(400 + resizeSteps % 24 * 12, 300 + resizeSteps % 24 * 6);
+            window.resize(size);
+            view->setSize(size);
+            require(viewport() == size, "focused resize reaches CEF synchronously for every geometry change");
+        });
+        liveResize.start();
+        until([&] { return resizeSteps >= 8; }, "continuous focused resizing");
+        require(js("liveResizeWidths.length>1 && liveResizeWidths.some(width=>width>400)").toBool(),
+                "Chromium relayout runs while the window is still being resized");
+        require(liveResize.isActive(), "foreground relayout does not wait for resize to finish");
+        until([&] {
+            const auto frame = snapshot();
+            return frame.width() > 420 && frame.pixelColor(420,180).blue() > 180;
+        }, "focused tab paints newly exposed canvas pixels during continuous resizing");
+        liveResize.stop();
+        js("removeEventListener('resize',liveResizeListener)");
+        window.resize(400,300);
+        view->setSize(QSizeF(400,300));
+        until([&] { return js("innerWidth===400 && innerHeight===300").toBool(); }, "viewport restored after live resizing");
+        until([&] { return snapshot().pixelColor(100,220).blue() > 180; }, "paint restored after continuous resizing");
         view->setLifecycleState(CefQuickView::LifecycleState::Frozen);
         window.resize(600,450);
         view->setSize(QSizeF(600,450));

@@ -48,6 +48,8 @@
 namespace {
 QList<QPointer<CefQuickView>> backgroundResizeQueue;
 QPointer<CefQuickView> backgroundResizeView;
+QElapsedTimer foregroundResizeClock;
+bool backgroundResizeResumePending = false;
 // Keep Chromium's private/custom data when a page drags within or between
 // views.
 class BrowserDragData final : public QMimeData {
@@ -1410,11 +1412,18 @@ void CefQuickView::syncScreen() {
 void CefQuickView::scheduleResize() {
     if (!m_browser || m_lifecycle == LifecycleState::Discarded)
         return;
-    // Coalesce width/height changes in one GUI turn. Hidden tabs only need
-    // occasional layout updates; keep them out of the interactive resize path.
-    const int delay = isVisible() && m_lifecycle == LifecycleState::Active && !m_overviewPreview ? 0 : 200;
-    if (!m_resizeTimer.isActive() || m_resizeTimer.remainingTime() > delay)
-        m_resizeTimer.start(delay);
+    if (isVisible() && m_lifecycle == LifecycleState::Active && !m_overviewPreview) {
+        foregroundResizeClock.start();
+        resizeBrowser();
+        // Rapid OSR resizes can retire the compositor surface before its last
+        // frame arrives. Regenerate it for the current viewport and repaint.
+        m_browser->GetHost()->NotifyScreenInfoChanged();
+        m_browser->GetHost()->Invalidate(PET_VIEW);
+        runtime().schedule(0);
+        return;
+    }
+    if (!m_resizeTimer.isActive())
+        m_resizeTimer.start(200);
 }
 void CefQuickView::resizeBrowser(bool force) {
     m_resizeTimer.stop();
@@ -1434,6 +1443,19 @@ void CefQuickView::resizeBrowser(bool force) {
 }
 void CefQuickView::processBackgroundResizes() {
     if (backgroundResizeView) return;
+    // Let the focused page keep up with live resizing before starting another
+    // background repaint in Chromium's shared renderer.
+    if (!backgroundResizeQueue.isEmpty() && foregroundResizeClock.isValid()
+            && foregroundResizeClock.elapsed() < 120) {
+        if (!backgroundResizeResumePending) {
+            backgroundResizeResumePending = true;
+            QTimer::singleShot(std::max(1, 120 - int(foregroundResizeClock.elapsed())), qApp, [] {
+                backgroundResizeResumePending = false;
+                processBackgroundResizes();
+            });
+        }
+        return;
+    }
     while (!backgroundResizeQueue.isEmpty()) {
         auto view = backgroundResizeQueue.takeFirst();
         if (!view || !view->m_browser || view->m_closing) continue;
@@ -1565,6 +1587,13 @@ void CefQuickView::publishFrame(const QImage &image, bool popup) {
     update();
 }
 void CefQuickView::publishAccelerated(const CefAcceleratedPaintInfo &info, bool popup) {
+    // Chromium can temporarily scale and letterbox a new viewport into an old
+    // capture buffer during resizing. Keep the last native-scale frame until
+    // the capture size catches up instead of showing those distorted pixels.
+    if (!popup && info.extra.has_source_size
+            && (info.extra.source_size.width != info.extra.visible_rect.width
+                || info.extra.source_size.height != info.extra.visible_rect.height))
+        return;
     auto frame = copyCefTexture(info);
     if (!frame) {
         // Recreate the browser with bitmap transport only if importing shared

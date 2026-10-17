@@ -17,7 +17,7 @@ Kirigami.ApplicationWindow {
     objectName: mode === "tasks" ? "chromiumTaskManagerWindow" : "developerToolsWindow"
     transientParent: null
     modality: Qt.NonModal
-    title: mode === "tasks" ? qsTr("Chromium Task Manager") : qsTr("Developer Tools")
+    title: mode === "tasks" ? qsTr("Task Manager") : qsTr("Developer Tools")
     width: 900; height: 640
     minimumWidth: 580; minimumHeight: 360
     flags: framelessControls ? Qt.Window | Qt.FramelessWindowHint

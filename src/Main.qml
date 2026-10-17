@@ -140,7 +140,7 @@ Kirigami.ApplicationWindow {
     property bool nativeTabDragRequested: false
     property alias browserContent: browserArea
     readonly property real browserWidth: browserArea.width
-    readonly property real tabSlideGap: 32
+    readonly property real tabSlideGap: 64
     readonly property real tabSlideDistance: browserWidth + tabSlideGap
     readonly property real browserHeight: browserArea.height
     readonly property var browserProfile: sharedProfile || figmaProfile
@@ -310,7 +310,7 @@ Kirigami.ApplicationWindow {
             Platform.MenuSeparator { visible: figmaMenus.preferencesActionCount > 0 }
             Platform.MenuItem { text: qsTr("Settings…"); onTriggered: root.openSettings() }
             Platform.MenuSeparator {}
-            Platform.MenuItem { objectName: "nativeTaskManagerAction"; text: qsTr("Chromium Task Manager…"); onTriggered: root.openTaskManager() }
+            Platform.MenuItem { objectName: "nativeTaskManagerAction"; text: qsTr("Task Manager…"); onTriggered: root.openTaskManager() }
             Platform.MenuItem { objectName: "nativeDeveloperToolsAction"; text: qsTr("Developer Tools…"); enabled: !!root.activeView; onTriggered: root.openDeveloperTools() }
         }
     }
@@ -1158,7 +1158,7 @@ Kirigami.ApplicationWindow {
                             Controls.MenuSeparator { visible: figmaMenus.preferencesActionCount > 0 }
                             Controls.MenuItem { text: qsTr("Settings…"); onTriggered: root.openSettings() }
                             Controls.MenuSeparator {}
-                            Controls.MenuItem { objectName: "taskManagerAction"; text: qsTr("Chromium Task Manager…"); onTriggered: root.openTaskManager() }
+                            Controls.MenuItem { objectName: "taskManagerAction"; text: qsTr("Task Manager…"); onTriggered: root.openTaskManager() }
                             Controls.MenuItem { objectName: "developerToolsAction"; text: qsTr("Developer Tools…"); enabled: !!root.activeView; onTriggered: root.openDeveloperTools() }
                         }
                     }
