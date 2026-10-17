@@ -134,6 +134,8 @@ ApplicationWindow {
     assert(child("updateStatusHeading")->property("text") == "Update Found");
     assert(!window->findChild<QObject *>("updateBranchCombo"));
     assert(child("updateChangelogPreview")->property("maximumLineCount").toInt() == 3);
+    assert(child("viewChangelogButton")->property("text") == "Read Changes");
+    assert(!child("viewChangelogButton")->property("flat").toBool());
     snapshot("found");
     assert(QMetaObject::invokeMethod(child("startupUpdateCheck"), "toggle"));
     assert(QMetaObject::invokeMethod(child("startupUpdateCheck"), "toggled"));
@@ -270,6 +272,8 @@ ApplicationWindow {
     assert(complete->property("title") == "Update Complete");
     assert(child("finishUpdateButton")->property("text") == "Finish Update");
     assert(child("updateLaterButton")->property("text") == "Update Later");
+    assert(complete->findChild<QObject *>("finishUpdateButton")->property("activeFocus").toBool());
+    snapshot("restart-prompt");
     assert(QMetaObject::invokeMethod(child("updateLaterButton"), "clicked"));
     waitClosed(complete);
     assert(installer.installed()); // Deferring restart keeps the completed update available.
@@ -288,8 +292,19 @@ ApplicationWindow {
     waitOpened(postRestart);
     snapshot("restarted");
     assert(postRestart->property("title") == "Update Complete");
+    assert(postRestart->property("height").toDouble() < 400); // Short notes should not reserve an empty full-height editor.
     auto *okay = postRestart->findChild<QObject *>("acknowledgeUpdateButton");
     assert(okay && okay->property("text") == "Okay" && okay->property("visible").toBool());
+    assert(okay->property("activeFocus").toBool());
+    restarted.m_currentChangelog = "1.2.10 - 2026-10-16\n" + QString("Long release notes that wrap and remain readable in a small window.\n").repeated(60);
+    restarted.changed();
+    window->setProperty("width", 500);
+    window->setProperty("height", 420);
+    QEventLoop relayout;
+    QTimer::singleShot(100, &relayout, &QEventLoop::quit);
+    relayout.exec();
+    assert(postRestart->property("height").toDouble() <= 400);
+    snapshot("restarted-long");
     assert(QMetaObject::invokeMethod(okay, "clicked"));
     waitClosed(postRestart);
     assert(restarted.completedUpdate().isEmpty());

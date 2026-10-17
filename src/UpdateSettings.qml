@@ -66,8 +66,8 @@ ColumnLayout {
             Controls.Button {
                 objectName: "viewChangelogButton"
                 visible: !page.updater?.installed && (!!page.release.version || page.showCurrent)
-                text: qsTr("View entire changelog")
-                flat: true
+                text: qsTr("Read Changes")
+                icon.name: "text-x-generic"
                 onClicked: changelog.open()
             }
             RowLayout {
