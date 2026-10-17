@@ -135,7 +135,7 @@ ApplicationWindow {
         assert(qobject_cast<QQuickWindow *>(window)->grabWindow().save(prefix + "-" + state + ".png"));
     };
     const auto child = [&](const char *name) { auto *item = window->findChild<QObject *>(QString::fromLatin1(name)); assert(item); return item; };
-    assert(!child("systemManagedUpdatesNotice")->property("visible").toBool());
+    assert(!window->findChild<QObject *>("systemManagedUpdatesNotice"));
     assert(child("updateControls")->property("enabled").toBool());
     assert(child("updateStatusHeading")->property("text") == "Update Found");
     assert(!window->findChild<QObject *>("updateBranchCombo"));

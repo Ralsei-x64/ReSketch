@@ -8,21 +8,13 @@ import org.kde.kirigami as Kirigami
 ColumnLayout {
     id: page
     required property var updater
+    readonly property bool managedBySystem: !!updater?.managedBySystem
     readonly property var release: updater ? updater.available : ({})
     readonly property bool showCurrent: !!updater && updater.checked && !updater.checking && !updater.error && !release.version
-    readonly property string notes: showCurrent ? updater.currentChangelog : release.changelog || ""
+    readonly property string notes: managedBySystem || showCurrent ? updater.currentChangelog : release.changelog || ""
     spacing: Kirigami.Units.largeSpacing
-    Controls.Label {
-        objectName: "systemManagedUpdatesNotice"
-        Layout.fillWidth: true
-        visible: !!page.updater?.managedBySystem
-        text: qsTr("Updates managed by system")
-        wrapMode: Text.WordWrap
-    }
     Controls.Frame {
         objectName: "updateControls"
-        enabled: !page.updater?.managedBySystem
-        opacity: enabled ? 1 : 0.5
         Layout.fillWidth: true
         padding: Kirigami.Units.largeSpacing
         contentItem: ColumnLayout {
@@ -35,14 +27,15 @@ ColumnLayout {
                     Layout.minimumWidth: 0
                     wrapMode: Text.WordWrap
                     level: 3
-                    text: page.updater?.checking ? qsTr("Checking for updates…")
+                    text: page.managedBySystem ? qsTr("Updates are disabled")
+                        : page.updater?.checking ? qsTr("Checking for updates…")
                         : page.release.version ? qsTr("Update Found")
                         : page.updater?.error ? qsTr("Couldn't fetch updates.")
                         : page.updater?.checked ? qsTr("You're already on the newest version!") : qsTr("Updates")
                 }
                 Controls.Button {
                     objectName: "checkForUpdatesButton"
-                    visible: !page.updater?.installed
+                    visible: !page.managedBySystem && !page.updater?.installed
                     text: qsTr("Check for updates")
                     icon.name: "view-refresh"
                     enabled: !!page.updater && !page.updater.checking && !page.updater.installing && !page.updater.installed
@@ -50,10 +43,17 @@ ColumnLayout {
                 }
             }
             Controls.Label {
+                objectName: "managedUpdatesDescription"
+                Layout.fillWidth: true
+                visible: page.managedBySystem
+                text: qsTr("Updates are managed by your package manager.")
+                wrapMode: Text.WordWrap
+            }
+            Controls.Label {
                 objectName: "updateVersionLabel"
                 Layout.fillWidth: true
-                visible: !!page.release.version || page.showCurrent
-                text: page.showCurrent ? page.updater.currentVersion
+                visible: page.managedBySystem || !!page.release.version || page.showCurrent
+                text: page.managedBySystem || page.showCurrent ? page.updater.currentVersion
                     : (page.updater?.currentVersion || "") + "  →  " + (page.release.version || "")
                 font.bold: true
             }
@@ -66,7 +66,7 @@ ColumnLayout {
             Controls.Label {
                 objectName: "updateChangelogPreview"
                 Layout.fillWidth: true
-                visible: !!page.release.version || page.showCurrent
+                visible: !page.managedBySystem && (!!page.release.version || page.showCurrent)
                 text: page.notes
                 textFormat: Text.PlainText
                 wrapMode: Text.Wrap
@@ -74,24 +74,24 @@ ColumnLayout {
                 elide: Text.ElideRight
             }
             RowLayout {
-                visible: !!page.release.version || page.showCurrent
+                visible: page.managedBySystem || !!page.release.version || page.showCurrent
                 Controls.Button {
                     objectName: "viewChangelogButton"
-                    visible: !page.updater?.installed
-                    text: qsTr("Read Changes")
+                    visible: page.managedBySystem || !page.updater?.installed
+                    text: page.managedBySystem ? qsTr("View Changelog") : qsTr("Read Changes")
                     icon.name: "text-x-generic"
                     onClicked: changelog.open()
                 }
                 Controls.Button {
                     objectName: "viewUpdateOnGitHubButton"
-                    visible: !!page.release.version && !page.updater?.installed
+                    visible: !page.managedBySystem && !!page.release.version && !page.updater?.installed
                     text: qsTr("View in GitHub")
                     icon.name: "document-open"
                     onClicked: page.updater.openRelease()
                 }
                 Controls.Button {
                     objectName: "installUpdateButton"
-                    visible: !!page.release.version
+                    visible: !page.managedBySystem && !!page.release.version
                     text: page.updater?.installed ? qsTr("Finish Update") : qsTr("Update")
                     icon.name: "view-refresh"
                     enabled: !!page.updater && (page.updater.canInstall || page.updater.installed)
@@ -101,26 +101,26 @@ ColumnLayout {
             Controls.ProgressBar {
                 objectName: "updateProgressBar"
                 Layout.fillWidth: true
-                visible: !!page.updater?.installing
+                visible: !page.managedBySystem && !!page.updater?.installing
                 indeterminate: (page.updater?.downloadProgress ?? 0) < 0
                 value: page.updater?.downloadProgress ?? 0
             }
             Controls.Label {
                 objectName: "updateInstallStatus"
                 Layout.fillWidth: true
-                visible: !!page.updater?.installStatus || !!page.updater?.installError
+                visible: !page.managedBySystem && (!!page.updater?.installStatus || !!page.updater?.installError)
                 text: page.updater?.installError || page.updater?.installStatus || ""
                 textFormat: Text.PlainText
                 wrapMode: Text.Wrap
             }
             Controls.Button {
                 text: qsTr("Cancel download")
-                visible: !!page.updater?.downloading
+                visible: !page.managedBySystem && !!page.updater?.downloading
                 onClicked: page.updater.cancelDownload()
             }
             Controls.Label {
                 Layout.fillWidth: true
-                visible: !!page.release.version && !page.updater?.installing && !page.updater?.installed
+                visible: !page.managedBySystem && !!page.release.version && !page.updater?.installing && !page.updater?.installed
                 text: qsTr("Installs the Arch Linux package system-wide. Administrator authentication is required; polkit must be installed.")
                 textFormat: Text.PlainText
                 wrapMode: Text.Wrap
@@ -128,7 +128,7 @@ ColumnLayout {
             }
             Controls.Label {
                 Layout.fillWidth: true
-                visible: !page.release.version && !page.showCurrent && !page.updater?.error
+                visible: !page.managedBySystem && !page.release.version && !page.showCurrent && !page.updater?.error
                 text: qsTr("Current version: %1").arg(page.updater?.currentVersion || "")
                 textFormat: Text.PlainText
                 wrapMode: Text.WordWrap
@@ -137,8 +137,7 @@ ColumnLayout {
         }
     }
     Kirigami.FormLayout {
-        enabled: !page.updater?.managedBySystem
-        opacity: enabled ? 1 : 0.5
+        visible: !page.managedBySystem
         Layout.fillWidth: true
         Controls.CheckBox {
             objectName: "startupUpdateCheck"
@@ -155,7 +154,7 @@ ColumnLayout {
     }
     ChangelogDialog {
         id: changelog
-        version: page.showCurrent ? page.updater.currentVersion : page.release.version || ""
+        version: page.managedBySystem || page.showCurrent ? page.updater.currentVersion : page.release.version || ""
         notes: page.notes
     }
 }

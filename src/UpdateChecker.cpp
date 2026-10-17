@@ -414,6 +414,9 @@ UpdateChecker::UpdateChecker(QObject *parent, const QString &version, const QUrl
     : QObject(parent), m_settings(QStringLiteral("aether64"), QStringLiteral("ReSketch")),
       m_network(this), m_version(version), m_apiRoot(apiRoot), m_assetRoot(assetRoot)
 {
+    QFile notes(QStringLiteral(":/CHANGELOG.txt"));
+    m_currentChangelog = notes.open(QIODevice::ReadOnly) ? QString::fromUtf8(notes.readAll())
+        : tr("No changelog was provided for this version.");
 }
 void UpdateChecker::cancelDownload() {}
 void UpdateChecker::finishUpdate() {}

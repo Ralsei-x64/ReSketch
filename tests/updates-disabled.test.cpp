@@ -60,21 +60,38 @@ ApplicationWindow {
     QTimer::singleShot(150, &loop, &QEventLoop::quit);
     loop.exec();
     assert(requests == 0);
-    auto *notice = window->findChild<QObject *>("systemManagedUpdatesNotice");
+    assert(!window->findChild<QObject *>("systemManagedUpdatesNotice"));
     auto *controls = window->findChild<QObject *>("updateControls");
-    assert(notice && controls);
-    assert(notice->property("visible").toBool() && notice->property("enabled").toBool());
-    assert(notice->property("text") == "Updates managed by system");
-    assert(!controls->property("enabled").toBool() && controls->property("opacity").toDouble() == 0.5);
-    assert(notice->property("y").toDouble() < controls->property("y").toDouble());
-    for (const char *name : {"checkForUpdatesButton", "startupUpdateCheck", "periodicUpdateCheck", "switchToMainButton"}) {
+    assert(controls && controls->property("enabled").toBool());
+    assert(controls->property("opacity").toDouble() == 1);
+    auto *heading = window->findChild<QObject *>("updateStatusHeading");
+    if (!heading) heading = window->findChild<QObject *>("legacyBranchHeading");
+    assert(heading && heading->property("text") == "Updates are disabled");
+    auto *description = window->findChild<QObject *>("managedUpdatesDescription");
+    assert(description && description->property("visible").toBool());
+    assert(description->property("text") == "Updates are managed by your package manager.");
+    auto *version = window->findChild<QObject *>("updateVersionLabel");
+    assert(version && version->property("visible").toBool());
+    assert(version->property("text").toString().contains("1.0.0"));
+    for (const char *name : {"checkForUpdatesButton", "startupUpdateCheck", "periodicUpdateCheck", "switchToMainButton",
+                              "viewUpdateOnGitHubButton", "installUpdateButton", "cancelMigrationButton"}) {
         if (auto *control = window->findChild<QObject *>(QString::fromLatin1(name)))
-            assert(!control->property("enabled").toBool());
+            assert(!control->property("visible").toBool());
     }
+    auto *changelogButton = window->findChild<QObject *>("viewChangelogButton");
+    assert(changelogButton && changelogButton->property("visible").toBool());
+    assert(changelogButton->property("enabled").toBool() && changelogButton->property("text") == "View Changelog");
+    assert(updater.currentChangelog().startsWith("ReSketch changelog"));
+    assert(QMetaObject::invokeMethod(changelogButton, "clicked"));
+    auto *changelog = window->findChild<QObject *>("updateChangelogDialog");
+    assert(changelog && changelog->property("visible").toBool());
+    assert(changelog->property("notes") == updater.currentChangelog());
+    assert(changelog->property("version") == "1.0.0");
+    assert(requests == 0);
     settings.sync();
     assert(settings.value("updates/startup").toBool() && settings.value("updates/periodic").toBool());
     assert(settings.value("updates/completedVersion") == "1.0.0");
     const auto prefix = qEnvironmentVariable("RESKETCH_UPDATE_SCREENSHOTS");
     if (!prefix.isEmpty()) assert(qobject_cast<QQuickWindow *>(window)->grabWindow().save(prefix + "-managed.png"));
-    puts("System-managed updater: no requests or installation, preferences preserved, notice visible and all controls disabled");
+    puts("System-managed updater: no requests or installation, preferences preserved, disabled heading and version visible, update controls hidden, bundled changelog opens offline");
 }

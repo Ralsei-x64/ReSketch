@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-project(ReSketch VERSION 1.4.16 LANGUAGES C CXX)
+project(ReSketch VERSION 1.4.17 LANGUAGES C CXX)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Network Quick QuickControls2 OpenGL Widgets)
 find_package(KF6WindowSystem REQUIRED)
@@ -129,6 +129,7 @@ endforeach()
 
 if(RESKETCH_BUILD_TESTS AND RESKETCH_DISABLE_UPDATES)
     qt_add_executable(updates-disabled-test tests/updates-disabled.test.cpp src/UpdateChecker.cpp src/UpdateChecker.h)
+    qt_add_resources(updates-disabled-test "update_changelog" PREFIX "/" FILES CHANGELOG.txt)
     target_include_directories(updates-disabled-test PRIVATE src)
     target_compile_definitions(updates-disabled-test PRIVATE RESKETCH_DISABLE_UPDATES RESKETCH_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_compile_options(updates-disabled-test PRIVATE -UNDEBUG)
