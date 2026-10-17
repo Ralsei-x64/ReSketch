@@ -144,6 +144,8 @@ ApplicationWindow {
     assert(QMetaObject::invokeMethod(child("viewChangelogButton"), "clicked"));
     auto *notes = child("updateChangelogDialog");
     assert(notes->property("visible").toBool());
+    waitOpened(notes);
+    snapshot("changelog");
     assert(QMetaObject::invokeMethod(notes, "close"));
     waitClosed(notes);
     auto *dialog = child("updateAvailableDialog");

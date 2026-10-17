@@ -48,12 +48,13 @@ function readable(foreground, background, minimum) {
 }
 
 // Only full-page loaders; leave loading bars, logos and skeleton details intact.
+var loadingSelector = ['#loading-page-container', '#filebrowser-loading-page',
+    '[class*="progress_bar--progressBarPageCover--"]', '[class*="progress_bar--progressBarPageFade--"]',
+    '[class*="progress_bar--progressBarCover"]'].map(selector => selector
+        + ':not(.hidden):not(.fadeOut):not([hidden]):not([style*="display: none"]):not([style*="display:none"])').join(', ')
 function loadingCss(opacity) {
     if (opacity >= 100) return ""
-    const loader = '#loading-page-container, #filebrowser-loading-page:not(.hidden):not(.fadeOut), '
-                 + '[class*="progress_bar--progressBarPageCover--"], '
-                 + '[class*="progress_bar--progressBarPageFade--"], '
-                 + '[class*="progress_bar--progressBarCover"]'
+    const loader = loadingSelector
     return loader + ', :has(:is(' + loader + ')) { background:transparent !important; }'
         + 'body:has(:is(' + loader + ')) #resketch-sidebar-underlay { background:transparent !important; }'
         + 'body:has(:is(' + loader + ')) .gpu-view-content { visibility:hidden !important; }'
@@ -322,8 +323,10 @@ function sidebarAppearance(options, stylesheet) {
         controller.schedule();
         return;
     }
-    const selector = '[data-testid="navigation-bar"], [data-onboarding-key="unified-design-onboarding-left-panel"], [data-testid="properties-panel"], [class*="left_panel_container--sizeContainer--"]:not(:has([data-onboarding-key="unified-design-onboarding-left-panel"])), [class*="sidebar--navDefault--"], .fb-sidebar';
+    const minimized = '[class*="left_panel_island_container--islandContainer--"][class*="left_panel_island_container--collapsed--"], [class*="properties_panel--panelContainerCollapsed"]';
+    const selector = '[data-testid="navigation-bar"], [data-onboarding-key="unified-design-onboarding-left-panel"], [data-testid="properties-panel"]:not(:has([class*="properties_panel--panelContainerCollapsed"])), [class*="left_panel_container--sizeContainer--"]:not(:has([data-onboarding-key="unified-design-onboarding-left-panel"])), [class*="sidebar--navDefault--"], .fb-sidebar, ' + minimized;
     // Comments and collaborator cursors are separate from the WebGL canvas.
+    const loader = ${JSON.stringify(loadingSelector)};
     const commentSelector = '[class*="comments_view--outerAnchorContainer--"], [class*="multiplayer_cursors--root--"], [class*="viewport_overlay--overflowContainer--"]';
     let panels = [], ancestors = new Set(), canvases = [], comments = [], frame = 0;
     let layout = null;
@@ -336,7 +339,8 @@ function sidebarAppearance(options, stylesheet) {
     underlay.id = 'resketch-sidebar-underlay';
     document.body.prepend(underlay);
     stylesheet('resketch-sidebars',
-        '[data-resketch-sidebar], [data-resketch-sidebar] [data-preferred-theme] { --color-bg:var(--resketch-sidebar-content) !important; }'
+        'body:has(:is(' + loader + ')) :is(' + selector + ') { visibility:hidden !important; }'
+        + '[data-resketch-sidebar], [data-resketch-sidebar] [data-preferred-theme] { --color-bg:var(--resketch-sidebar-content) !important; }'
         + '[data-resketch-sidebar] { background-color:var(--resketch-sidebar-tint) !important; backdrop-filter:var(--resketch-sidebar-blur) !important; }'
         + '[data-resketch-floating-sidebar] { box-sizing:border-box !important;'
         + 'width:var(--resketch-sidebar-width) !important; min-width:0 !important; max-width:none !important;'
@@ -451,7 +455,8 @@ function sidebarAppearance(options, stylesheet) {
             panel.style.setProperty('--resketch-sidebar-blur', translucent && options.sidebarBackdrop === 'canvas'
                 && options.sidebarCanvasBlur > 0 ? 'blur(' + options.sidebarCanvasBlur + 'px)' : 'none');
             const bounds = panel.getBoundingClientRect();
-            if (options.floatingSidebars && bounds.width && bounds.height) {
+            // Figma's minimized controls already float at their native size.
+            if (options.floatingSidebars && !panel.matches(minimized) && bounds.width && bounds.height) {
                 const margin = options.sidebarMargin;
                 const gap = bounds.width < 100 ? margin / 2 : margin;
                 const gapLeft = joined && panel === leftPanel ? 0 : joined && panel === rail ? margin : gap;
@@ -475,7 +480,7 @@ function sidebarAppearance(options, stylesheet) {
             const bounds = panel.getBoundingClientRect();
             const right = joined && panel === rail ? leftPanel.getBoundingClientRect().right : bounds.right;
             return {left:bounds.left, top:bounds.top, right, bottom:bounds.bottom,
-                    radius:options.floatingSidebars ? options.sidebarCornerRadius : 0};
+                    radius:parseFloat(getComputedStyle(panel).borderTopLeftRadius) || 0};
         }).filter(rect => rect.right > rect.left && rect.bottom > rect.top);
         underlay.style.clipPath = options.sidebarBackdrop === 'desktop'
             ? sidebarMask({left:0, top:0, width:innerWidth, height:innerHeight}, rects) : 'none';

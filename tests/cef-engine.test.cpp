@@ -326,6 +326,46 @@ CefView {
         require(top.red() > 180 && top.blue() < 90 && bottom.blue() > 180 && bottom.red() < 90,
                 "frame colors and orientation");
         capture.reset();
+        const auto snapshot = [&] {
+            auto grab = view->grabToImage();
+            bool ready = false;
+            QObject::connect(grab.get(), &QQuickItemGrabResult::ready, [&] { ready = true; });
+            until([&] { return ready; }, "resize frame capture");
+            return grab->image();
+        };
+        const auto viewport = [&] {
+            CefRect rect;
+            view->browser()->GetHost()->GetClient()->GetRenderHandler()->GetViewRect(view->browser(), rect);
+            return QSize(rect.width, rect.height);
+        };
+        view->setLifecycleState(CefQuickView::LifecycleState::Frozen);
+        window.resize(600,450);
+        view->setSize(QSizeF(600,450));
+        const auto pendingResize = snapshot();
+        require(pendingResize.pixelColor(100,180).blue() > 180
+                && pendingResize.pixelColor(100,120).red() > 180,
+                "pending frames retain native scale rather than stretching during resize");
+        require(pendingResize.pixelColor(500,200).alpha() == 0,
+                "old frames are clipped and do not stretch across newly exposed space");
+        view->setLifecycleState(CefQuickView::LifecycleState::Active);
+        until([&] { return js("innerWidth===600 && innerHeight===450").toBool(); }, "foreground resize reaches Chromium");
+        until([&] { return snapshot().pixelColor(500,200).blue() > 180; }, "fresh resized frame fills the viewport");
+        view->setVisible(false);
+        view->setSize(QSizeF(680,490));
+        view->setSize(QSizeF(700,500));
+        require(viewport() == QSize(600,450), "background tab resize yields to foreground work");
+        processFor(40);
+        require(viewport() == QSize(600,450), "background resizing is throttled");
+        until([&] { return viewport() == QSize(700,500); }, "background tabs quietly reach the latest viewport");
+        until([&] { return js("innerWidth===700 && innerHeight===500").toBool(); }, "hidden Chromium layout reaches the background viewport");
+        view->setSize(QSizeF(720,520));
+        view->setVisible(true);
+        require(viewport() == QSize(720,520), "activating a tab immediately flushes its pending resize");
+        window.resize(400,300);
+        view->setSize(QSizeF(400,300));
+        until([&] { return js("innerWidth===400 && innerHeight===300").toBool(); }, "restored viewport");
+        until([&] { return snapshot().pixelColor(100,220).blue() > 180; }, "restored frame");
+        fprintf(stderr, "Native-scale resizing, foreground priority and background resize coalescing passed\n");
         view->setOverviewPreview(true);
         require(js("devicePixelRatio").toDouble() == 1, "preview keeps native pixel density");
         require(js("innerWidth===400 && innerHeight===300").toBool(), "preview keeps the CSS viewport");

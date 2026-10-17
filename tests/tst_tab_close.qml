@@ -2673,6 +2673,63 @@ Item {
             window.close()
         }
 
+        function test_minimized_ui_sidebars_and_loaders_data() {
+            return [{tag:"floating desktop",floating:true,backdrop:"desktop"},
+                    {tag:"regular desktop",floating:false,backdrop:"desktop"},
+                    {tag:"floating canvas",floating:true,backdrop:"canvas"},
+                    {tag:"regular canvas",floating:false,backdrop:"canvas"}]
+        }
+        function test_minimized_ui_sidebars_and_loaders(data) {
+            const view = app.activeView
+            const fixture = '<style>body{margin:0;--color-bg:#eee;--color-border:#888}'
+                + '.gpu-view-content{position:absolute;inset:0;background:#444}'
+                + '#left{position:absolute;left:12px;top:12px;width:200px;height:48px;background:white;border-radius:12px}'
+                + '#rightHost{position:absolute;right:12px;top:12px;width:240px;height:0;background:white}'
+                + '#right{width:240px;height:48px;background:white;border-radius:12px}</style>'
+                + '<div class="gpu-view-content"></div>'
+                + '<div id="left" class="left_panel_island_container--islandContainer--fixture left_panel_island_container--collapsed--fixture"></div>'
+                + '<div id="rightHost" data-testid="properties-panel"><div id="right" class="properties_panel--panelContainerCollapsedWithBackground--fixture"></div></div>'
+            let ready = false
+            view.runJavaScript('document.body.innerHTML=' + JSON.stringify(fixture), () => ready = true)
+            tryVerify(() => ready)
+            const options = {theme:"light",floatingSidebars:data.floating,translucentSidebars:true,
+                opacity:60,sidebarBackdrop:data.backdrop,sidebarCanvasOpacity:60,sidebarCanvasBlur:14,
+                sidebarMargin:8,sidebarCornerRadius:22}
+            view.runJavaScript('(()=>{const location={pathname:"/design/Test/File"};' + FigmaTheme.sidebarMaskSource + ';'
+                + FigmaTheme.sidebarSource + ';sidebarAppearance(' + JSON.stringify(options)
+                + ',(id,css)=>{let s=document.getElementById(id);if(!s){s=document.createElement("style");s.id=id;document.head.appendChild(s)}s.textContent=css})})()')
+            let result = null
+            function inspect() {
+                view.runJavaScript('(()=>{const read=id=>{const n=document.getElementById(id),s=getComputedStyle(n);return {'
+                    + 'rect:n.getBoundingClientRect().toJSON(),bg:s.backgroundColor,blur:s.backdropFilter,visibility:s.visibility,'
+                    + 'marked:n.hasAttribute("data-resketch-sidebar"),floating:n.hasAttribute("data-resketch-floating-sidebar")}};'
+                    + 'return {left:read("left"),right:read("right"),host:read("rightHost"),'
+                    + 'mask:document.querySelector(".gpu-view-content").style.getPropertyValue("--resketch-sidebar-clip")}})()', value => result = value)
+            }
+            tryVerify(() => { inspect(); return result && result.left.marked && result.right.marked })
+            for (const panel of [result.left,result.right]) {
+                compare(panel.rect.height,48)
+                compare(panel.rect.y,12)
+                compare(panel.floating,false,"Native minimized controls keep their own geometry")
+                compare(panel.bg, data.backdrop === "desktop" ? "rgba(0, 0, 0, 0)" : "color(srgb 0.933333 0.933333 0.933333 / 0.6)")
+                compare(panel.blur,data.backdrop === "canvas" ? "blur(14px)" : "none")
+            }
+            compare(result.left.rect.x,12)
+            compare(result.left.rect.width,200)
+            compare(result.right.rect.width,240)
+            compare(result.host.marked,false,"A zero-height wrapper is not the minimized sidebar surface")
+            if (data.backdrop === "desktop") verify(result.mask.startsWith("path(evenodd,"))
+            for (const loader of ['id="loading-page-container"','class="progress_bar--progressBarPageCover--fixture"']) {
+                view.runJavaScript('document.body.insertAdjacentHTML("beforeend",' + JSON.stringify('<div ' + loader + ' data-test-loader style="height:40px">Loading</div>') + ')')
+                tryVerify(() => { inspect(); return result.left.visibility === "hidden" && result.right.visibility === "hidden" })
+                view.runJavaScript('document.querySelector("[data-test-loader]").hidden=true')
+                tryVerify(() => { inspect(); return result.left.visibility === "visible" && result.right.visibility === "visible" })
+                view.runJavaScript('document.querySelector("[data-test-loader]").hidden=false;document.querySelector("[data-test-loader]").style.display="none"')
+                tryVerify(() => { inspect(); return result.left.visibility === "visible" && result.right.visibility === "visible" })
+                view.runJavaScript('document.querySelector("[data-test-loader]").remove()')
+            }
+        }
+
         function test_canvas_backdrop_extends_behind_docked_panels_and_blurs() {
             const view = app.activeView
             const html = '<style>body{margin:0;--color-bg:#eee;--color-border:#8899aa}'

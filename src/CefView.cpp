@@ -450,8 +450,8 @@ class CefQuickClient final : public CefClient,
         return view && view->m_browser && browser->IsSame(view->m_browser);
     }
     void GetViewRect(CefRefPtr<CefBrowser>, CefRect &rect) override {
-        rect = CefRect(0, 0, view ? std::max(1, qRound(view->width())) : 1,
-                       view ? std::max(1, qRound(view->height())) : 1);
+        rect = CefRect(0, 0, view ? view->m_browserSize.width() : 1,
+                       view ? view->m_browserSize.height() : 1);
     }
     bool GetScreenInfo(CefRefPtr<CefBrowser>, CefScreenInfo &info) override {
         if (!view)
@@ -1122,6 +1122,8 @@ CefQuickView::CefQuickView(QQuickItem *parent) : QQuickItem(parent), m_scripts(t
         stopWheelScrolling();
         m_scrollSensitivityRemainder = {};
     });
+    m_resizeTimer.setSingleShot(true);
+    connect(&m_resizeTimer, &QTimer::timeout, this, [this] { resizeBrowser(); });
     m_wheelTimer.setInterval(16);
     m_wheelTimer.setTimerType(Qt::PreciseTimer);
     m_wheelEndTimer.setSingleShot(true);
@@ -1136,6 +1138,7 @@ CefQuickView::CefQuickView(QQuickItem *parent) : QQuickItem(parent), m_scripts(t
         m_wheelFrameClock.start();
         m_wheelTimer.start();
     });
+    setClip(true);
     setFlag(ItemHasContents);
     setFlag(ItemAcceptsInputMethod);
     setFlag(ItemAcceptsDrops);
@@ -1307,6 +1310,8 @@ void CefQuickView::executeNotificationEvent(const QString &id, const QString &ev
 void CefQuickView::setLifecycleState(LifecycleState value) {
     const bool changed = m_lifecycle != value;
     m_lifecycle = value;
+    if (value != LifecycleState::Active)
+        m_resizeTimer.stop();
     if (value == LifecycleState::Discarded) {
         m_observer = nullptr;
         m_callbacks.clear();
@@ -1352,6 +1357,8 @@ void CefQuickView::syncVisibility() {
         // https://github.com/chromiumembedded/cef/issues/3427
         if (isVisible() && m_lifecycle == LifecycleState::Active)
             syncScreen();
+        else if (m_lifecycle == LifecycleState::Active)
+            scheduleResize();
     }
 }
 void CefQuickView::setUseSystemCursor(bool value) {
@@ -1386,7 +1393,26 @@ void CefQuickView::syncScreen() {
     const int fps = m_overviewPreview ? 30 : screen ? qBound(1, qRound(screen->refreshRate()), 240) : 60;
     m_browser->GetHost()->SetWindowlessFrameRate(fps);
     m_browser->GetHost()->NotifyScreenInfoChanged();
-    m_browser->GetHost()->WasResized();
+    resizeBrowser(true);
+}
+void CefQuickView::scheduleResize() {
+    if (!m_browser || m_lifecycle != LifecycleState::Active)
+        return;
+    // Coalesce width/height changes in one GUI turn. Hidden tabs only need
+    // occasional layout updates; keep them out of the interactive resize path.
+    const int delay = isVisible() && !m_overviewPreview ? 0 : 200;
+    if (!m_resizeTimer.isActive() || m_resizeTimer.remainingTime() > delay)
+        m_resizeTimer.start(delay);
+}
+void CefQuickView::resizeBrowser(bool force) {
+    m_resizeTimer.stop();
+    const QSize size(std::max(1, qRound(width())), std::max(1, qRound(height())));
+    if (!force && size == m_browserSize)
+        return;
+    m_browserSize = size;
+    if (m_browser)
+        m_browser->GetHost()->WasResized();
+    update();
 }
 void CefQuickView::reload() {
     if (m_lifecycle == LifecycleState::Discarded)
@@ -1442,6 +1468,7 @@ void CefQuickView::publishFrame(const QImage &image, bool popup) {
         } else {
             m_image = image;
             m_texture.reset();
+            m_frameScale = window() ? window()->devicePixelRatio() : 1;
         }
     }
     if (m_backend != "Bitmap transfer") {
@@ -1476,6 +1503,7 @@ void CefQuickView::publishAccelerated(const CefAcceleratedPaintInfo &info, bool 
         } else {
             m_texture = std::move(frame);
             m_image = {};
+            m_frameScale = window() ? window()->devicePixelRatio() : 1;
         }
     }
     if (m_backend != "GPU shared texture") {
@@ -1492,8 +1520,12 @@ QSGNode *CefQuickView::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
     node->background.setRect(boundingRect());
     node->background.setColor(m_background);
     setTexture(window(), node, node->page, node->pageFrame, node->pageImage, m_texture, m_image);
-    if (node->page)
-        node->page->setRect(boundingRect());
+    if (node->page) {
+        // A resize can reach Qt before Chromium's next frame. Keep the old
+        // pixels at their rendered scale instead of stretching text/canvas.
+        const QSize pixels = m_texture ? m_texture->size : m_image.size();
+        node->page->setRect(QRectF(QPointF(), QSizeF(pixels) / m_frameScale));
+    }
     setTexture(window(), node, node->popup, node->popupFrame, node->popupImage, m_popupTexture, m_popupImage);
     if (node->popup)
         node->popup->setRect(m_popupVisible ? QRectF(m_popupRect) : QRectF());
@@ -1501,8 +1533,13 @@ QSGNode *CefQuickView::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
 }
 void CefQuickView::geometryChange(const QRectF &now, const QRectF &before) {
     QQuickItem::geometryChange(now, before);
-    if (m_browser && now.size() != before.size())
-        m_browser->GetHost()->WasResized();
+    if (now.size() != before.size()) {
+        if (!m_browser)
+            m_browserSize = QSize(std::max(1, qRound(width())), std::max(1, qRound(height())));
+        else
+            scheduleResize();
+        update();
+    }
 }
 void CefQuickView::itemChange(ItemChange change, const ItemChangeData &data) {
     QQuickItem::itemChange(change, data);

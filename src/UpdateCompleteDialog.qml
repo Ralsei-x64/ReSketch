@@ -65,32 +65,29 @@ Controls.Dialog {
             text: qsTr("What’s new")
             font.weight: Font.DemiBold
         }
-        Controls.Frame {
+        Controls.ScrollView {
             objectName: "updatedVersionNotesCard"
             Layout.fillWidth: true
             Layout.preferredHeight: Math.min(Math.max(48, dialog.parent ? dialog.parent.height - 260 : 320),
-                                            320, Math.max(80, notesText.contentHeight + 32))
+                                            320, Math.max(Kirigami.Units.gridUnit * 2, notesText.contentHeight))
             visible: dialog.afterRestart
-            padding: 1
-            contentItem: Controls.ScrollView {
-                id: notesScroll
-                clip: true
-                contentWidth: availableWidth
-                Controls.TextArea {
-                    id: notesText
-                    objectName: "updatedVersionChangelog"
-                    text: dialog.notes
-                    textFormat: Text.PlainText
-                    wrapMode: Text.Wrap
-                    readOnly: true
-                    selectByMouse: true
-                    activeFocusOnTab: false
-                    padding: Kirigami.Units.largeSpacing
-                    background: null
-                }
+            clip: true
+            contentWidth: availableWidth
+            Controls.TextArea {
+                id: notesText
+                objectName: "updatedVersionChangelog"
+                text: dialog.notes
+                textFormat: Text.PlainText
+                wrapMode: Text.Wrap
+                readOnly: true
+                selectByMouse: true
+                activeFocusOnTab: false
+                padding: 0
+                background: null
             }
         }
     }
+
     footer: Controls.Control {
         leftPadding: dialog.leftPadding
         rightPadding: dialog.rightPadding

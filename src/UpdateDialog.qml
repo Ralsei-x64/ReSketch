@@ -12,6 +12,22 @@ Controls.Dialog {
     parent: Controls.Overlay.overlay
     anchors.centerIn: parent
     width: Math.min(520, parent ? parent.width - 40 : 520)
+    padding: 20
+    background: Rectangle {
+        radius: 12
+        color: Kirigami.Theme.backgroundColor
+        border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g,
+                              Kirigami.Theme.textColor.b, 0.22)
+    }
+    header: Kirigami.Heading {
+        text: dialog.title
+        level: 3
+        font.weight: Font.DemiBold
+        wrapMode: Text.Wrap
+        leftPadding: dialog.leftPadding
+        rightPadding: dialog.rightPadding
+        topPadding: Kirigami.Units.largeSpacing
+    }
     modal: true
     focus: true
     onOpened: cancelButton.forceActiveFocus()
@@ -26,30 +42,43 @@ Controls.Dialog {
         Controls.Label {
             objectName: "pendingUpdateVersion"
             text: (dialog.updater?.currentVersion || "") + "  →  " + (dialog.updater?.available.version || "")
-            font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.3
             font.bold: true
         }
     }
-    footer: Controls.DialogButtonBox {
-        Controls.Button {
-            id: cancelButton
-            objectName: "cancelUpdateButton"
-            text: qsTr("Cancel")
-            Controls.DialogButtonBox.buttonRole: Controls.DialogButtonBox.RejectRole
+    footer: Controls.Control {
+        leftPadding: dialog.leftPadding
+        rightPadding: dialog.rightPadding
+        topPadding: Kirigami.Units.smallSpacing
+        bottomPadding: dialog.bottomPadding
+        contentItem: RowLayout {
+            spacing: Kirigami.Units.smallSpacing
+            Item { Layout.fillWidth: true }
+            Controls.Button {
+                id: cancelButton
+                objectName: "cancelUpdateButton"
+                text: qsTr("Cancel")
+                implicitHeight: 36
+                onClicked: dialog.reject()
+                Keys.onReturnPressed: click()
+                Keys.onEnterPressed: click()
+            }
+            Controls.Button {
+                objectName: "skipUpdateButton"
+                text: qsTr("Skip Update")
+                implicitHeight: 36
+                onClicked: { dialog.updater.skipUpdate(); dialog.close() }
+                Keys.onReturnPressed: click()
+                Keys.onEnterPressed: click()
+            }
+            Controls.Button {
+                objectName: "openUpdateButton"
+                text: qsTr("View in GitHub")
+                implicitHeight: 36
+                onClicked: { dialog.updater.openRelease(); dialog.close() }
+                Keys.onReturnPressed: click()
+                Keys.onEnterPressed: click()
+            }
         }
-        Controls.Button {
-            objectName: "skipUpdateButton"
-            text: qsTr("Skip Update")
-            Controls.DialogButtonBox.buttonRole: Controls.DialogButtonBox.ActionRole
-            onClicked: { dialog.updater.skipUpdate(); dialog.close() }
-        }
-        Controls.Button {
-            objectName: "openUpdateButton"
-            text: qsTr("View in GitHub")
-            Controls.DialogButtonBox.buttonRole: Controls.DialogButtonBox.ActionRole
-            onClicked: { dialog.updater.openRelease(); dialog.close() }
-        }
-        onRejected: dialog.reject()
     }
     Connections {
         target: dialog.updater
