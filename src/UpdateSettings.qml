@@ -63,24 +63,25 @@ ColumnLayout {
                 maximumLineCount: 3
                 elide: Text.ElideRight
             }
-            Controls.Button {
-                objectName: "viewChangelogButton"
-                visible: !page.updater?.installed && (!!page.release.version || page.showCurrent)
-                text: qsTr("Read Changes")
-                icon.name: "text-x-generic"
-                onClicked: changelog.open()
-            }
             RowLayout {
-                visible: !!page.release.version
+                visible: !!page.release.version || page.showCurrent
+                Controls.Button {
+                    objectName: "viewChangelogButton"
+                    visible: !page.updater?.installed
+                    text: qsTr("Read Changes")
+                    icon.name: "text-x-generic"
+                    onClicked: changelog.open()
+                }
                 Controls.Button {
                     objectName: "viewUpdateOnGitHubButton"
-                    visible: !page.updater?.installed
+                    visible: !!page.release.version && !page.updater?.installed
                     text: qsTr("View in GitHub")
                     icon.name: "document-open"
                     onClicked: page.updater.openRelease()
                 }
                 Controls.Button {
                     objectName: "installUpdateButton"
+                    visible: !!page.release.version
                     text: page.updater?.installed ? qsTr("Finish Update") : qsTr("Update")
                     icon.name: "view-refresh"
                     enabled: !!page.updater && (page.updater.canInstall || page.updater.installed)

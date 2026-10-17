@@ -3,6 +3,9 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
 About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
+1.4.8 - 2026-10-16
+Placed Read Changes, View in GitHub and Update together on one row in update settings.
+
 1.4.7 - 2026-10-16
 Aligned update completion and restart popups with the app’s existing dialog styling, using compact headings, consistent borders and standard button rows.
 
