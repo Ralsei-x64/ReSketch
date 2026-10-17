@@ -1,20 +1,20 @@
-name: Build and release CEF
+name: Build and release Qt WebEngine (Legacy)
 
 on:
   push:
-    branches: [resketch-cef]
+    branches: [Legacy]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-cef
+  group: release-legacy
   cancel-in-progress: false
 
 jobs:
   release:
-    if: github.ref == 'refs/heads/resketch-cef'
+    if: github.ref == 'refs/heads/Legacy'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     container: archlinux:latest
@@ -22,7 +22,7 @@ jobs:
       run:
         shell: bash
     env:
-      RELEASE_ENGINE: cef
+      RELEASE_ENGINE: main
     steps:
       - name: Install packaging tools
         run: pacman -Syu --noconfirm --needed base-devel git sudo github-cli
