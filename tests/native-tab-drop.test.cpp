@@ -757,7 +757,13 @@ int main(int argc, char **argv)
     const double fasterMouseTarget = 100 + uiScroll->property("wheelStep").toDouble() * 2;
     assert(qAbs(position(overview,"contentY") - fasterMouseTarget) < 1);
     uiWheel(QPoint(0,-12), {}, Qt::ScrollUpdate);
-    assert(qAbs(position(overview,"contentY") - fasterMouseTarget - 12) < 1); // Mouse speed leaves finger scrolling unchanged.
+    assert(qAbs(position(overview,"contentY") - fasterMouseTarget - 24) < 1); // Precision scrolling uses the same speed setting.
+    uiWheel(QPoint(0,-12), {}, Qt::NoScrollPhase, false, QPointingDevice::primaryPointingDevice());
+    assert(qAbs(position(overview,"contentY") - fasterMouseTarget - 48) < 1);
+    overview->setProperty("contentY", 100.0);
+    uiWheel({}, {}, Qt::ScrollBegin, false, QPointingDevice::primaryPointingDevice());
+    uiWheel({}, QPoint(0,-120), Qt::ScrollUpdate, false, QPointingDevice::primaryPointingDevice());
+    assert(qAbs(position(overview,"contentY") - fasterMouseTarget) < 1);
     settings.setMouseScrollSensitivity(100);
     uiWheel({}, {}, Qt::ScrollBegin);
     for(int i=0;i<3;++i) { uiWheel(QPoint(0,-12), {}, Qt::ScrollUpdate); render(); }
@@ -876,6 +882,7 @@ int main(int argc, char **argv)
                           phase, false, Qt::MouseEventSynthesizedBySystem, &touchpad);
         QCoreApplication::sendEvent(destination, &event);
     };
+    settings.setMouseScrollSensitivity(200);
     sidebarWheel({}, Qt::ScrollBegin);
     render();
     assert(destination->property("sidebarSwipeAllowed").toBool());
@@ -898,6 +905,7 @@ int main(int argc, char **argv)
     sidebarWheel({}, Qt::ScrollEnd);
     for(int i=0;i<10 && destination->property("activeView").value<QObject *>() != swipeView;++i) render();
     assert(destination->property("activeView").value<QObject *>() == swipeView);
+    settings.setMouseScrollSensitivity(100);
     evaluate("destination.openOverview(false)");
     for(int i=0; i<10 && destination->property("overviewProgress").toDouble() < 0.999; ++i) render();
     const auto cardPoint = evaluate("var pinchCard=destination.overviewNavigationCards().find(c=>typeof c.target!=='string' && c.target!==destination.activeView);"

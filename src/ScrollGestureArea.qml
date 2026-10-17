@@ -112,7 +112,7 @@ MouseArea {
             axis = gestureAxis
         }
         const distance = (axis === 1 ? delta.x : delta.y) * (pixels ? 1 : wheelStep / 120)
-                         * (continuous ? 1 : appSettings.mouseScrollSensitivity / 100)
+                         * (event.modifiers & Qt.ControlModifier ? 1 : appSettings.mouseScrollSensitivity / 100)
         if (distance || continuous && event.phase === Qt.ScrollBegin) {
             view.cancelFlick()
             if (continuous) easing.stop()

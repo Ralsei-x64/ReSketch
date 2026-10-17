@@ -430,7 +430,7 @@ Kirigami.ApplicationWindow {
                                     }
 
                                     RowLayout {
-                                        Kirigami.FormData.label: qsTr("Mouse scroll speed:")
+                                        Kirigami.FormData.label: qsTr("Scroll speed:")
                                         Layout.fillWidth: true
                                         Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
                                         Controls.Slider {
@@ -441,7 +441,7 @@ Kirigami.ApplicationWindow {
                                             stepSize: 5
                                             value: appSettings.mouseScrollSensitivity
                                             onMoved: appSettings.mouseScrollSensitivity = Math.round(value)
-                                            Accessible.name: qsTr("Mouse scroll speed")
+                                            Accessible.name: qsTr("Scroll speed")
                                         }
                                         Controls.Label {
                                             text: appSettings.mouseScrollSensitivity + "%"

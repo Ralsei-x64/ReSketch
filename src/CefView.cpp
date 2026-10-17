@@ -1118,7 +1118,10 @@ double CefQuickView::taskCpuUsage(qint64 taskId) {
 }
 
 CefQuickView::CefQuickView(QQuickItem *parent) : QQuickItem(parent), m_scripts(this), m_settings(this) {
-    connect(&m_settings, &CefViewSettings::changed, this, &CefQuickView::stopWheelScrolling);
+    connect(&m_settings, &CefViewSettings::changed, this, [this] {
+        stopWheelScrolling();
+        m_scrollSensitivityRemainder = {};
+    });
     m_wheelTimer.setInterval(16);
     m_wheelTimer.setTimerType(Qt::PreciseTimer);
     m_wheelEndTimer.setSingleShot(true);
@@ -1677,8 +1680,6 @@ void CefQuickView::wheelEvent(QWheelEvent *event) {
         ? event->angleDelta() * QGuiApplication::styleHints()->wheelScrollLines() / 3 : event->pixelDelta();
     const bool trackpad = event->pointingDevice()->type() == QInputDevice::DeviceType::TouchPad
         || phase != Qt::NoScrollPhase || !event->pixelDelta().isNull();
-    if (!trackpad && !event->modifiers().testFlag(Qt::ControlModifier))
-        delta = (QPointF(delta) * (std::clamp(m_settings.mouseScrollSensitivity, 25, 300) / 100.0)).toPoint();
     m_trackpadScrollAccepted = false;
     if (trackpad && event->modifiers() == Qt::NoModifier)
         emit trackpadScroll(delta.x(), delta.y(), int(phase), event->position());
@@ -1693,6 +1694,15 @@ void CefQuickView::wheelEvent(QWheelEvent *event) {
         return;
     }
     if (phase == Qt::ScrollBegin) stopWheelScrolling();
+    if (phase == Qt::ScrollBegin || event->modifiers().testFlag(Qt::ControlModifier))
+        m_scrollSensitivityRemainder = {};
+    if (!event->modifiers().testFlag(Qt::ControlModifier)) {
+        // Preserve subpixel input at low speeds instead of dropping small steps.
+        const QPointF scaled = QPointF(delta) * (std::clamp(m_settings.mouseScrollSensitivity, 25, 300) / 100.0)
+            + m_scrollSensitivityRemainder;
+        delta = scaled.toPoint();
+        m_scrollSensitivityRemainder = scaled - delta;
+    }
     if (!delta.isNull()) {
         if (event->modifiers().testFlag(Qt::ControlModifier) || (!trackpad && !m_settings.scrollAnimatorEnabled)) {
             stopWheelScrolling();

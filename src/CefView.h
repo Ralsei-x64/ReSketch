@@ -373,6 +373,7 @@ class CefQuickView : public QQuickItem {
     QElapsedTimer m_wheelFrameClock, m_wheelSampleClock;
     QPoint m_wheelRemaining;
     QPointF m_wheelVelocity, m_wheelFraction;
+    QPointF m_scrollSensitivityRemainder;
     CefMouseEvent m_wheelEvent;
     int m_wheelSamples = 0;
     bool m_wheelKinetic = false, m_platformMomentum = false;

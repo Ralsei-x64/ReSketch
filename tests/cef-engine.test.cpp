@@ -480,7 +480,31 @@ CefView {
         QCoreApplication::sendEvent(view, &homeMouse);
         until([&] { return js("homeScroll.scrollTop").toInt() == sensitivityStart + wheelDistance * 2; }, "Mouse sensitivity scales Chromium wheel distance");
         homeWheel(QPoint(0, -12), Qt::ScrollUpdate);
-        until([&] { return js("homeScroll.scrollTop").toInt() == sensitivityStart + wheelDistance * 2 + 12; }, "Mouse sensitivity leaves trackpad distance unchanged");
+        until([&] { return js("homeScroll.scrollTop").toInt() == sensitivityStart + wheelDistance * 2 + 24; }, "Scroll sensitivity scales trackpad pixels too");
+        const int precisionStart = js("homeScroll.scrollTop").toInt();
+        QWheelEvent precisionMouse(QPointF(80,160), QPointF(80,160), QPoint(0,-12), {}, Qt::NoButton,
+                                  Qt::NoModifier, Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(view, &precisionMouse);
+        until([&] { return js("homeScroll.scrollTop").toInt() == precisionStart + 24; }, "Precision mouse pixels use scroll sensitivity");
+        const int phasedMouseStart = js("homeScroll.scrollTop").toInt();
+        QWheelEvent phasedMouse(QPointF(80,160), QPointF(80,160), {}, QPoint(0,-120), Qt::NoButton,
+                               Qt::NoModifier, Qt::ScrollUpdate, false);
+        QCoreApplication::sendEvent(view, &phasedMouse);
+        until([&] { return js("homeScroll.scrollTop").toInt() == phasedMouseStart + wheelDistance * 2; }, "Mouse wheels with scroll phases use scroll sensitivity");
+        view->settings()->setProperty("inertialScrollingEnabled", true);
+        const int momentumStart = js("homeScroll.scrollTop").toInt();
+        homeWheel(QPoint(0, -12), Qt::ScrollMomentum);
+        until([&] { return js("homeScroll.scrollTop").toInt() == momentumStart + 24; }, "Scroll sensitivity also scales platform momentum");
+        view->settings()->setProperty("inertialScrollingEnabled", false);
+        view->settings()->setProperty("mouseScrollSensitivity", 25);
+        homeWheel({}, Qt::ScrollBegin);
+        const int slowStart = js("homeScroll.scrollTop").toInt();
+        for (int i = 0; i < 16; ++i) homeWheel(QPoint(0, -1), Qt::ScrollUpdate);
+        until([&] { return js("homeScroll.scrollTop").toInt() == slowStart + 4; }, "Low sensitivity preserves subpixel scrolling");
+        QWheelEvent zoomWheel(QPointF(80,160), QPointF(80,160), QPoint(0,-12), {}, Qt::NoButton,
+                             Qt::ControlModifier, Qt::ScrollUpdate, false, Qt::MouseEventSynthesizedBySystem, &pad);
+        QCoreApplication::sendEvent(view, &zoomWheel);
+        until([&] { return js("homeScroll.scrollTop").toInt() == slowStart + 16; }, "Scroll sensitivity leaves Ctrl wheel zoom unchanged");
         view->settings()->setProperty("mouseScrollSensitivity", 100);
         homeWheel({}, Qt::ScrollBegin);
         for(int i=0; i<3; ++i) { homeWheel(QPoint(0,-12), Qt::ScrollUpdate); processFor(20); }
