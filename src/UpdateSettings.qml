@@ -8,18 +8,10 @@ import org.kde.kirigami as Kirigami
 ColumnLayout {
     id: page
     required property var updater
+    readonly property bool managedBySystem: !!updater?.managedBySystem
     spacing: Kirigami.Units.largeSpacing
-    Controls.Label {
-        objectName: "systemManagedUpdatesNotice"
-        Layout.fillWidth: true
-        visible: !!page.updater?.managedBySystem
-        text: qsTr("Updates managed by system")
-        wrapMode: Text.WordWrap
-    }
     Controls.Frame {
         objectName: "updateControls"
-        enabled: !page.updater?.managedBySystem
-        opacity: enabled ? 1 : 0.5
         Layout.fillWidth: true
         padding: Kirigami.Units.largeSpacing
         contentItem: ColumnLayout {
@@ -28,16 +20,33 @@ ColumnLayout {
                 objectName: "legacyBranchHeading"
                 Layout.fillWidth: true
                 level: 3
-                text: qsTr("You're on the Legacy branch.")
+                text: page.managedBySystem ? qsTr("Updates are disabled") : qsTr("You're on the Legacy branch.")
                 wrapMode: Text.WordWrap
             }
             Controls.Label {
+                objectName: "managedUpdatesDescription"
                 Layout.fillWidth: true
-                text: qsTr("Switch to the new version of ReSketch on the main branch.")
+                text: page.managedBySystem ? qsTr("Updates are managed by your package manager.")
+                    : qsTr("Switch to the new version of ReSketch on the main branch.")
                 wrapMode: Text.WordWrap
+            }
+            Controls.Label {
+                objectName: "updateVersionLabel"
+                Layout.fillWidth: true
+                visible: page.managedBySystem
+                text: qsTr("Current version: %1").arg(page.updater?.currentVersion || "")
+                font.bold: true
+            }
+            Controls.Button {
+                objectName: "viewChangelogButton"
+                visible: page.managedBySystem
+                text: qsTr("View Changelog")
+                icon.name: "text-x-generic"
+                onClicked: changelog.open()
             }
             Controls.Button {
                 objectName: "switchToMainButton"
+                visible: !page.managedBySystem
                 text: page.updater?.installed ? qsTr("Finish Update") : qsTr("Switch to New Version")
                 icon.name: "view-refresh"
                 enabled: !!page.updater && (page.updater.canMigrate || page.updater.installed)
@@ -46,14 +55,14 @@ ColumnLayout {
             Controls.ProgressBar {
                 objectName: "updateProgressBar"
                 Layout.fillWidth: true
-                visible: !!page.updater?.installing
+                visible: !page.managedBySystem && !!page.updater?.installing
                 indeterminate: (page.updater?.downloadProgress ?? 0) < 0
                 value: page.updater?.downloadProgress ?? 0
             }
             Controls.Label {
                 objectName: "updateInstallStatus"
                 Layout.fillWidth: true
-                visible: !!page.updater?.installStatus || !!page.updater?.installError
+                visible: !page.managedBySystem && (!!page.updater?.installStatus || !!page.updater?.installError)
                 text: page.updater?.installError || page.updater?.installStatus || ""
                 textFormat: Text.PlainText
                 wrapMode: Text.Wrap
@@ -61,17 +70,22 @@ ColumnLayout {
             Controls.Button {
                 objectName: "cancelMigrationButton"
                 text: qsTr("Cancel update")
-                visible: !!page.updater?.downloading
+                visible: !page.managedBySystem && !!page.updater?.downloading
                 onClicked: page.updater.cancelDownload()
             }
             Controls.Label {
                 Layout.fillWidth: true
-                visible: !page.updater?.installed
+                visible: !page.managedBySystem && !page.updater?.installed
                 text: qsTr("Installs the new version system-wide. Administrator authentication is required; Arch Linux on x86_64 and polkit must be installed.")
                 textFormat: Text.PlainText
                 wrapMode: Text.Wrap
                 opacity: 0.7
             }
         }
+    }
+    ChangelogDialog {
+        id: changelog
+        version: page.updater?.currentVersion || ""
+        notes: page.updater?.currentChangelog || ""
     }
 }

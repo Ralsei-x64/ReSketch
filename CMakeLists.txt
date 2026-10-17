@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-project(ReSketch VERSION 0.4.2 LANGUAGES CXX)
+project(ReSketch VERSION 0.4.3 LANGUAGES CXX)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Network Quick QuickControls2 WebEngineQuick Widgets)
 find_package(KF6WindowSystem REQUIRED)
@@ -55,13 +55,13 @@ qt_add_qml_module(resketch
     URI org.aether64.resketch
     VERSION 1.0
     NO_IMPORT_SCAN
-    QML_FILES src/Main.qml src/SettingsWindow.qml src/AboutWindow.qml src/ExportHistoryWindow.qml src/WindowControls.qml src/WindowResizeHandles.qml src/TabBarButton.qml src/FigmaMenus.qml src/TabGroupMenu.qml src/ChromiumToolsWindow.qml src/ExternalWindowHeader.qml src/UpdateSettings.qml src/UpdateCompleteDialog.qml
+    QML_FILES src/Main.qml src/SettingsWindow.qml src/AboutWindow.qml src/ExportHistoryWindow.qml src/WindowControls.qml src/WindowResizeHandles.qml src/TabBarButton.qml src/FigmaMenus.qml src/TabGroupMenu.qml src/ChromiumToolsWindow.qml src/ExternalWindowHeader.qml src/UpdateSettings.qml src/UpdateCompleteDialog.qml src/ChangelogDialog.qml
     RESOURCES src/Policy.js src/FigmaMenu.js src/FigmaTheme.js src/NotificationPolicy.js src/Shortcuts.js
 )
 
 qt_add_resources(resketch "branding"
     PREFIX "/"
-    FILES Branding/SketchbookPNG/Folder-256.png
+    FILES Branding/SketchbookPNG/Folder-256.png CHANGELOG.txt
 )
 
 target_link_libraries(resketch PRIVATE
@@ -100,6 +100,7 @@ endif()
 
 if(RESKETCH_BUILD_TESTS AND RESKETCH_DISABLE_UPDATES)
     qt_add_executable(updates-disabled-test tests/updates-disabled.test.cpp src/UpdateChecker.cpp src/UpdateChecker.h)
+    qt_add_resources(updates-disabled-test "update_changelog" PREFIX "/" FILES CHANGELOG.txt)
     target_include_directories(updates-disabled-test PRIVATE src)
     target_compile_definitions(updates-disabled-test PRIVATE RESKETCH_DISABLE_UPDATES RESKETCH_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_compile_options(updates-disabled-test PRIVATE -UNDEBUG)

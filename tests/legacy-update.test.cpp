@@ -121,7 +121,7 @@ ApplicationWindow {
     assert(updater.metaObject()->indexOfProperty("periodicEnabled") < 0);
     assert(!window->findChild<QObject *>("checkForUpdatesButton"));
     assert(!window->findChild<QObject *>("startupUpdateCheck"));
-    assert(!child("systemManagedUpdatesNotice")->property("visible").toBool());
+    assert(!window->findChild<QObject *>("systemManagedUpdatesNotice"));
     assert(child("updateControls")->property("enabled").toBool());
     assert(child("legacyBranchHeading")->property("text") == "You're on the Legacy branch.");
     assert(child("switchToMainButton")->property("enabled").toBool());

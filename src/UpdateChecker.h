@@ -20,6 +20,7 @@ class UpdateChecker : public QObject
     Q_OBJECT
     Q_PROPERTY(bool managedBySystem READ managedBySystem CONSTANT)
     Q_PROPERTY(QString currentVersion READ currentVersion CONSTANT)
+    Q_PROPERTY(QString currentChangelog READ currentChangelog CONSTANT)
     Q_PROPERTY(QVariantMap available READ available NOTIFY changed)
     Q_PROPERTY(bool installing READ installing NOTIFY changed)
     Q_PROPERTY(bool installed READ installed NOTIFY changed)
@@ -41,6 +42,7 @@ public:
         const QUrl &apiRoot = QUrl(QStringLiteral("https://api.github.com/repos/Ralsei-x64/ReSketch/")),
         const QUrl &assetRoot = QUrl(QStringLiteral("https://github.com/Ralsei-x64/ReSketch/releases/download/")));
     QString currentVersion() const { return m_version; }
+    QString currentChangelog() const { return m_currentChangelog; }
     QVariantMap available() const { return m_available; }
     bool installing() const { return m_installing; }
     bool installed() const { return m_installed; }
@@ -66,6 +68,7 @@ private:
     const QString m_version;
     const QUrl m_apiRoot, m_assetRoot;
     QVariantMap m_available;
+    QString m_currentChangelog;
     bool m_installing = false, m_installed = false;
     double m_downloadProgress = 0;
     QString m_installStatus, m_installError;
