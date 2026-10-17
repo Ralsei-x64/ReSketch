@@ -18,6 +18,7 @@ class QNetworkReply;
 class UpdateChecker : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(bool managedBySystem READ managedBySystem CONSTANT)
     Q_PROPERTY(QString currentVersion READ currentVersion CONSTANT)
     Q_PROPERTY(QVariantMap available READ available NOTIFY changed)
     Q_PROPERTY(bool installing READ installing NOTIFY changed)
@@ -28,6 +29,13 @@ class UpdateChecker : public QObject
     Q_PROPERTY(QString installStatus READ installStatus NOTIFY changed)
     Q_PROPERTY(QString installError READ installError NOTIFY changed)
 public:
+    bool managedBySystem() const {
+#ifdef RESKETCH_DISABLE_UPDATES
+        return true;
+#else
+        return false;
+#endif
+    }
     explicit UpdateChecker(QObject *parent = nullptr,
         const QString &version = QCoreApplication::applicationVersion(),
         const QUrl &apiRoot = QUrl(QStringLiteral("https://api.github.com/repos/Ralsei-x64/ReSketch/")),

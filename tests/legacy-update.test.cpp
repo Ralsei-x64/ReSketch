@@ -78,6 +78,7 @@ void checkMigration()
     };
     writeInstaller(0);
     UpdateChecker updater(nullptr, "0.4.0", api, api.resolved(QUrl("downloads/")));
+    assert(!updater.managedBySystem());
     updater.m_installCommand = {script}; // Tests never invoke pacman or authenticate.
     const auto wait = [&] {
         QEventLoop loop;
@@ -120,6 +121,8 @@ ApplicationWindow {
     assert(updater.metaObject()->indexOfProperty("periodicEnabled") < 0);
     assert(!window->findChild<QObject *>("checkForUpdatesButton"));
     assert(!window->findChild<QObject *>("startupUpdateCheck"));
+    assert(!child("systemManagedUpdatesNotice")->property("visible").toBool());
+    assert(child("updateControls")->property("enabled").toBool());
     assert(child("legacyBranchHeading")->property("text") == "You're on the Legacy branch.");
     assert(child("switchToMainButton")->property("enabled").toBool());
     snapshot("legacy");

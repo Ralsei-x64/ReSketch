@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Ralsei-x64
 // SPDX-License-Identifier: GPL-3.0-only
 #include "UpdateChecker.h"
+#ifndef RESKETCH_DISABLE_UPDATES
 #include <QDir>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -242,3 +243,16 @@ void UpdateChecker::finishUpdate()
     if (started) QCoreApplication::quit();
     else { m_installError = tr("Couldn't restart ReSketch. Close and reopen it to finish updating."); emit changed(); }
 }
+
+#else
+// System-managed builds expose the page state without compiling update operations.
+UpdateChecker::UpdateChecker(QObject *parent, const QString &version, const QUrl &apiRoot, const QUrl &assetRoot)
+    : QObject(parent), m_settings(QStringLiteral("aether64"), QStringLiteral("ReSketch")),
+      m_network(this), m_version(version), m_apiRoot(apiRoot), m_assetRoot(assetRoot)
+{
+}
+void UpdateChecker::cancelDownload() {}
+void UpdateChecker::finishUpdate() {}
+bool UpdateChecker::canMigrate() const { return false; }
+void UpdateChecker::migrateToMain() {}
+#endif

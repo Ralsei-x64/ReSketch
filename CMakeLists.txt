@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-project(ReSketch VERSION 0.4.1 LANGUAGES CXX)
+project(ReSketch VERSION 0.4.2 LANGUAGES CXX)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Network Quick QuickControls2 WebEngineQuick Widgets)
 find_package(KF6WindowSystem REQUIRED)
@@ -42,12 +42,14 @@ if(GIT_FOUND)
     endif()
 endif()
 
+option(RESKETCH_DISABLE_UPDATES "Disable built-in updates; updates are managed by the system" OFF)
 qt_standard_project_setup(REQUIRES 6.8)
 
 qt_add_executable(resketch src/main.cpp src/FontHelper.cpp src/FontHelper.h src/UpdateChecker.cpp src/UpdateChecker.h)
 target_compile_definitions(resketch PRIVATE
     RESKETCH_VERSION="${PROJECT_VERSION}"
     RESKETCH_COMMIT="${RESKETCH_COMMIT}"
+    $<$<BOOL:${RESKETCH_DISABLE_UPDATES}>:RESKETCH_DISABLE_UPDATES>
 )
 qt_add_qml_module(resketch
     URI org.aether64.resketch
@@ -88,10 +90,18 @@ foreach(size 48 64 128 256 512)
 endforeach()
 
 option(RESKETCH_BUILD_TESTS "Build Legacy migration checks" OFF)
-if(RESKETCH_BUILD_TESTS)
+if(RESKETCH_BUILD_TESTS AND NOT RESKETCH_DISABLE_UPDATES)
     qt_add_executable(legacy-update-test tests/legacy-update.test.cpp src/UpdateChecker.cpp src/UpdateChecker.h)
     target_include_directories(legacy-update-test PRIVATE src)
     target_compile_definitions(legacy-update-test PRIVATE RESKETCH_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_compile_options(legacy-update-test PRIVATE -UNDEBUG)
     target_link_libraries(legacy-update-test PRIVATE Qt6::Widgets Qt6::Network Qt6::Quick Qt6::QuickControls2)
+endif()
+
+if(RESKETCH_BUILD_TESTS AND RESKETCH_DISABLE_UPDATES)
+    qt_add_executable(updates-disabled-test tests/updates-disabled.test.cpp src/UpdateChecker.cpp src/UpdateChecker.h)
+    target_include_directories(updates-disabled-test PRIVATE src)
+    target_compile_definitions(updates-disabled-test PRIVATE RESKETCH_DISABLE_UPDATES RESKETCH_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_compile_options(updates-disabled-test PRIVATE -UNDEBUG)
+    target_link_libraries(updates-disabled-test PRIVATE Qt6::Widgets Qt6::Network Qt6::Quick Qt6::QuickControls2)
 endif()

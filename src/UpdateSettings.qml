@@ -9,7 +9,17 @@ ColumnLayout {
     id: page
     required property var updater
     spacing: Kirigami.Units.largeSpacing
+    Controls.Label {
+        objectName: "systemManagedUpdatesNotice"
+        Layout.fillWidth: true
+        visible: !!page.updater?.managedBySystem
+        text: qsTr("Updates managed by system")
+        wrapMode: Text.WordWrap
+    }
     Controls.Frame {
+        objectName: "updateControls"
+        enabled: !page.updater?.managedBySystem
+        opacity: enabled ? 1 : 0.5
         Layout.fillWidth: true
         padding: Kirigami.Units.largeSpacing
         contentItem: ColumnLayout {
