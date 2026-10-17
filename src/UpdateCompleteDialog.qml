@@ -16,63 +16,42 @@ Controls.Dialog {
         .replace(/^\d+\.\d+\.\d+ - [^\n]+\n+/, "").trim()
     parent: Controls.Overlay.overlay
     anchors.centerIn: parent
-    width: Math.min(afterRestart ? 560 : 460, parent ? parent.width - 40 : 560)
-    padding: 24
-    topPadding: 0
-    bottomPadding: 20
+    width: Math.min(afterRestart ? 520 : 440, parent ? parent.width - 40 : 520)
+    padding: 20
     modal: true
     focus: true
     title: qsTr("Update Complete")
     background: Rectangle {
-        radius: 16
+        radius: 12
         color: Kirigami.Theme.backgroundColor
         border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g,
-                              Kirigami.Theme.textColor.b, 0.18)
+                              Kirigami.Theme.textColor.b, 0.22)
     }
-    header: Controls.Control {
-        leftPadding: 24
-        rightPadding: 24
-        topPadding: 24
-        bottomPadding: 20
-        contentItem: RowLayout {
-            spacing: 16
-            Rectangle {
-                Layout.preferredWidth: 48
-                Layout.preferredHeight: 48
-                radius: 12
-                color: Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g,
-                               Kirigami.Theme.highlightColor.b, 0.14)
-                Kirigami.Icon {
-                    anchors.centerIn: parent
-                    width: 26
-                    height: width
-                    source: dialog.afterRestart ? "dialog-ok-apply" : "view-refresh"
-                    color: Kirigami.Theme.highlightColor
-                }
-            }
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 5
-                Kirigami.Heading {
-                    Layout.fillWidth: true
-                    text: dialog.title
-                    level: 2
-                    font.weight: Font.DemiBold
-                    wrapMode: Text.Wrap
-                }
-                Controls.Label {
-                    objectName: "updatedVersionLabel"
-                    text: qsTr("ReSketch %1").arg(dialog.version)
-                    opacity: 0.72
-                    font.weight: Font.Medium
-                }
-            }
+    header: ColumnLayout {
+        spacing: Kirigami.Units.smallSpacing
+        Kirigami.Heading {
+            Layout.fillWidth: true
+            Layout.leftMargin: dialog.leftPadding
+            Layout.rightMargin: dialog.rightPadding
+            Layout.topMargin: Kirigami.Units.largeSpacing
+            text: dialog.title
+            level: 3
+            font.weight: Font.DemiBold
+            wrapMode: Text.Wrap
+        }
+        Controls.Label {
+            objectName: "updatedVersionLabel"
+            Layout.fillWidth: true
+            Layout.leftMargin: dialog.leftPadding
+            Layout.rightMargin: dialog.rightPadding
+            text: qsTr("ReSketch %1").arg(dialog.version)
+            opacity: 0.72
         }
     }
     closePolicy: afterRestart ? Controls.Popup.NoAutoClose : Controls.Popup.CloseOnEscape
     onOpened: afterRestart ? okayButton.forceActiveFocus() : finishButton.forceActiveFocus()
     contentItem: ColumnLayout {
-        spacing: 12
+        spacing: Kirigami.Units.largeSpacing
         Controls.Label {
             objectName: "updateRestartMessage"
             Layout.fillWidth: true
@@ -93,13 +72,6 @@ Controls.Dialog {
                                             320, Math.max(80, notesText.contentHeight + 32))
             visible: dialog.afterRestart
             padding: 1
-            background: Rectangle {
-                radius: 10
-                color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g,
-                               Kirigami.Theme.textColor.b, 0.035)
-                border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g,
-                                      Kirigami.Theme.textColor.b, 0.10)
-            }
             contentItem: Controls.ScrollView {
                 id: notesScroll
                 clip: true
@@ -113,38 +85,28 @@ Controls.Dialog {
                     readOnly: true
                     selectByMouse: true
                     activeFocusOnTab: false
-                    padding: 15
+                    padding: Kirigami.Units.largeSpacing
                     background: null
                 }
             }
         }
     }
     footer: Controls.Control {
-        leftPadding: 24
-        rightPadding: 24
-        topPadding: 16
-        bottomPadding: 20
-        background: Item {
-            Rectangle {
-                x: 24
-                width: parent.width - 48
-                height: 1
-                color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g,
-                               Kirigami.Theme.textColor.b, 0.10)
-            }
-        }
+        leftPadding: dialog.leftPadding
+        rightPadding: dialog.rightPadding
+        topPadding: Kirigami.Units.smallSpacing
+        bottomPadding: dialog.bottomPadding
         contentItem: RowLayout {
-            spacing: 10
+            spacing: Kirigami.Units.smallSpacing
             Item { Layout.fillWidth: true }
             Controls.Button {
                 objectName: "updateLaterButton"
                 visible: !dialog.afterRestart
                 text: qsTr("Update Later")
-                Layout.minimumWidth: 112
-                Layout.minimumHeight: 36
+                implicitHeight: 36
                 onClicked: dialog.reject()
-                Keys.onReturnPressed: clicked()
-                Keys.onEnterPressed: clicked()
+                Keys.onReturnPressed: click()
+                Keys.onEnterPressed: click()
             }
             Controls.Button {
                 id: finishButton
@@ -153,11 +115,10 @@ Controls.Dialog {
                 text: qsTr("Finish Update")
                 icon.name: "view-refresh"
                 highlighted: true
-                Layout.minimumWidth: 136
-                Layout.minimumHeight: 36
+                implicitHeight: 36
                 onClicked: dialog.updater.finishUpdate()
-                Keys.onReturnPressed: clicked()
-                Keys.onEnterPressed: clicked()
+                Keys.onReturnPressed: click()
+                Keys.onEnterPressed: click()
             }
             Controls.Button {
                 id: okayButton
@@ -165,11 +126,10 @@ Controls.Dialog {
                 text: qsTr("Okay")
                 visible: dialog.afterRestart
                 highlighted: true
-                Layout.minimumWidth: 112
-                Layout.minimumHeight: 36
+                implicitHeight: 36
                 onClicked: { dialog.updater.dismissCompletedUpdate(); dialog.close() }
-                Keys.onReturnPressed: clicked()
-                Keys.onEnterPressed: clicked()
+                Keys.onReturnPressed: click()
+                Keys.onEnterPressed: click()
             }
         }
     }
