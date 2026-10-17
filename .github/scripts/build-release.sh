@@ -2,8 +2,8 @@
 set -euo pipefail
 
 case "${RELEASE_ENGINE:?}" in
-    cef) expected_branch=resketch-cef ;;
-    main) expected_branch=main ;;
+    cef) expected_branch=main ;;
+    main) expected_branch=Legacy ;;
     *) echo "Unknown release engine" >&2; exit 1 ;;
 esac
 [[ "${GITHUB_REF_NAME:?}" == "$expected_branch" ]]

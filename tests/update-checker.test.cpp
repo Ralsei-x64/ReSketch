@@ -95,7 +95,7 @@ void checkUpdates()
     QSettings(QStringLiteral("aether64"), QStringLiteral("ReSketch")).setValue("updates/branch", "main");
     UpdateChecker checker(nullptr, "1.2.9", api);
     assert(checker.currentChangelog().startsWith("1.2.9 -"));
-    assert(checker.enabled() && checker.branch() == "resketch-cef");
+    assert(checker.enabled() && checker.branch() == "main");
     assert(checker.periodicEnabled() && checker.m_periodicTimer.isActive());
     assert(checker.m_periodicTimer.interval() == 5 * 60 * 60 * 1000);
     assert(!checker.m_periodicTimer.isSingleShot());
@@ -221,7 +221,7 @@ ApplicationWindow {
     olderBranch = true;
     checker.checkForUpdates(); wait(checker);
     assert(pageTwo == 1 && checker.available().value("version") == "1.3.0");
-    { UpdateChecker saved(nullptr, "1.2.9", api); assert(!saved.enabled() && saved.branch() == "resketch-cef"); }
+    { UpdateChecker saved(nullptr, "1.2.9", api); assert(!saved.enabled() && saved.branch() == "main"); }
     releases = {release("cef-v1.2.8-abcdef0")}; olderBranch = false;
     checker.checkForUpdates(); wait(checker);
     assert(checker.available().isEmpty() && checker.error().isEmpty());
@@ -245,7 +245,7 @@ ApplicationWindow {
     checker.checkForUpdates(); checker.reset();
     assert(!checker.checking() && checker.available().isEmpty());
     checker.reset();
-    assert(checker.enabled() && checker.branch() == "resketch-cef");
+    assert(checker.enabled() && checker.branch() == "main");
     assert(checker.periodicEnabled() && checker.m_periodicTimer.isActive());
     notesFail = false;
     QTemporaryDir installerDirectory;

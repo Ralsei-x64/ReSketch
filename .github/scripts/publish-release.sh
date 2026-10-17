@@ -2,8 +2,8 @@
 set -euo pipefail
 
 case "${RELEASE_ENGINE:?}" in
-    cef) title=CEF; release_options=(--prerelease=true --latest=false) ;;
-    main) title='Qt WebEngine'; release_options=(--prerelease=false --latest=true) ;;
+    cef) title=CEF; release_options=(--prerelease=false --latest=true) ;;
+    main) title='Qt WebEngine (Legacy)'; release_options=(--prerelease=true --latest=false) ;;
     *) echo "Unknown release engine" >&2; exit 1 ;;
 esac
 version=$(sed -n 's/^project(ReSketch VERSION \([^ ]*\) .*/\1/p' CMakeLists.txt)

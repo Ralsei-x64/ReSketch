@@ -60,7 +60,7 @@ UpdateChecker::UpdateChecker(QObject *parent, const QString &version, const QUrl
 
 bool UpdateChecker::enabled() const { return m_settings.value("updates/startup", true).toBool(); }
 bool UpdateChecker::periodicEnabled() const { return m_settings.value("updates/periodic", true).toBool(); }
-QString UpdateChecker::branch() const { return QStringLiteral("resketch-cef"); }
+QString UpdateChecker::branch() const { return QStringLiteral("main"); }
 
 void UpdateChecker::setEnabled(bool value)
 {

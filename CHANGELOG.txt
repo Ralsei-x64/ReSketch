@@ -3,6 +3,9 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
 About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
+1.4.15 - 2026-10-17
+Promoted CEF to the main branch and stable releases, moved Qt WebEngine to Legacy, and updated packaging, release workflows and the updater branch label.
+
 1.4.14 - 2026-10-17
 Added an Update button to the pending-update popup that starts installation and opens Updates settings to show progress.
 
