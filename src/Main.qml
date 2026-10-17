@@ -2562,7 +2562,14 @@ Kirigami.ApplicationWindow {
         id: settingsWindowLoader
         sourceComponent: SettingsWindow { visible: false }
     }
-    UpdateDialog { id: updateNotice; updater: appSettings.updates }
+    UpdateDialog {
+        id: updateNotice
+        updater: appSettings.updates
+        onUpdateStarted: {
+            root.openSettings()
+            settingsWindowLoader.item.selectedSection = 6
+        }
+    }
     UpdateCompleteDialog { id: updateCompleteNotice; updater: appSettings.updates }
     property bool pendingUpdateNotice: false
     UpdateCompleteDialog {

@@ -169,6 +169,8 @@ ApplicationWindow {
     assert(QMetaObject::invokeMethod(dialog, "open"));
     waitOpened(dialog);
     assert(dialog->property("title") == "ReSketch has pending updates.");
+    assert(child("startUpdateButton")->property("text") == "Update");
+    assert(!child("startUpdateButton")->property("enabled").toBool());
     snapshot("dialog");
     assert(QMetaObject::invokeMethod(child("cancelUpdateButton"), "clicked"));
     waitClosed(dialog);
@@ -274,10 +276,16 @@ ApplicationWindow {
         if (installer.installing()) loop.exec();
         assert(!installer.installing());
     };
-    installer.installUpdate();
+    assert(QMetaObject::invokeMethod(dialog, "open"));
+    waitOpened(dialog);
+    assert(child("startUpdateButton")->property("enabled").toBool());
+    assert(QMetaObject::invokeMethod(child("startUpdateButton"), "clicked"));
     assert(installer.installing());
+    assert(installer.m_promptDismissed);
+    assert(!child("startUpdateButton")->property("enabled").toBool());
     assert(child("updateProgressBar")->property("visible").toBool());
     installer.cancelDownload();
+    waitClosed(dialog);
     assert(!installer.installing() && !installer.installed() && !QFile::exists(receipt));
     corruptPackage = true;
     installer.installUpdate(); waitInstall();

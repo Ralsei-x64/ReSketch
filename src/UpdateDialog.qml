@@ -9,6 +9,7 @@ Controls.Dialog {
     id: dialog
     objectName: "updateAvailableDialog"
     required property var updater
+    signal updateStarted()
     parent: Controls.Overlay.overlay
     anchors.centerIn: parent
     width: Math.min(520, parent ? parent.width - 40 : 520)
@@ -76,6 +77,21 @@ Controls.Dialog {
                 text: qsTr("View in GitHub")
                 implicitHeight: 36
                 onClicked: { dialog.updater.dismissUpdatePrompt(); dialog.updater.openRelease(); dialog.close() }
+                Keys.onReturnPressed: click()
+                Keys.onEnterPressed: click()
+            }
+            Controls.Button {
+                objectName: "startUpdateButton"
+                text: qsTr("Update")
+                icon.name: "view-refresh"
+                implicitHeight: 36
+                enabled: !!dialog.updater && dialog.updater.canInstall
+                onClicked: {
+                    dialog.updater.dismissUpdatePrompt()
+                    dialog.updater.installUpdate()
+                    dialog.close()
+                    dialog.updateStarted()
+                }
                 Keys.onReturnPressed: click()
                 Keys.onEnterPressed: click()
             }
