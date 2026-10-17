@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Ralsei-x64
 // SPDX-License-Identifier: GPL-3.0-only
 #include "UpdateChecker.h"
+#ifndef RESKETCH_DISABLE_UPDATES
 #include <QDesktopServices>
 #include <QFile>
 #include <QJsonArray>
@@ -406,3 +407,28 @@ void UpdateChecker::dismissCompletedUpdate()
     m_settings.sync();
     emit changed();
 }
+
+#else
+// System-managed builds expose the page state without compiling update operations.
+UpdateChecker::UpdateChecker(QObject *parent, const QString &version, const QUrl &apiRoot, const QUrl &assetRoot)
+    : QObject(parent), m_settings(QStringLiteral("aether64"), QStringLiteral("ReSketch")),
+      m_network(this), m_version(version), m_apiRoot(apiRoot), m_assetRoot(assetRoot)
+{
+}
+void UpdateChecker::cancelDownload() {}
+void UpdateChecker::finishUpdate() {}
+bool UpdateChecker::enabled() const { return false; }
+bool UpdateChecker::periodicEnabled() const { return false; }
+QString UpdateChecker::branch() const { return QStringLiteral("main"); }
+bool UpdateChecker::canInstall() const { return false; }
+QVariantMap UpdateChecker::completedUpdate() const { return {}; }
+void UpdateChecker::setEnabled(bool) {}
+void UpdateChecker::setPeriodicEnabled(bool) {}
+void UpdateChecker::checkAtStartup() {}
+void UpdateChecker::checkForUpdates() {}
+void UpdateChecker::skipUpdate() {}
+void UpdateChecker::openRelease() const {}
+void UpdateChecker::installUpdate() {}
+void UpdateChecker::dismissCompletedUpdate() {}
+void UpdateChecker::reset() {}
+#endif

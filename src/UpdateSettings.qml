@@ -12,7 +12,17 @@ ColumnLayout {
     readonly property bool showCurrent: !!updater && updater.checked && !updater.checking && !updater.error && !release.version
     readonly property string notes: showCurrent ? updater.currentChangelog : release.changelog || ""
     spacing: Kirigami.Units.largeSpacing
+    Controls.Label {
+        objectName: "systemManagedUpdatesNotice"
+        Layout.fillWidth: true
+        visible: !!page.updater?.managedBySystem
+        text: qsTr("Updates managed by system")
+        wrapMode: Text.WordWrap
+    }
     Controls.Frame {
+        objectName: "updateControls"
+        enabled: !page.updater?.managedBySystem
+        opacity: enabled ? 1 : 0.5
         Layout.fillWidth: true
         padding: Kirigami.Units.largeSpacing
         contentItem: ColumnLayout {
@@ -127,6 +137,8 @@ ColumnLayout {
         }
     }
     Kirigami.FormLayout {
+        enabled: !page.updater?.managedBySystem
+        opacity: enabled ? 1 : 0.5
         Layout.fillWidth: true
         Controls.CheckBox {
             objectName: "startupUpdateCheck"

@@ -94,6 +94,7 @@ void checkUpdates()
     };
     QSettings(QStringLiteral("aether64"), QStringLiteral("ReSketch")).setValue("updates/branch", "main");
     UpdateChecker checker(nullptr, "1.2.9", api);
+    assert(!checker.managedBySystem());
     assert(checker.currentChangelog().startsWith("1.2.9 -"));
     assert(checker.enabled() && checker.branch() == "main");
     assert(checker.periodicEnabled() && checker.m_periodicTimer.isActive());
@@ -134,6 +135,8 @@ ApplicationWindow {
         assert(qobject_cast<QQuickWindow *>(window)->grabWindow().save(prefix + "-" + state + ".png"));
     };
     const auto child = [&](const char *name) { auto *item = window->findChild<QObject *>(QString::fromLatin1(name)); assert(item); return item; };
+    assert(!child("systemManagedUpdatesNotice")->property("visible").toBool());
+    assert(child("updateControls")->property("enabled").toBool());
     assert(child("updateStatusHeading")->property("text") == "Update Found");
     assert(!window->findChild<QObject *>("updateBranchCombo"));
     assert(child("updateChangelogPreview")->property("maximumLineCount").toInt() == 3);

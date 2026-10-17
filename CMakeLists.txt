@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-project(ReSketch VERSION 1.4.15 LANGUAGES C CXX)
+project(ReSketch VERSION 1.4.16 LANGUAGES C CXX)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Network Quick QuickControls2 OpenGL Widgets)
 find_package(KF6WindowSystem REQUIRED)
@@ -49,6 +49,7 @@ include(cmake/CEF.cmake)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GLIB REQUIRED IMPORTED_TARGET glib-2.0)
 pkg_check_modules(EGL REQUIRED IMPORTED_TARGET egl)
+option(RESKETCH_DISABLE_UPDATES "Disable built-in updates; updates are managed by the system" OFF)
 qt_standard_project_setup(REQUIRES 6.8)
 
 qt_add_qml_module(resketch_cef SHARED
@@ -71,6 +72,7 @@ qt_add_executable(resketch src/main.cpp src/FontHelper.cpp src/FontHelper.h src/
 target_compile_definitions(resketch PRIVATE
     RESKETCH_VERSION="${PROJECT_VERSION}"
     RESKETCH_COMMIT="${RESKETCH_COMMIT}"
+    $<$<BOOL:${RESKETCH_DISABLE_UPDATES}>:RESKETCH_DISABLE_UPDATES>
     RESKETCH_QML_IMPORT_PATH="${CMAKE_BINARY_DIR}/qml"
 )
 qt_add_qml_module(resketch
@@ -124,3 +126,11 @@ foreach(size 48 64 128 256 512)
     install(FILES Branding/SketchbookPNG/Folder-${size}.png
             DESTINATION share/icons/hicolor/${size}x${size}/apps RENAME org.aether64.resketch.png)
 endforeach()
+
+if(RESKETCH_BUILD_TESTS AND RESKETCH_DISABLE_UPDATES)
+    qt_add_executable(updates-disabled-test tests/updates-disabled.test.cpp src/UpdateChecker.cpp src/UpdateChecker.h)
+    target_include_directories(updates-disabled-test PRIVATE src)
+    target_compile_definitions(updates-disabled-test PRIVATE RESKETCH_DISABLE_UPDATES RESKETCH_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_compile_options(updates-disabled-test PRIVATE -UNDEBUG)
+    target_link_libraries(updates-disabled-test PRIVATE Qt6::Widgets Qt6::Network Qt6::Quick Qt6::QuickControls2)
+endif()
