@@ -3,6 +3,9 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
 About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
+0.4.1 - 2026-10-17
+Fixed Auto, Light and Dark app themes by applying KDE color palettes immediately, including in safe-mode settings.
+
 0.4.0 - 2026-10-17
 Added an Updates page identifying the Legacy branch and an opt-in switch to the latest stable CEF version, with verified package downloads, administrator authentication and restart controls; no automatic update checks.
 

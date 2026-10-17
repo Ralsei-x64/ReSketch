@@ -3,11 +3,12 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-project(ReSketch VERSION 0.4.0 LANGUAGES CXX)
+project(ReSketch VERSION 0.4.1 LANGUAGES CXX)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Network Quick QuickControls2 WebEngineQuick Widgets)
 find_package(KF6WindowSystem REQUIRED)
 find_package(KF6Notifications REQUIRED)
+find_package(KF6ColorScheme 6.6 REQUIRED)
 find_package(Fontconfig REQUIRED)
 find_package(Freetype REQUIRED)
 
@@ -72,6 +73,7 @@ target_link_libraries(resketch PRIVATE
     Qt6::Widgets
     KF6::WindowSystem
     KF6::Notifications
+    KF6::ColorScheme
 )
 
 install(TARGETS resketch RUNTIME DESTINATION bin)

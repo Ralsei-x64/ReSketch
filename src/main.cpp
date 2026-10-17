@@ -22,6 +22,7 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QMap>
+#include <QModelIndex>
 #include <QPalette>
 #include <QPointer>
 #include <QOpenGLContext>
@@ -45,6 +46,7 @@
 #include "UpdateChecker.h"
 #include <KWindowEffects>
 #include <KNotification>
+#include <KColorSchemeManager>
 #include <QWebEngineNotification>
 #include <algorithm>
 #include <cstdio>
@@ -1080,11 +1082,15 @@ private:
 
     void applyTheme()
     {
-        const Qt::ColorScheme scheme = safeMode() ? Qt::ColorScheme::Unknown
+        const Qt::ColorScheme scheme = theme() == QStringLiteral("auto") ? Qt::ColorScheme::Unknown
                                        : theme() == QStringLiteral("dark") ? Qt::ColorScheme::Dark
                                        : theme() == QStringLiteral("light") ? Qt::ColorScheme::Light
                                                                             : Qt::ColorScheme::Unknown;
         QGuiApplication::styleHints()->setColorScheme(scheme);
+        auto *manager = KColorSchemeManager::instance();
+        manager->setAutosaveChanges(false); // Preferences are persisted in our QSettings.
+        manager->activateScheme(manager->indexForSchemeId(theme() == QStringLiteral("auto") ? QString()
+            : theme() == QStringLiteral("dark") ? QStringLiteral("BreezeDark") : QStringLiteral("BreezeLight")));
     }
 
     QSettings store;
