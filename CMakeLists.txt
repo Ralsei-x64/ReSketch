@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-project(ReSketch VERSION 0.3.9 LANGUAGES CXX)
+project(ReSketch VERSION 0.4.0 LANGUAGES CXX)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Network Quick QuickControls2 WebEngineQuick Widgets)
 find_package(KF6WindowSystem REQUIRED)
@@ -43,7 +43,7 @@ endif()
 
 qt_standard_project_setup(REQUIRES 6.8)
 
-qt_add_executable(resketch src/main.cpp src/FontHelper.cpp src/FontHelper.h)
+qt_add_executable(resketch src/main.cpp src/FontHelper.cpp src/FontHelper.h src/UpdateChecker.cpp src/UpdateChecker.h)
 target_compile_definitions(resketch PRIVATE
     RESKETCH_VERSION="${PROJECT_VERSION}"
     RESKETCH_COMMIT="${RESKETCH_COMMIT}"
@@ -52,7 +52,7 @@ qt_add_qml_module(resketch
     URI org.aether64.resketch
     VERSION 1.0
     NO_IMPORT_SCAN
-    QML_FILES src/Main.qml src/SettingsWindow.qml src/AboutWindow.qml src/ExportHistoryWindow.qml src/WindowControls.qml src/WindowResizeHandles.qml src/TabBarButton.qml src/FigmaMenus.qml src/TabGroupMenu.qml src/ChromiumToolsWindow.qml src/ExternalWindowHeader.qml
+    QML_FILES src/Main.qml src/SettingsWindow.qml src/AboutWindow.qml src/ExportHistoryWindow.qml src/WindowControls.qml src/WindowResizeHandles.qml src/TabBarButton.qml src/FigmaMenus.qml src/TabGroupMenu.qml src/ChromiumToolsWindow.qml src/ExternalWindowHeader.qml src/UpdateSettings.qml src/UpdateCompleteDialog.qml
     RESOURCES src/Policy.js src/FigmaMenu.js src/FigmaTheme.js src/NotificationPolicy.js src/Shortcuts.js
 )
 
@@ -84,3 +84,12 @@ foreach(size 48 64 128 256 512)
     install(FILES Branding/SketchbookPNG/Folder-${size}.png
             DESTINATION share/icons/hicolor/${size}x${size}/apps RENAME org.aether64.resketch.png)
 endforeach()
+
+option(RESKETCH_BUILD_TESTS "Build Legacy migration checks" OFF)
+if(RESKETCH_BUILD_TESTS)
+    qt_add_executable(legacy-update-test tests/legacy-update.test.cpp src/UpdateChecker.cpp src/UpdateChecker.h)
+    target_include_directories(legacy-update-test PRIVATE src)
+    target_compile_definitions(legacy-update-test PRIVATE RESKETCH_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_compile_options(legacy-update-test PRIVATE -UNDEBUG)
+    target_link_libraries(legacy-update-test PRIVATE Qt6::Widgets Qt6::Network Qt6::Quick Qt6::QuickControls2)
+endif()

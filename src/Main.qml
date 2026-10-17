@@ -2512,6 +2512,17 @@ Kirigami.ApplicationWindow {
         id: settingsWindowLoader
         sourceComponent: SettingsWindow { visible: false }
     }
+    UpdateCompleteDialog { id: updateCompleteNotice; updater: appSettings.updates }
+    Connections {
+        target: appSettings.updates
+        function onInstallationComplete() {
+            if (!root.primaryWindow) {
+                root.raise()
+                root.requestActivate()
+                updateCompleteNotice.open()
+            }
+        }
+    }
     AuxiliaryWindowLoader {
         id: aboutWindowLoader
         sourceComponent: AboutWindow { visible: false }

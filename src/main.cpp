@@ -42,6 +42,7 @@
 #include <QWindow>
 #include <QWidget>
 #include "FontHelper.h"
+#include "UpdateChecker.h"
 #include <KWindowEffects>
 #include <KNotification>
 #include <QWebEngineNotification>
@@ -211,6 +212,7 @@ class AppSettings : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString buildCommit READ buildCommit CONSTANT)
+    Q_PROPERTY(UpdateChecker *updates READ updates CONSTANT)
     Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY changed)
     Q_PROPERTY(bool darkTheme READ darkTheme NOTIFY effectiveThemeChanged)
     Q_PROPERTY(bool figmaSystemColors READ figmaSystemColors WRITE setFigmaSystemColors NOTIFY changed)
@@ -259,6 +261,7 @@ class AppSettings : public QObject
 
 public:
     QString buildCommit() const { return QStringLiteral(RESKETCH_COMMIT); }
+    UpdateChecker *updates() { return &updater; }
 
     QString gpuAccelerationWarning() const { return graphicsWarning; }
     bool safeMode() const { return recoveryMode; }
@@ -1085,6 +1088,7 @@ private:
     }
 
     QSettings store;
+    UpdateChecker updater{this};
     const bool recoveryMode;
     struct ProcessSample { quint64 ticks = 0; quint64 start = 0; qint64 time = 0; };
     QElapsedTimer processSampleClock;

@@ -48,7 +48,8 @@ Kirigami.ApplicationWindow {
         {title: "Performance", icon: "preferences-system-performance", keywords: "memory preview quality menus Chromium GPU Vulkan canvas flags switches"},
         {title: "Notifications", icon: "preferences-desktop-notification", keywords: "desktop alerts enable disable Home"},
         {title: "Toolbar", icon: "configure", keywords: "buttons icons rearrange order new tab overview refresh menu export history settings task manager developer tools"},
-        {title: "Shortcuts", icon: "preferences-desktop-keyboard", keywords: "keyboard keys bindings shortcuts reset defaults selection group delete"}
+        {title: "Shortcuts", icon: "preferences-desktop-keyboard", keywords: "keyboard keys bindings shortcuts reset defaults selection group delete"},
+        {title: "Updates", icon: "view-refresh", keywords: "Legacy main new version switch upgrade install"}
     ]
     readonly property var filteredSections: sections.map((section, index) => ({title: section.title, icon: section.icon, keywords: section.keywords, section: index}))
         .filter(section => (section.title + " " + section.keywords).toLowerCase().includes(settingsSearch.text.toLowerCase()))
@@ -100,32 +101,43 @@ Kirigami.ApplicationWindow {
                             settingsWindow.selectedSection = settingsWindow.filteredSections[0].section
                     }
                 }
-                Repeater {
-                    model: settingsWindow.filteredSections
-                    Controls.ItemDelegate {
-                        required property var modelData
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 76
-                        id: sectionButton
-                        highlighted: settingsWindow.selectedSection === modelData.section
-                        onClicked: settingsWindow.selectedSection = modelData.section
-                        contentItem: Column {
-                            spacing: 5
-                            Kirigami.Icon {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                width: 28; height: 28
-                                source: modelData.icon
-                                color: sectionButton.highlighted ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
-                            }
-                            Controls.Label {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                text: modelData.title
-                                color: sectionButton.highlighted ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
+                Controls.ScrollView {
+                    id: sectionNavigation
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    contentWidth: availableWidth
+                    clip: true
+                    ColumnLayout {
+                        width: sectionNavigation.availableWidth
+                        spacing: 4
+                        Repeater {
+                            model: settingsWindow.filteredSections
+                            Controls.ItemDelegate {
+                                required property var modelData
+                                objectName: "settingsSection-" + modelData.section
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 76
+                                id: sectionButton
+                                highlighted: settingsWindow.selectedSection === modelData.section
+                                onClicked: settingsWindow.selectedSection = modelData.section
+                                contentItem: Column {
+                                    spacing: 5
+                                    Kirigami.Icon {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        width: 28; height: 28
+                                        source: modelData.icon
+                                        color: sectionButton.highlighted ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
+                                    }
+                                    Controls.Label {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        text: modelData.title
+                                        color: sectionButton.highlighted ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor
+                                    }
+                                }
                             }
                         }
                     }
                 }
-                Item { Layout.fillHeight: true }
             }
             Kirigami.Separator { Layout.fillHeight: true }
             ColumnLayout {
@@ -153,6 +165,11 @@ Kirigami.ApplicationWindow {
                     ColumnLayout {
                         width: sectionScroll.availableWidth
                         spacing: Kirigami.Units.largeSpacing
+                        UpdateSettings {
+                            Layout.fillWidth: true
+                            visible: settingsWindow.selectedSection === 6
+                            updater: appSettings.updates
+                        }
                         Controls.Frame {
                             Layout.fillWidth: true
                             visible: settingsWindow.selectedSection === 5
