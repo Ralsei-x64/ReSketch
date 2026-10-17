@@ -46,6 +46,8 @@
 #include <set>
 
 namespace {
+QList<QPointer<CefQuickView>> backgroundResizeQueue;
+QPointer<CefQuickView> backgroundResizeView;
 // Keep Chromium's private/custom data when a page drags within or between
 // views.
 class BrowserDragData final : public QMimeData {
@@ -1122,6 +1124,9 @@ CefQuickView::CefQuickView(QQuickItem *parent) : QQuickItem(parent), m_scripts(t
         stopWheelScrolling();
         m_scrollSensitivityRemainder = {};
     });
+    m_backgroundResizeTimer.setSingleShot(true);
+    m_backgroundResizeTimer.setInterval(5000);
+    connect(&m_backgroundResizeTimer, &QTimer::timeout, this, &CefQuickView::finishBackgroundResize);
     m_resizeTimer.setSingleShot(true);
     connect(&m_resizeTimer, &QTimer::timeout, this, [this] { resizeBrowser(); });
     m_wheelTimer.setInterval(16);
@@ -1154,6 +1159,8 @@ CefQuickView::CefQuickView(QQuickItem *parent) : QQuickItem(parent), m_scripts(t
 }
 CefQuickView::~CefQuickView() {
     m_closing = true;
+    backgroundResizeQueue.removeAll(this);
+    finishBackgroundResize();
     if (m_inspected && m_inspected->m_devTools == this) {
         m_inspected->m_devTools = nullptr;
         emit m_inspected->devToolsViewChanged();
@@ -1309,10 +1316,12 @@ void CefQuickView::executeNotificationEvent(const QString &id, const QString &ev
 }
 void CefQuickView::setLifecycleState(LifecycleState value) {
     const bool changed = m_lifecycle != value;
+    if (value == LifecycleState::Discarded) finishBackgroundResize();
     m_lifecycle = value;
     if (value != LifecycleState::Active)
         m_resizeTimer.stop();
     if (value == LifecycleState::Discarded) {
+        backgroundResizeQueue.removeAll(this);
         m_observer = nullptr;
         m_callbacks.clear();
         m_protocolCallbacks.clear();
@@ -1336,7 +1345,7 @@ void CefQuickView::setLifecycleState(LifecycleState value) {
         emit renderProcessPidChanged();
     } else {
         ensureBrowser();
-        if (m_browser)
+        if (m_browser && !m_backgroundResizing)
             devTools("Page.setWebLifecycleState",
                      {{"state", value == LifecycleState::Frozen ? "frozen" : "active"}});
         syncVisibility();
@@ -1351,13 +1360,16 @@ void CefQuickView::syncVisibility() {
         if (window()) window()->unsetCursor();
     }
     if (m_browser) {
-        m_browser->GetHost()->WasHidden(m_lifecycle != LifecycleState::Active || !isVisible());
+        if (isVisible() && m_lifecycle == LifecycleState::Active)
+            finishBackgroundResize();
+        m_browser->GetHost()->WasHidden(!m_backgroundResizing
+            && (m_lifecycle != LifecycleState::Active || !isVisible()));
         // Showing an evicted OSR surface can leave it stalled. Screen-info
         // notification regenerates its surface ID even when the size is unchanged.
         // https://github.com/chromiumembedded/cef/issues/3427
         if (isVisible() && m_lifecycle == LifecycleState::Active)
             syncScreen();
-        else if (m_lifecycle == LifecycleState::Active)
+        else
             scheduleResize();
     }
 }
@@ -1396,23 +1408,97 @@ void CefQuickView::syncScreen() {
     resizeBrowser(true);
 }
 void CefQuickView::scheduleResize() {
-    if (!m_browser || m_lifecycle != LifecycleState::Active)
+    if (!m_browser || m_lifecycle == LifecycleState::Discarded)
         return;
     // Coalesce width/height changes in one GUI turn. Hidden tabs only need
     // occasional layout updates; keep them out of the interactive resize path.
-    const int delay = isVisible() && !m_overviewPreview ? 0 : 200;
+    const int delay = isVisible() && m_lifecycle == LifecycleState::Active && !m_overviewPreview ? 0 : 200;
     if (!m_resizeTimer.isActive() || m_resizeTimer.remainingTime() > delay)
         m_resizeTimer.start(delay);
 }
 void CefQuickView::resizeBrowser(bool force) {
     m_resizeTimer.stop();
     const QSize size(std::max(1, qRound(width())), std::max(1, qRound(height())));
+    if (m_browser && (!isVisible() || m_lifecycle != LifecycleState::Active)) {
+        if (size != m_browserSize && !backgroundResizeQueue.contains(this))
+            backgroundResizeQueue.append(this);
+        processBackgroundResizes();
+        return;
+    }
     if (!force && size == m_browserSize)
         return;
     m_browserSize = size;
     if (m_browser)
         m_browser->GetHost()->WasResized();
     update();
+}
+void CefQuickView::processBackgroundResizes() {
+    if (backgroundResizeView) return;
+    while (!backgroundResizeQueue.isEmpty()) {
+        auto view = backgroundResizeQueue.takeFirst();
+        if (!view || !view->m_browser || view->m_closing) continue;
+        const QSize size(std::max(1, qRound(view->width())), std::max(1, qRound(view->height())));
+        if (size == view->m_browserSize) continue;
+        if (view->isVisible() && view->m_lifecycle == LifecycleState::Active) {
+            view->resizeBrowser();
+            continue;
+        }
+        backgroundResizeView = view;
+        view->beginBackgroundResize();
+        return;
+    }
+}
+void CefQuickView::beginBackgroundResize() {
+    m_backgroundResizing = true;
+    m_backgroundResizeReady = false;
+    const int generation = ++m_backgroundResizeGeneration;
+    m_browserSize = QSize(std::max(1, qRound(width())), std::max(1, qRound(height())));
+    auto host = m_browser->GetHost();
+    m_backgroundFrameRate = host->GetWindowlessFrameRate();
+    host->SetWindowlessFrameRate(15);
+    // CEF must be drawable for Figma's resize animation frames and WebGL
+    // canvas to update. Qt keeps the tab hidden and focus stays untouched.
+    if (m_lifecycle == LifecycleState::Frozen)
+        devTools("Page.setWebLifecycleState", {{"state", "active"}});
+    host->WasHidden(false);
+    host->WasResized();
+    m_backgroundResizeTimer.start();
+    const int id = m_backgroundResizeRequest = devTools("Runtime.evaluate", {
+        {"expression", "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))"},
+        {"awaitPromise", true}, {"returnByValue", true}});
+    m_protocolCallbacks[id] = [target = QPointer<CefQuickView>(this), generation](QJsonObject result) {
+        if (!target || !target->m_backgroundResizing || generation != target->m_backgroundResizeGeneration
+                || !result.value("result").toObject().value("value").toBool()) return;
+        target->m_backgroundResizeReady = true;
+        target->m_browser->GetHost()->Invalidate(PET_VIEW);
+    };
+}
+void CefQuickView::backgroundFrameReady(const QSize &pixels) {
+    if (!m_backgroundResizing || !m_backgroundResizeReady
+            || std::abs(pixels.width() - m_browserSize.width() * m_frameScale) > 1
+            || std::abs(pixels.height() - m_browserSize.height() * m_frameScale) > 1) return;
+    m_backgroundResizeReady = false;
+    const int generation = m_backgroundResizeGeneration;
+    QTimer::singleShot(0, this, [this, generation] {
+        if (generation == m_backgroundResizeGeneration) finishBackgroundResize();
+    });
+}
+void CefQuickView::finishBackgroundResize() {
+    if (!m_backgroundResizing) return;
+    m_backgroundResizeTimer.stop();
+    m_backgroundResizing = m_backgroundResizeReady = false;
+    ++m_backgroundResizeGeneration;
+    m_protocolCallbacks.remove(m_backgroundResizeRequest);
+    if (m_browser) {
+        m_browser->GetHost()->SetWindowlessFrameRate(m_backgroundFrameRate);
+        m_browser->GetHost()->WasHidden(!isVisible() || m_lifecycle != LifecycleState::Active);
+        if (m_lifecycle == LifecycleState::Frozen)
+            devTools("Page.setWebLifecycleState", {{"state", "frozen"}});
+    }
+    if (backgroundResizeView == this) {
+        backgroundResizeView = nullptr;
+        QTimer::singleShot(32, qApp, &CefQuickView::processBackgroundResizes);
+    }
 }
 void CefQuickView::reload() {
     if (m_lifecycle == LifecycleState::Discarded)
@@ -1471,6 +1557,7 @@ void CefQuickView::publishFrame(const QImage &image, bool popup) {
             m_frameScale = window() ? window()->devicePixelRatio() : 1;
         }
     }
+    if (!popup) backgroundFrameReady(image.size());
     if (m_backend != "Bitmap transfer") {
         m_backend = "Bitmap transfer";
         emit renderingBackendChanged();
@@ -1495,6 +1582,7 @@ void CefQuickView::publishAccelerated(const CefAcceleratedPaintInfo &info, bool 
         }
         return;
     }
+    const QSize pixels = frame->size;
     {
         QMutexLocker lock(&m_frameMutex);
         if (popup) {
@@ -1506,6 +1594,7 @@ void CefQuickView::publishAccelerated(const CefAcceleratedPaintInfo &info, bool 
             m_frameScale = window() ? window()->devicePixelRatio() : 1;
         }
     }
+    if (!popup) backgroundFrameReady(pixels);
     if (m_backend != "GPU shared texture") {
         m_backend = "GPU shared texture";
         emit renderingBackendChanged();

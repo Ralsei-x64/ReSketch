@@ -33,7 +33,7 @@ Controls.Dialog {
             Layout.fillWidth: true
             Layout.leftMargin: dialog.leftPadding
             Layout.rightMargin: dialog.rightPadding
-            Layout.topMargin: Kirigami.Units.largeSpacing
+            Layout.topMargin: dialog.topPadding
             text: dialog.title
             level: 3
             font.weight: Font.DemiBold
@@ -52,6 +52,11 @@ Controls.Dialog {
     onOpened: afterRestart ? okayButton.forceActiveFocus() : finishButton.forceActiveFocus()
     contentItem: ColumnLayout {
         spacing: Kirigami.Units.largeSpacing
+        Kirigami.Separator {
+            objectName: "updateCompleteSeparator"
+            Layout.fillWidth: true
+            visible: dialog.afterRestart
+        }
         Controls.Label {
             objectName: "updateRestartMessage"
             Layout.fillWidth: true

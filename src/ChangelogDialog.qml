@@ -12,8 +12,10 @@ Controls.Dialog {
     property string notes
     parent: Controls.Overlay.overlay
     anchors.centerIn: parent
-    width: Math.min(700, parent ? parent.width - 40 : 700)
-    height: Math.min(560, parent ? parent.height - 40 : 560, Math.max(220, notesText.contentHeight + 140))
+    width: Math.min(520, parent ? parent.width - 40 : 520)
+    height: Math.min(560, parent ? parent.height - 40 : 560,
+                     notesText.contentHeight + topPadding + bottomPadding
+                     + implicitHeaderHeight + implicitFooterHeight + spacing * 2)
     padding: 20
     background: Rectangle {
         radius: 12
@@ -28,7 +30,7 @@ Controls.Dialog {
         wrapMode: Text.Wrap
         leftPadding: dialog.leftPadding
         rightPadding: dialog.rightPadding
-        topPadding: Kirigami.Units.largeSpacing
+        topPadding: dialog.topPadding
     }
     onOpened: closeButton.forceActiveFocus()
     modal: true

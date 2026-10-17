@@ -294,6 +294,7 @@ ApplicationWindow {
     waitOpened(postRestart);
     snapshot("restarted");
     assert(postRestart->property("title") == "Update Complete");
+    assert(postRestart->findChild<QObject *>("updateCompleteSeparator")->property("visible").toBool());
     assert(postRestart->property("height").toDouble() < 400); // Short notes should not reserve an empty full-height editor.
     auto *okay = postRestart->findChild<QObject *>("acknowledgeUpdateButton");
     assert(okay && okay->property("text") == "Okay" && okay->property("visible").toBool());

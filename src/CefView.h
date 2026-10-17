@@ -344,6 +344,10 @@ class CefQuickView : public QQuickItem {
     void syncScreen();
     void scheduleResize();
     void resizeBrowser(bool force = false);
+    static void processBackgroundResizes();
+    void beginBackgroundResize();
+    void finishBackgroundResize();
+    void backgroundFrameReady(const QSize &pixels);
     void syncCursor();
     void sendKey(QKeyEvent *, bool release);
     void stopWheelScrolling();
@@ -371,7 +375,9 @@ class CefQuickView : public QQuickItem {
     CefScriptCollection m_scripts;
     CefViewSettings m_settings;
     bool m_trackpadScrollAccepted = false;
-    QTimer m_resizeTimer;
+    QTimer m_resizeTimer, m_backgroundResizeTimer;
+    bool m_backgroundResizing = false, m_backgroundResizeReady = false;
+    int m_backgroundResizeGeneration = 0, m_backgroundResizeRequest = 0, m_backgroundFrameRate = 60;
     QSize m_browserSize{1, 1};
     qreal m_frameScale = 1;
     QTimer m_wheelTimer, m_wheelEndTimer;

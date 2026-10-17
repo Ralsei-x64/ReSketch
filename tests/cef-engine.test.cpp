@@ -350,6 +350,7 @@ CefView {
         view->setLifecycleState(CefQuickView::LifecycleState::Active);
         until([&] { return js("innerWidth===600 && innerHeight===450").toBool(); }, "foreground resize reaches Chromium");
         until([&] { return snapshot().pixelColor(500,200).blue() > 180; }, "fresh resized frame fills the viewport");
+        const int foregroundFrameRate = view->browser()->GetHost()->GetWindowlessFrameRate();
         view->setVisible(false);
         view->setSize(QSizeF(680,490));
         view->setSize(QSizeF(700,500));
@@ -358,6 +359,25 @@ CefView {
         require(viewport() == QSize(600,450), "background resizing is throttled");
         until([&] { return viewport() == QSize(700,500); }, "background tabs quietly reach the latest viewport");
         until([&] { return js("innerWidth===700 && innerHeight===500").toBool(); }, "hidden Chromium layout reaches the background viewport");
+        until([&] { return view->browser()->GetHost()->GetWindowlessFrameRate() == foregroundFrameRate; }, "background render completes and restores its frame budget");
+        require(!view->isVisible(), "background rendering never reveals the tab in Qt");
+        // Freeze before revealing it so capture cannot be repaired by a new
+        // foreground paint. The resized pixels must already exist offscreen.
+        view->setLifecycleState(CefQuickView::LifecycleState::Frozen);
+        view->setVisible(true);
+        require(snapshot().pixelColor(650,200).blue() > 180, "background pixels are resized before tab activation");
+        view->setVisible(false);
+        view->setSize(QSizeF(740,520));
+        until([&] { return viewport() == QSize(740,520); }, "sleeping loaded tabs resize without activation");
+        until([&] { return view->browser()->GetHost()->GetWindowlessFrameRate() == foregroundFrameRate; }, "sleeping background resize completes");
+        require(view->lifecycleState() == CefQuickView::LifecycleState::Frozen, "background resize preserves the requested sleeping state");
+        const int slept = js("ticks").toInt();
+        processFor(100);
+        require(js("ticks").toInt() == slept, "resized sleeping tabs return to frozen timers");
+        view->setVisible(true);
+        require(snapshot().pixelColor(715,200).blue() > 180, "sleeping tabs also cache fresh background pixels");
+        view->setLifecycleState(CefQuickView::LifecycleState::Active);
+        view->setVisible(false);
         view->setSize(QSizeF(720,520));
         view->setVisible(true);
         require(viewport() == QSize(720,520), "activating a tab immediately flushes its pending resize");
