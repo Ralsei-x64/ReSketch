@@ -48,16 +48,16 @@ function readable(foreground, background, minimum) {
 }
 
 // Only full-page loaders; leave loading bars, logos and skeleton details intact.
-var loadingSelector = ['#loading-page-container', '#filebrowser-loading-page',
+var loaderSelectors = ['#loading-page-container', '#filebrowser-loading-page',
     '[class*="progress_bar--progressBarPageCover--"]', '[class*="progress_bar--progressBarPageFade--"]',
-    '[class*="progress_bar--progressBarCover"]'].map(selector => selector
+    '[class*="progress_bar--progressBarCover"]']
+var loadingSelector = loaderSelectors.map(selector => selector
         + ':not(.hidden):not(.fadeOut):not([hidden]):not([style*="display: none"]):not([style*="display:none"])').join(', ')
 function loadingCss(opacity) {
     if (opacity >= 100) return ""
-    const loader = loadingSelector
-    return loader + ', :has(:is(' + loader + ')) { background:transparent !important; }'
-        + 'body:has(:is(' + loader + ')) #resketch-sidebar-underlay { background:transparent !important; }'
-        + 'body:has(:is(' + loader + ')) .gpu-view-content { visibility:hidden !important; }'
+    return '[data-resketch-loading-background] { background:transparent !important; }'
+        + 'body[data-resketch-loading] #resketch-sidebar-underlay { background:transparent !important; }'
+        + 'body[data-resketch-loading] .gpu-view-content { visibility:hidden !important; }'
         + '#filebrowser-loading-page:not(.hidden):not(.fadeOut) .filebrowser-loading-page-layout, '
         + '#filebrowser-loading-page:not(.hidden):not(.fadeOut) .fb-sidebar, '
         + '#filebrowser-loading-page:not(.hidden):not(.fadeOut) .navbar '
@@ -305,10 +305,43 @@ var sidebarLayoutSource = `function floatingCanvasLayout() {
     } catch (_) { return null; }
 }`
 
-var sidebarSource = sidebarLayoutSource + `;function floatingFilePage() {
+// Observe loader state directly. Document-wide :has() rules with style/class
+// conditions otherwise invalidate Figma's entire UI on every canvas update.
+var loadingSource = `function loadingAppearance() {
+    if (window.__resketchLoading) return;
+    const selector = ${JSON.stringify(loaderSelectors.join(', '))};
+    const visible = ${JSON.stringify(loadingSelector)};
+    let marked = new Set();
+    function update() {
+        const loaders = Array.from(document.querySelectorAll(selector));
+        const next = new Set();
+        for (const loader of loaders) if (loader.matches(visible))
+            for (let node = loader; node; node = node.parentElement) next.add(node);
+        for (const node of marked) if (!next.has(node)) node.removeAttribute('data-resketch-loading-background');
+        for (const node of next) if (!marked.has(node)) node.setAttribute('data-resketch-loading-background', '');
+        const loading = next.size > 0;
+        if (document.body.hasAttribute('data-resketch-loading') !== loading)
+            document.body.toggleAttribute('data-resketch-loading', loading);
+        marked = next;
+        observer.disconnect();
+        observer.observe(document.body, {childList:true, subtree:true});
+        for (const loader of loaders)
+            observer.observe(loader, {attributes:true, attributeFilter:['class','style','hidden','id']});
+    }
+    const observer = new MutationObserver(records => {
+        if (records.some(record => record.type === 'attributes'
+            || [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === 1
+                && (node.matches(selector) || node.querySelector(selector))))) update();
+    });
+    window.__resketchLoading = observer;
+    update();
+}`
+
+var sidebarSource = sidebarLayoutSource + ';' + loadingSource + `;function floatingFilePage() {
     return /^\\/(file|design|board|proto|slides|deck|site|buzz|make)\\/[^/]+/i.test(location.pathname);
 }
 function sidebarAppearance(options, stylesheet) {
+    loadingAppearance();
     options = {...options, opacity: options.sidebarBackdrop === 'canvas' && Number.isFinite(options.sidebarCanvasOpacity)
         ? options.sidebarCanvasOpacity : options.opacity};
     let controller = window.__resketchSidebars;
@@ -326,7 +359,6 @@ function sidebarAppearance(options, stylesheet) {
     const minimized = '[class*="left_panel_island_container--islandContainer--"][class*="left_panel_island_container--collapsed--"], [class*="properties_panel--panelContainerCollapsed"]';
     const selector = '[data-testid="navigation-bar"], [data-onboarding-key="unified-design-onboarding-left-panel"], [data-testid="properties-panel"]:not(:has([class*="properties_panel--panelContainerCollapsed"])), [class*="left_panel_container--sizeContainer--"]:not(:has([data-onboarding-key="unified-design-onboarding-left-panel"])), [class*="sidebar--navDefault--"], .fb-sidebar, ' + minimized;
     // Comments and collaborator cursors are separate from the WebGL canvas.
-    const loader = ${JSON.stringify(loadingSelector)};
     const commentSelector = '[class*="comments_view--outerAnchorContainer--"], [class*="multiplayer_cursors--root--"], [class*="viewport_overlay--overflowContainer--"]';
     let panels = [], ancestors = new Set(), canvases = [], comments = [], frame = 0;
     let layout = null;
@@ -339,7 +371,7 @@ function sidebarAppearance(options, stylesheet) {
     underlay.id = 'resketch-sidebar-underlay';
     document.body.prepend(underlay);
     stylesheet('resketch-sidebars',
-        'body:has(:is(' + loader + ')) :is(' + selector + ') { visibility:hidden !important; }'
+        'body[data-resketch-loading] :is(' + selector + ') { visibility:hidden !important; }'
         + '[data-resketch-sidebar], [data-resketch-sidebar] [data-preferred-theme] { --color-bg:var(--resketch-sidebar-content) !important; }'
         + '[data-resketch-sidebar] { background-color:var(--resketch-sidebar-tint) !important; backdrop-filter:var(--resketch-sidebar-blur) !important; }'
         + '[data-resketch-floating-sidebar] { box-sizing:border-box !important;'

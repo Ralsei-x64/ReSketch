@@ -12,6 +12,8 @@ function page(hostname = 'www.figma.com', native = true) {
     const focusHandlers = []
     const body = {
         theme: 'light', style: {},
+        hasAttribute() { return false },
+        toggleAttribute() {},
         getAttribute() { return this.theme },
         setAttribute(key, value) { this.theme = value }
     }
@@ -44,6 +46,7 @@ function page(hostname = 'www.figma.com', native = true) {
             body, head, documentElement: {style: {}},
             addEventListener: (type, handler) => { if (type === "focusin") focusHandlers.push(handler) },
             querySelector: () => provider,
+            querySelectorAll: () => [],
             createTreeWalker: () => ({nextNode: () => null}),
             getElementById: id => elements.get(id),
             createElement: () => ({textContent: '', remove() {
@@ -218,6 +221,8 @@ assert.equal(google.elements.size, 0, 'never inject CSS into the Google sign-in 
 app.run({opacity: 50, translucentSidebars: false})
 assert.ok(app.elements.has('resketch-loading-background'), 'loading transparency is independent of sidebars')
 const desktopLoadingCss = app.elements.get('resketch-loading-background').textContent
+assert.doesNotMatch(desktopLoadingCss, /:has\(/, 'Loading styles must not invalidate the entire Figma document on canvas mutations')
+assert.doesNotMatch(app.context.sidebarSource, /body:has\(/, 'Sidebar loading visibility must use the tracked state rather than document-wide descendant checks')
 app.run({opacity: 50, sidebarBackdrop: 'canvas', sidebarCanvasOpacity: 100, sidebarCanvasBlur: 40})
 assert.equal(app.elements.get('resketch-loading-background').textContent, desktopLoadingCss,
              'canvas blur and opacity only affect sidebars, not the loading backdrop')

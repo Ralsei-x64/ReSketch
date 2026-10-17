@@ -31,6 +31,7 @@ Controls.Dialog {
     modal: true
     focus: true
     onOpened: cancelButton.forceActiveFocus()
+    onRejected: dialog.updater.dismissUpdatePrompt()
     title: qsTr("ReSketch has pending updates.")
     contentItem: ColumnLayout {
         spacing: Kirigami.Units.largeSpacing
@@ -66,7 +67,7 @@ Controls.Dialog {
                 objectName: "skipUpdateButton"
                 text: qsTr("Skip Update")
                 implicitHeight: 36
-                onClicked: { dialog.updater.skipUpdate(); dialog.close() }
+                onClicked: { dialog.updater.dismissUpdatePrompt(); dialog.updater.skipUpdate(); dialog.close() }
                 Keys.onReturnPressed: click()
                 Keys.onEnterPressed: click()
             }
@@ -74,7 +75,7 @@ Controls.Dialog {
                 objectName: "openUpdateButton"
                 text: qsTr("View in GitHub")
                 implicitHeight: 36
-                onClicked: { dialog.updater.openRelease(); dialog.close() }
+                onClicked: { dialog.updater.dismissUpdatePrompt(); dialog.updater.openRelease(); dialog.close() }
                 Keys.onReturnPressed: click()
                 Keys.onEnterPressed: click()
             }

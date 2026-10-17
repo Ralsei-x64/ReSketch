@@ -3057,7 +3057,8 @@ Item {
             let result = null
             view.runJavaScript('document.body.innerHTML=' + JSON.stringify(fixture)
                 + ';let s=document.createElement("style");s.textContent='
-                + JSON.stringify(FigmaTheme.loadingCss(50)) + ';document.head.appendChild(s)',
+                + JSON.stringify(FigmaTheme.loadingCss(50)) + ';document.head.appendChild(s);'
+                + FigmaTheme.loadingSource + ';loadingAppearance()',
                 () => result = true)
             tryVerify(() => result === true)
             function inspect() {

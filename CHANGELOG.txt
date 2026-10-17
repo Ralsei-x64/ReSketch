@@ -3,6 +3,9 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
 About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
+1.4.13 - 2026-10-16
+Fixed severe Figma editing and canvas slowdowns by tracking loading-screen elements directly instead of repeatedly recalculating styles across the entire document; added optional background update checks every five hours and suppressed further automatic update popups for the session after dismissal.
+
 1.4.12 - 2026-10-16
 Applied focused-tab viewport changes immediately, skipped distorted transitional GPU captures and deferred new background repaints until resizing settles; renamed Chromium Task Manager to Task Manager and widened the gap between sliding files to 64 pixels.
 

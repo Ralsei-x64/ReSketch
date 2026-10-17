@@ -12,6 +12,7 @@
 #include <QVersionNumber>
 #include <QSysInfo>
 #include <QDir>
+#include <chrono>
 
 namespace {
 QString releaseNotes(const QString &text, const QVersionNumber &version, const QVersionNumber &after = {})
@@ -41,6 +42,12 @@ UpdateChecker::UpdateChecker(QObject *parent, const QString &version, const QUrl
       m_network(this), m_version(version), m_apiRoot(apiRoot), m_assetRoot(assetRoot)
 {
     m_settings.remove("updates/branch"); // This build only accepts CEF releases.
+    m_periodicTimer.setInterval(std::chrono::hours(5));
+    m_periodicTimer.setTimerType(Qt::VeryCoarseTimer);
+    connect(&m_periodicTimer, &QTimer::timeout, this, [this] {
+        if (periodicEnabled()) check(Trigger::Periodic);
+    });
+    if (periodicEnabled()) m_periodicTimer.start();
     QFile notes(QStringLiteral(":/CHANGELOG.txt"));
     if (notes.open(QIODevice::ReadOnly))
         m_currentChangelog = releaseNotes(QString::fromUtf8(notes.readAll()), QVersionNumber::fromString(m_version));
@@ -52,13 +59,26 @@ UpdateChecker::UpdateChecker(QObject *parent, const QString &version, const QUrl
 }
 
 bool UpdateChecker::enabled() const { return m_settings.value("updates/startup", true).toBool(); }
+bool UpdateChecker::periodicEnabled() const { return m_settings.value("updates/periodic", true).toBool(); }
 QString UpdateChecker::branch() const { return QStringLiteral("resketch-cef"); }
 
 void UpdateChecker::setEnabled(bool value)
 {
     if (enabled() == value) return;
     m_settings.setValue("updates/startup", value);
-    if (!value && m_checking && m_startup) cancel();
+    if (!value && m_checking && m_trigger == Trigger::Startup) cancel();
+    emit changed();
+}
+
+void UpdateChecker::setPeriodicEnabled(bool value)
+{
+    if (periodicEnabled() == value) return;
+    m_settings.setValue("updates/periodic", value);
+    if (value) m_periodicTimer.start();
+    else {
+        m_periodicTimer.stop();
+        if (m_checking && m_trigger == Trigger::Periodic) cancel();
+    }
     emit changed();
 }
 
@@ -77,6 +97,7 @@ void UpdateChecker::reset()
     if (m_installing) return;
     if (!m_installed) cancel();
     m_settings.remove("updates");
+    m_periodicTimer.start();
     emit changed();
 }
 
@@ -84,20 +105,20 @@ void UpdateChecker::checkAtStartup()
 {
     if (m_startupAttempted || !enabled()) return;
     m_startupAttempted = true;
-    check(true);
+    check(Trigger::Startup);
 }
 
 void UpdateChecker::checkForUpdates()
 {
     m_startupAttempted = true; // A manual check also satisfies this launch's startup check.
-    check(false);
+    check(Trigger::Manual);
 }
 
-void UpdateChecker::check(bool startup)
+void UpdateChecker::check(Trigger trigger)
 {
     if (m_checking || m_installing || m_installed) return;
     cancel();
-    m_startup = startup;
+    m_trigger = trigger;
     m_checking = true;
     emit changed();
     requestReleases(1, m_serial);
@@ -204,7 +225,7 @@ void UpdateChecker::finish(const QString &error)
     if (!error.isEmpty()) m_available.clear();
     emit changed();
     const auto skipped = QVersionNumber::fromString(m_settings.value("updates/skipped/" + branch()).toString());
-    if (m_startup && !m_available.isEmpty()
+    if (m_trigger != Trigger::Manual && !m_promptDismissed && !m_available.isEmpty()
         && QVersionNumber::fromString(m_available.value("version").toString()) > skipped) emit updateAvailable();
 }
 

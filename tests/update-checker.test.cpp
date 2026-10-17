@@ -96,6 +96,9 @@ void checkUpdates()
     UpdateChecker checker(nullptr, "1.2.9", api);
     assert(checker.currentChangelog().startsWith("1.2.9 -"));
     assert(checker.enabled() && checker.branch() == "resketch-cef");
+    assert(checker.periodicEnabled() && checker.m_periodicTimer.isActive());
+    assert(checker.m_periodicTimer.interval() == 5 * 60 * 60 * 1000);
+    assert(!checker.m_periodicTimer.isSingleShot());
     int notices = 0;
     QObject::connect(&checker, &UpdateChecker::updateAvailable, [&] { ++notices; });
     checker.checkAtStartup();
@@ -140,6 +143,20 @@ ApplicationWindow {
     assert(QMetaObject::invokeMethod(child("startupUpdateCheck"), "toggle"));
     assert(QMetaObject::invokeMethod(child("startupUpdateCheck"), "toggled"));
     assert(!checker.enabled());
+    const int beforePeriodic = requests;
+    assert(QMetaObject::invokeMethod(&checker.m_periodicTimer, "timeout"));
+    assert(checker.checking()); // Startup checks and periodic checks are independent.
+    assert(QMetaObject::invokeMethod(&checker.m_periodicTimer, "timeout"));
+    wait(checker);
+    assert(requests == beforePeriodic + 2 && notices == 2); // No overlapping requests.
+    assert(QMetaObject::invokeMethod(child("periodicUpdateCheck"), "toggle"));
+    assert(QMetaObject::invokeMethod(child("periodicUpdateCheck"), "toggled"));
+    assert(!checker.periodicEnabled() && !checker.m_periodicTimer.isActive());
+    { UpdateChecker saved(nullptr, "1.2.9", api); assert(!saved.periodicEnabled() && !saved.m_periodicTimer.isActive()); }
+    assert(QMetaObject::invokeMethod(&checker.m_periodicTimer, "timeout"));
+    assert(!checker.checking() && requests == beforePeriodic + 2);
+    checker.setPeriodicEnabled(true);
+    assert(checker.m_periodicTimer.isActive());
     checker.setEnabled(true);
     assert(QMetaObject::invokeMethod(child("viewChangelogButton"), "clicked"));
     auto *notes = child("updateChangelogDialog");
@@ -156,6 +173,7 @@ ApplicationWindow {
     assert(QMetaObject::invokeMethod(child("cancelUpdateButton"), "clicked"));
     waitClosed(dialog);
     assert(!dialog->property("visible").toBool());
+    assert(checker.m_promptDismissed);
     assert(checker.available().value("version") == "1.2.10");
     {
         UpdateChecker cancelled(nullptr, "1.2.9", api);
@@ -177,6 +195,10 @@ ApplicationWindow {
         restarted.checkForUpdates(); wait(restarted);
         assert(restarted.available().value("version") == "1.2.10");
     }
+    const int beforeSkippedPeriodic = notices;
+    assert(QMetaObject::invokeMethod(&checker.m_periodicTimer, "timeout"));
+    wait(checker);
+    assert(notices == beforeSkippedPeriodic && checker.available().value("version") == "1.2.10");
     releases.append(release("cef-v1.3.0-abcdef0"));
     {
         UpdateChecker newer(nullptr, "1.2.9", api);
@@ -185,6 +207,10 @@ ApplicationWindow {
         newer.checkAtStartup(); wait(newer);
         assert(prompted == 1 && newer.available().value("version") == "1.3.0");
     }
+    const int beforeDismissedPeriodic = notices;
+    assert(QMetaObject::invokeMethod(&checker.m_periodicTimer, "timeout"));
+    wait(checker);
+    assert(notices == beforeDismissedPeriodic && checker.available().value("version") == "1.3.0");
     checker.setEnabled(false);
     const int before = requests;
     { UpdateChecker disabled(nullptr, "1.2.9", api); disabled.checkAtStartup(); assert(!disabled.checking() && requests == before); }
@@ -218,6 +244,7 @@ ApplicationWindow {
     assert(!checker.checking() && checker.available().isEmpty());
     checker.reset();
     assert(checker.enabled() && checker.branch() == "resketch-cef");
+    assert(checker.periodicEnabled() && checker.m_periodicTimer.isActive());
     notesFail = false;
     QTemporaryDir installerDirectory;
     assert(installerDirectory.isValid());

@@ -134,6 +134,12 @@ ColumnLayout {
             checked: !!page.updater && page.updater.enabled
             onToggled: if (page.updater) page.updater.enabled = checked
         }
+        Controls.CheckBox {
+            objectName: "periodicUpdateCheck"
+            text: qsTr("Check for updates every 5 hours")
+            checked: !!page.updater && page.updater.periodicEnabled
+            onToggled: if (page.updater) page.updater.periodicEnabled = checked
+        }
     }
     ChangelogDialog {
         id: changelog
