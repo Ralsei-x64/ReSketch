@@ -24,7 +24,8 @@ MouseArea {
     property double updatedAt: 0
     property bool platformMomentum: false
     property bool gestureEnded: false
-    enabled: !!flickable && flickable.interactive && (horizontal
+    // ScrollView disables flicking in mouse mode; wheel scrolling still applies.
+    enabled: !!flickable && (horizontal
         ? flickable.contentWidth > flickable.width : flickable.contentHeight > flickable.height)
     onSmoothEnabledChanged: stop()
     onInertiaEnabledChanged: stop()

@@ -266,6 +266,28 @@ Item {
             compare(app.activeView.settings.inertialScrollingEnabled, false)
         }
 
+        function test_scroll_speed_in_scrollview_mouse_mode() {
+            const component = Qt.createComponent("../src/SettingsWindow.qml")
+            compare(component.status, Component.Ready, component.errorString())
+            const window = createTemporaryObject(component, fixture, {visible:true, height:440})
+            const section = findChild(window, "settingsSectionScroll")
+            const scroller = section.contentItem
+            tryVerify(() => scroller.contentHeight > scroller.height + 500)
+            // ScrollView disables flicking when a mouse is used. Wheels must still use our settings.
+            scroller.interactive = false
+            appSettings.smoothScrolling = false
+            appSettings.mouseScrollSensitivity = 200
+            const wheelArea = visualChild(section, "scrollGestureArea")
+            verify(wheelArea && wheelArea.enabled, "Mouse mode must not disable the custom wheel handler")
+            scroller.contentY = 0
+            mouseWheel(section, 30, 70, 0, -120)
+            compare(scroller.contentY, 240)
+            appSettings.mouseScrollSensitivity = 50
+            mouseWheel(section, 30, 70, 0, -120)
+            compare(scroller.contentY, 300)
+            window.close()
+        }
+
         function test_settings_scroll_area_and_checkboxes_use_shared_preferences() {
             const component = Qt.createComponent("../src/SettingsWindow.qml")
             compare(component.status, Component.Ready, component.errorString())
