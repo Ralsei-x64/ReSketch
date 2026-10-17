@@ -140,6 +140,8 @@ Kirigami.ApplicationWindow {
     property bool nativeTabDragRequested: false
     property alias browserContent: browserArea
     readonly property real browserWidth: browserArea.width
+    readonly property real tabSlideGap: 32
+    readonly property real tabSlideDistance: browserWidth + tabSlideGap
     readonly property real browserHeight: browserArea.height
     readonly property var browserProfile: sharedProfile || figmaProfile
     property url startupUrl: ""
@@ -3766,7 +3768,7 @@ Kirigami.ApplicationWindow {
             view.runJavaScript(FigmaTheme.sidebarGestureHitTest(position.x, position.y), region => {
                 if (generation !== sidebarSwipeGeneration || sidebarSwipeView !== view) return
                 sidebarSwipePending = false
-                sidebarSwipeAllowed = region === "sidebar"
+                sidebarSwipeAllowed = region === "sidebar" || region === "dock"
                 if (sidebarSwipeAllowed && sidebarSwipeAxis === 1) updateSidebarSwipe()
                 else if (!sidebarSwipeAllowed && sidebarSwipeHeld) {
                     view.replayWheel(sidebarSwipeBufferedDelta, sidebarSwipePosition)
@@ -3812,7 +3814,7 @@ Kirigami.ApplicationWindow {
             homeSelectionGlide = !!target && (target === homeView || sidebarSwipeView === homeView)
         }
         const distance = sidebarSwipeDelta.x * appSettings.gestureSensitivity / 100
-        const next = target ? Math.max(-browserWidth, Math.min(browserWidth, distance))
+        const next = target ? Math.max(-tabSlideDistance, Math.min(tabSlideDistance, distance))
                             : distance / (1 + Math.abs(distance) / browserWidth) * 0.25
         const now = Date.now()
         if (sidebarSwipeUpdatedAt)
@@ -3829,8 +3831,8 @@ Kirigami.ApplicationWindow {
         const target = sidebarSwipeTarget
         if (!target) return
         const direction = [homeView].concat(views).indexOf(target) > [homeView].concat(views).indexOf(sidebarSwipeView) ? 1 : -1
-        target.slideX = direction * browserWidth + sidebarSwipeDistance
-        const progress = Math.min(1, Math.abs(sidebarSwipeDistance) / browserWidth)
+        target.slideX = direction * tabSlideDistance + sidebarSwipeDistance
+        const progress = Math.min(1, Math.abs(sidebarSwipeDistance) / tabSlideDistance)
         const group = groupFor(target)
         const expansion = group ? target.groupExpansion : 1
         const x = target === homeView ? 0 : tabsViewport.x - tabsViewport.contentX
@@ -3851,8 +3853,8 @@ Kirigami.ApplicationWindow {
         const velocity = Date.now() - sidebarSwipeUpdatedAt > 100 ? 0 : sidebarSwipeVelocity
         const predicted = sidebarSwipeDistance + velocity * 0.1
         sidebarSwipeCommit = !!sidebarSwipeTarget && predicted * sidebarSwipeDistance > 0
-            && Math.abs(predicted) >= browserWidth * 0.25
-        const end = sidebarSwipeCommit ? Math.sign(sidebarSwipeDistance) * browserWidth : 0
+            && Math.abs(predicted) >= tabSlideDistance * 0.25
+        const end = sidebarSwipeCommit ? Math.sign(sidebarSwipeDistance) * tabSlideDistance : 0
         if (appSettings.reduceMotion) {
             sidebarSwipeDistance = end
             finishSidebarSwipeTransition()
@@ -3934,7 +3936,7 @@ Kirigami.ApplicationWindow {
         const local = view.mapFromItem(browserArea, origin.x, origin.y)
         view.runJavaScript(FigmaTheme.sidebarGestureHitTest(local.x, local.y), region => {
             if (!overviewPinchTracking || generation !== overviewPinchGeneration || activeView !== view) return
-            overviewPinchAccepted = region === "sidebar"
+            overviewPinchAccepted = region === "sidebar" || region === "dock"
             canvasPinchView = region === "canvas" ? view : null
             updateOverviewPinch(overviewPinchScale, overviewPinchTranslation)
         })
@@ -4913,7 +4915,7 @@ Kirigami.ApplicationWindow {
         if (previous && previous !== next && browserArea.width > 0
                 && !appSettings.reduceMotion && allowWebSlide && !frozen) {
             const direction = index > previousIndex ? 1 : -1
-            const distance = browserArea.width
+            const distance = tabSlideDistance
             outgoingView = previous
             previous.visible = true
             next.slideX = direction * distance

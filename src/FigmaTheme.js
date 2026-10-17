@@ -6,6 +6,8 @@ function sidebarGestureHitTest(x, y) {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return "'none'"
     return `(()=>{
         const node = document.elementFromPoint(${x}, ${y});
+        if (node?.closest('[class*="toolbelt--root--"]'))
+            return node.closest('input,textarea,select,[contenteditable="true"],[role="textbox"],[role="menu"],[role="dialog"],[role="listbox"]') ? 'none' : 'dock';
         const panel = node?.closest('[data-resketch-sidebar],[data-testid="navigation-bar"],[data-onboarding-key="unified-design-onboarding-left-panel"],[data-testid="properties-panel"],[class*="left_panel_container--sizeContainer--"],[class*="sidebar--navDefault--"],.fb-sidebar');
         if (!panel) return node?.closest('.gpu-view-content') ? 'canvas' : 'none';
         if (node.closest('button,a,input,textarea,select,label,svg,img,canvas,.ublptt9,[data-testid*="layer-row"],[data-testid*="layer_row"],[contenteditable="true"],[draggable="true"],[role="button"],[role="treeitem"],[role="row"],[role="gridcell"],[role="tab"],[role="checkbox"],[role="menuitem"],[role="menu"],[role="dialog"],[role="listbox"]')) return 'none';

@@ -1741,6 +1741,26 @@ Item {
             tryCompare(app, "outgoingView", null)
         }
 
+        function test_tab_slide_keeps_gap_between_full_size_files_data() {
+            return [{tag:"previous",direction:-1}, {tag:"next",direction:1}]
+        }
+        function test_tab_slide_keeps_gap_between_full_size_files(data) {
+            const source = app.activeView
+            const targetIndex = app.views.indexOf(source) + data.direction
+            const target = app.views[targetIndex]
+            const width = app.browserWidth
+            app.activateTab(targetIndex)
+            verify(app.tabSlideGap > 0)
+            fuzzyCompare(data.direction * (target.slideX - source.slideX) - width, app.tabSlideGap, 1)
+            wait(60)
+            verify(source.slideX !== 0 && target.slideX !== 0)
+            fuzzyCompare(data.direction * (target.slideX - source.slideX) - width, app.tabSlideGap, 1)
+            compare(source.width, width)
+            compare(target.width, width)
+            tryCompare(app, "outgoingView", null)
+            compare(target.slideX, 0)
+        }
+
         function test_shift_selection_survives_reorder_and_box_excludes_hidden_search_results() {
             appSettings.reduceMotion = true
             const first = app.views[0], second = app.views[1], third = app.views[2], fourth = app.views[3]
@@ -3271,7 +3291,9 @@ Item {
                 + 'nav{left:0}aside{right:0}button{position:absolute;top:0;height:30px}'
                 + '#heading{position:absolute;top:40px}#layer{position:absolute;top:100px;height:50px;width:200px}</style>'
                 + '<nav data-onboarding-key="unified-design-onboarding-left-panel"><button>Tool</button><div id="heading">Layers</div>'
-                + '<div id="layer" role="treeitem">Frame</div></nav><aside data-testid="properties-panel"></aside>'),
+                + '<div id="layer" role="treeitem">Frame</div></nav><aside data-testid="properties-panel"></aside>'
+                + '<div class="toolbelt--root--fixture" role="toolbar" style="position:absolute;bottom:12px;left:calc(50% - 150px);width:300px;height:48px">'
+                + '<button style="left:0;width:50px">Move</button><input style="position:absolute;right:0;width:60px"></div>'),
                 () => ready = true)
             tryVerify(() => ready)
             view.restoreHistoryUrl("https://www.figma.com/design/PinchFixture/Test")
@@ -3464,7 +3486,8 @@ Item {
             compare(app.handleSidebarSwipe(source,-100,2,Qt.ScrollUpdate,position), true)
             compare(app.activeView, source, "Selection commits after the slide finishes")
             compare(source.slideX, -100)
-            compare(next.slideX, app.browserWidth - 100)
+            compare(next.slideX, app.tabSlideDistance - 100)
+            compare(next.slideX - source.slideX - app.browserWidth, app.tabSlideGap)
             const selection = findChild(app, "selectionBar")
             verify(selection.startOffset !== 0, "The selection bar follows swipe progress")
             app.handleSidebarSwipe(source,40,0,Qt.ScrollUpdate,position)
@@ -3491,12 +3514,54 @@ Item {
                 const point = Qt.point(100,300)
                 app.handleSidebarSwipe(source,0,0,Qt.ScrollBegin,point)
                 tryCompare(app,"sidebarSwipeAllowed",true)
-                app.handleSidebarSwipe(source,-direction * app.browserWidth * 0.6,0,Qt.ScrollUpdate,point)
+                app.handleSidebarSwipe(source,-direction * app.tabSlideDistance * 0.6,0,Qt.ScrollUpdate,point)
+                fuzzyCompare(direction * (target.slideX - source.slideX) - app.browserWidth, app.tabSlideGap, 1)
                 app.handleSidebarSwipe(source,0,0,Qt.ScrollEnd,point)
                 tryVerify(() => app.activeView === target)
                 compare(target.slideX,0)
                 compare(source.visible,false)
             }
+        }
+
+        function test_dock_gestures_data() {
+            return [{tag:"empty dock",offset:0}, {tag:"tool button",offset:-125}]
+        }
+        function test_dock_gestures(data) {
+            const source = prepareSidebarPinchFixture()
+            const target = app.views[app.views.indexOf(source) + 1]
+            const point = Qt.point(app.browserWidth / 2 + data.offset, app.browserHeight - 45)
+            app.beginOverviewPinch(point)
+            tryCompare(app, "overviewPinchAccepted", true)
+            app.updateOverviewPinch(0.7, Qt.point(15,10))
+            verify(app.overviewProgress > 0 && app.overviewProgress < 1)
+            app.updateOverviewPinch(1, Qt.point(0,0))
+            app.finishOverviewPinch()
+            tryCompare(app, "overviewVisible", false)
+            app.handleSidebarSwipe(source,0,0,Qt.ScrollBegin,point)
+            tryCompare(app, "sidebarSwipeAllowed", true)
+            app.handleSidebarSwipe(source,-app.tabSlideDistance * 0.6,0,Qt.ScrollUpdate,point)
+            compare(target.slideX - source.slideX - app.browserWidth, app.tabSlideGap)
+            app.handleSidebarSwipe(source,0,0,Qt.ScrollEnd,point)
+            tryVerify(() => app.activeView === target)
+            compare(target.slideX, 0)
+        }
+
+        function test_dock_gestures_leave_text_inputs_alone() {
+            const source = prepareSidebarPinchFixture()
+            const point = Qt.point(app.browserWidth / 2 + 120, app.browserHeight - 45)
+            app.beginOverviewPinch(point)
+            app.updateOverviewPinch(0.5, Qt.point(0,0))
+            wait(100)
+            compare(app.overviewPinchAccepted, false)
+            compare(app.canvasPinchView, null)
+            compare(app.overviewVisible, false)
+            app.finishOverviewPinch()
+            app.handleSidebarSwipe(source,0,0,Qt.ScrollBegin,point)
+            app.handleSidebarSwipe(source,-100,0,Qt.ScrollUpdate,point)
+            tryCompare(app, "sidebarSwipePending", false)
+            compare(app.sidebarSwipeAllowed, false)
+            compare(source.slideX, 0)
+            app.handleSidebarSwipe(source,0,0,Qt.ScrollEnd,point)
         }
 
         function test_sidebar_swipe_ignores_vertical_scrolling_and_controls() {

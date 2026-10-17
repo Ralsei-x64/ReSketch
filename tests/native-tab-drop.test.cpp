@@ -891,20 +891,25 @@ int main(int argc, char **argv)
     assert(destination->property("sidebarSwipeAllowed").toBool());
     sidebarWheel(QPoint(-100,0), Qt::ScrollUpdate);
     assert(qAbs(swipeView->property("slideX").toDouble() + 100) < 1);
+    assert(evaluate("Math.abs(destination.sidebarSwipeTarget.slideX-destination.sidebarSwipeView.slideX)"
+        "-destination.browserWidth === destination.tabSlideGap && destination.tabSlideGap>0").toBool());
     render(); // Explicit scroll phases must hold the transition while fingers pause.
     assert(qAbs(swipeView->property("slideX").toDouble() + 100) < 1);
     sidebarWheel(QPoint(-500,0), Qt::ScrollUpdate);
     sidebarWheel({}, Qt::ScrollEnd);
     for(int i=0; i<10 && destination->property("activeView").value<QObject *>() == swipeView; ++i) render();
     assert(destination->property("activeView").value<QObject *>() != swipeView);
-    evaluate("var reverseReady=false;destination.activeView.runJavaScript(\"document.body.innerHTML='<nav style=\\\"position:absolute;inset:0\\\" data-onboarding-key=unified-design-onboarding-left-panel></nav>'\",()=>reverseReady=true)");
+    evaluate("var reverseReady=false;destination.activeView.runJavaScript(\"document.body.innerHTML='<div class=toolbelt--root--fixture style=\\\"position:absolute;inset:0\\\"><button style=\\\"width:100%;height:100%\\\">Move</button></div>'\",()=>reverseReady=true)");
     for(int i=0;i<30 && !evaluate("reverseReady").toBool();++i) render();
     assert(evaluate("reverseReady").toBool());
     evaluate("destination.activeView.restoreHistoryUrl('https://www.figma.com/design/ReverseFixture/Test');destination.activeView.hasLoadedFrame=true");
     sidebarWheel({}, Qt::ScrollBegin);
     render();
     assert(destination->property("sidebarSwipeAllowed").toBool());
-    sidebarWheel(QPoint(600,0), Qt::ScrollUpdate);
+    sidebarWheel(QPoint(100,0), Qt::ScrollUpdate);
+    assert(evaluate("Math.abs(destination.sidebarSwipeTarget.slideX-destination.sidebarSwipeView.slideX)"
+        "-destination.browserWidth === destination.tabSlideGap").toBool());
+    sidebarWheel(QPoint(500,0), Qt::ScrollUpdate);
     sidebarWheel({}, Qt::ScrollEnd);
     for(int i=0;i<10 && destination->property("activeView").value<QObject *>() != swipeView;++i) render();
     assert(destination->property("activeView").value<QObject *>() == swipeView);
