@@ -23,9 +23,9 @@ The PKGBUILD installs dependencies and builds the latest `resketch-cef` branch.
 Requires CMake, Ninja, a C++20 compiler, Qt 6.8+ (Concurrent, Network, Quick, Quick Controls, OpenGL, Widgets), Kirigami, KF6 KWindowSystem and KNotifications, Fontconfig, FreeType, GTK3, GLib, EGL, and the KDE desktop Qt Quick Controls style. CMake downloads CEF automatically.
 
 ```sh
-cmake -S . -B build-cef -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build-cef
-./build-cef/resketch
+cmake -S . -B build -G Ninja
+cmake --build build
+./build/resketch
 ```
 
 ## Desktop links and sign in
