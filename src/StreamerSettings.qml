@@ -18,23 +18,6 @@ ColumnLayout {
     }
     spacing: Kirigami.Units.largeSpacing
 
-    component SettingsGroup: Controls.Frame {
-        id: settingsGroup
-        property string title
-        default property alias rows: groupLayout.data
-        Layout.fillWidth: true
-        padding: Kirigami.Units.largeSpacing
-        contentItem: ColumnLayout {
-            id: groupLayout
-            spacing: Kirigami.Units.smallSpacing
-            Kirigami.Heading {
-                Layout.fillWidth: true
-                level: 3
-                text: settingsGroup.title
-                wrapMode: Text.WordWrap
-            }
-        }
-    }
     component ValueField: Controls.SpinBox {
         property int settingValue
         signal edited(int newValue)

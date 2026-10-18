@@ -86,9 +86,9 @@ Kirigami.ApplicationWindow {
         {title: "Home", icon: "go-home", keywords: "ReSketch about version GitHub"},
         {title: "Appearance", icon: "preferences-desktop-theme", keywords: "theme colors CSS transparency opacity blur shadow strength floating sidebars corners radius cursor window controls decorations motion scrolling smooth inertia mouse trackpad gestures pinch swipe sensitivity speed scrollbars"},
         {title: "Tabs", icon: "tab-duplicate", keywords: "sleep remember restore loaded Home"},
-        {title: "Performance", icon: "preferences-system-performance", keywords: "memory preview quality menus Chromium GPU Vulkan canvas flags switches"},
+        {title: "Performance", icon: "preferences-system-performance", keywords: "memory preview quality Chromium GPU Vulkan canvas flags switches"},
         {title: "Notifications", icon: "preferences-desktop-notification", keywords: "desktop alerts enable disable Home"},
-        {title: "Toolbar", icon: "configure", keywords: "buttons icons rearrange order new tab overview refresh menu export history settings task manager developer tools"},
+        {title: "Toolbar", icon: "configure", keywords: "buttons icons rearrange order new tab overview refresh menu export history settings task manager developer tools Plasma integration"},
         {title: "Shortcuts", icon: "preferences-desktop-keyboard", keywords: "keyboard keys bindings shortcuts reset defaults selection group delete"},
         {title: "Streamer", icon: "preferences-desktop-keyboard", keywords: "stream streaming overlay keys keypress mouse clicks scroll counter input duration seconds maximum count limit position X Y separate window detach margins padding text alignment colors shadow font size radius transparency blur sticky center edge horizontal vertical direction"},
         {title: "Updates", icon: "view-refresh", keywords: "update startup version GitHub branch changelog release skip"}
@@ -336,50 +336,45 @@ Kirigami.ApplicationWindow {
                                         }
                                         Repeater {
                                             model: [...new Set(Shortcuts.items.map(item => item.category))]
-                                            Controls.Frame {
+                                            SettingsGroup {
                                                 id: categoryFrame
                                                 required property string modelData
                                                 objectName: "shortcutCategory-" + modelData
-                                                Layout.fillWidth: true
-                                                padding: Kirigami.Units.largeSpacing
-                                                contentItem: ColumnLayout {
-                                                    spacing: Kirigami.Units.smallSpacing
-                                                    Kirigami.Heading { text: categoryFrame.modelData; level: 3 }
-                                                    Repeater {
-                                                        model: Shortcuts.items.filter(item => item.category === categoryFrame.modelData)
-                                                        RowLayout {
-                                                            id: shortcutRow
-                                                            required property var modelData
+                                                title: modelData
+                                                Repeater {
+                                                    model: Shortcuts.items.filter(item => item.category === categoryFrame.modelData)
+                                                    RowLayout {
+                                                        id: shortcutRow
+                                                        required property var modelData
+                                                        Layout.fillWidth: true
+                                                        Controls.Label {
                                                             Layout.fillWidth: true
-                                                            Controls.Label {
-                                                                Layout.fillWidth: true
-                                                                Layout.minimumWidth: 0
-                                                                text: shortcutRow.modelData.title
-                                                                wrapMode: Text.WordWrap
+                                                            Layout.minimumWidth: 0
+                                                            text: shortcutRow.modelData.title
+                                                            wrapMode: Text.WordWrap
+                                                        }
+                                                        KQuickControls.KeySequenceItem {
+                                                            objectName: "shortcutEditor-" + shortcutRow.modelData.id
+                                                            Layout.preferredWidth: 220
+                                                            keySequence: Shortcuts.sequence(appSettings, shortcutRow.modelData.id)
+                                                            modifierlessAllowed: true
+                                                            multiKeyShortcutsAllowed: false
+                                                            checkForConflictsAgainst: 0
+                                                            Accessible.name: shortcutRow.modelData.title
+                                                            onKeySequenceModified: {
+                                                                settingsWindow.setShortcut(shortcutRow.modelData.id,
+                                                                    appSettings.shortcutSequenceText(keySequence))
+                                                                keySequence = Qt.binding(() => Shortcuts.sequence(appSettings, shortcutRow.modelData.id))
                                                             }
-                                                            KQuickControls.KeySequenceItem {
-                                                                objectName: "shortcutEditor-" + shortcutRow.modelData.id
-                                                                Layout.preferredWidth: 220
-                                                                keySequence: Shortcuts.sequence(appSettings, shortcutRow.modelData.id)
-                                                                modifierlessAllowed: true
-                                                                multiKeyShortcutsAllowed: false
-                                                                checkForConflictsAgainst: 0
-                                                                Accessible.name: shortcutRow.modelData.title
-                                                                onKeySequenceModified: {
-                                                                    settingsWindow.setShortcut(shortcutRow.modelData.id,
-                                                                        appSettings.shortcutSequenceText(keySequence))
-                                                                    keySequence = Qt.binding(() => Shortcuts.sequence(appSettings, shortcutRow.modelData.id))
-                                                                }
-                                                            }
-                                                            Controls.ToolButton {
-                                                                objectName: "resetShortcut-" + shortcutRow.modelData.id
-                                                                icon.name: "edit-undo"
-                                                                enabled: Object.prototype.hasOwnProperty.call(appSettings.shortcutOverrides, shortcutRow.modelData.id)
-                                                                Accessible.name: qsTr("Reset %1 shortcut").arg(shortcutRow.modelData.title)
-                                                                Controls.ToolTip.text: qsTr("Reset to %1").arg(shortcutRow.modelData.defaultSequence)
-                                                                Controls.ToolTip.visible: hovered
-                                                                onClicked: settingsWindow.resetShortcut(shortcutRow.modelData.id)
-                                                            }
+                                                        }
+                                                        Controls.ToolButton {
+                                                            objectName: "resetShortcut-" + shortcutRow.modelData.id
+                                                            icon.name: "edit-undo"
+                                                            enabled: Object.prototype.hasOwnProperty.call(appSettings.shortcutOverrides, shortcutRow.modelData.id)
+                                                            Accessible.name: qsTr("Reset %1 shortcut").arg(shortcutRow.modelData.title)
+                                                            Controls.ToolTip.text: qsTr("Reset to %1").arg(shortcutRow.modelData.defaultSequence)
+                                                            Controls.ToolTip.visible: hovered
+                                                            onClicked: settingsWindow.resetShortcut(shortcutRow.modelData.id)
                                                         }
                                                     }
                                                 }
@@ -398,24 +393,26 @@ Kirigami.ApplicationWindow {
                                     }
                                 }
 
-                                Controls.Frame {
+                                ColumnLayout {
                                     Layout.fillWidth: true
                                     visible: settingsWindow.selectedSection === 5
-                                    padding: 0
-                                    background: Item {}
-                                    contentItem: ColumnLayout {
-                                        spacing: Kirigami.Units.smallSpacing
+                                    spacing: Kirigami.Units.largeSpacing
+
+                                    SettingsGroup {
+                                        title: qsTr("Toolbar buttons")
                                         Controls.Label {
                                             Layout.fillWidth: true
                                             text: qsTr("Choose which buttons appear next to the tabs. Drag the handles or use the arrows to change their order.")
                                             wrapMode: Text.WordWrap
                                         }
+
                                         Controls.Label {
                                             Layout.fillWidth: true
                                             text: qsTr("Changes apply immediately. Right-click Home or empty space in the tab bar to configure the toolbar again.")
                                             opacity: 0.72
                                             wrapMode: Text.WordWrap
                                         }
+
                                         Item {
                                             objectName: "toolbarSettingsList"
                                             Layout.fillWidth: true
@@ -509,17 +506,29 @@ Kirigami.ApplicationWindow {
                                             }
                                         }
                                     }
+
+                                    SettingsGroup {
+                                        title: qsTr("Desktop menus")
+                                        Controls.CheckBox {
+                                            text: "Integrate Figma menus with Plasma"
+                                            checked: appSettings.menuIntegration
+                                            onToggled: appSettings.menuIntegration = checked
+                                            Controls.ToolTip.text: "Export Figma actions to the global menu. Changes apply immediately."
+                                            Controls.ToolTip.visible: hovered
+                                        }
+                                    }
                                 }
-                                Controls.Frame {
+                                ColumnLayout {
                                     Layout.fillWidth: true
                                     visible: settingsWindow.selectedSection === 1
-                                    padding: 0
-                                    background: Item { }
-                                    contentItem: ColumnLayout {
-                                        spacing: Kirigami.Units.smallSpacing
+                                    spacing: Kirigami.Units.largeSpacing
 
+                                    SettingsGroup {
+                                        title: qsTr("Theme")
                                         Kirigami.FormLayout {
+                                            id: themeForm
                                             Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
                                             wideMode: width >= 560
 
                                             Controls.CheckBox {
@@ -529,6 +538,7 @@ Kirigami.ApplicationWindow {
                                                 checked: appSettings.useSystemColors
                                                 onToggled: appSettings.useSystemColors = checked
                                             }
+
                                             Controls.ComboBox {
                                                 objectName: "appThemeCombo"
                                                 Kirigami.FormData.label: "App theme:"
@@ -537,6 +547,17 @@ Kirigami.ApplicationWindow {
                                                 currentIndex: appSettings.theme === "dark" ? 1 : 0
                                                 onActivated: appSettings.theme = ["light", "dark"][currentIndex]
                                             }
+                                        }
+                                    }
+
+                                    SettingsGroup {
+                                        title: qsTr("Motion and scrolling")
+                                        Kirigami.FormLayout {
+                                            id: motionForm
+                                            twinFormLayouts: [themeForm]
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            wideMode: width >= 560
 
                                             Controls.CheckBox {
                                                 Kirigami.FormData.label: "Motion:"
@@ -552,24 +573,26 @@ Kirigami.ApplicationWindow {
                                                 checked: appSettings.smoothScrolling
                                                 onToggled: appSettings.smoothScrolling = checked
                                             }
+
                                             Controls.CheckBox {
                                                 objectName: "inertialScrollingCheck"
                                                 text: qsTr("Scroll inertia")
                                                 checked: appSettings.inertialScrolling
                                                 onToggled: appSettings.inertialScrolling = checked
                                             }
+
                                             Controls.Label {
+                                                Layout.maximumWidth: Math.max(180, motionForm.width - (motionForm.wideMode ? 210 : 0))
                                                 Layout.fillWidth: true
-                                                Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
                                                 text: qsTr("Applies to Figma and the app interface. Reduce motion pauses these effects. Scrolling direction follows your desktop settings.")
                                                 opacity: 0.72
                                                 wrapMode: Text.WordWrap
                                             }
 
                                             RowLayout {
+                                                Layout.maximumWidth: Math.max(180, motionForm.width - (motionForm.wideMode ? 210 : 0))
                                                 Kirigami.FormData.label: qsTr("Scroll speed:")
                                                 Layout.fillWidth: true
-                                                Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
                                                 Controls.Slider {
                                                     objectName: "mouseScrollSensitivityControl"
                                                     Layout.fillWidth: true
@@ -586,10 +609,11 @@ Kirigami.ApplicationWindow {
                                                     horizontalAlignment: Text.AlignRight
                                                 }
                                             }
+
                                             RowLayout {
+                                                Layout.maximumWidth: Math.max(180, motionForm.width - (motionForm.wideMode ? 210 : 0))
                                                 Kirigami.FormData.label: qsTr("Gesture sensitivity:")
                                                 Layout.fillWidth: true
-                                                Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
                                                 Controls.Slider {
                                                     objectName: "gestureSensitivityControl"
                                                     Layout.fillWidth: true
@@ -606,26 +630,104 @@ Kirigami.ApplicationWindow {
                                                     horizontalAlignment: Text.AlignRight
                                                 }
                                             }
+
                                             Controls.Label {
+                                                Layout.maximumWidth: Math.max(180, motionForm.width - (motionForm.wideMode ? 210 : 0))
                                                 Layout.fillWidth: true
-                                                Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
                                                 text: qsTr("Gesture sensitivity adjusts pinch zoom, pinch overview and sidebar tab swipes. 100% is the normal sensitivity.")
                                                 opacity: 0.72
                                                 wrapMode: Text.WordWrap
                                             }
-                                            Controls.CheckBox {
-                                                objectName: "hideSidebarScrollbarsToggle"
-                                                Kirigami.FormData.label: qsTr("Sidebar scrollbars:")
-                                                text: qsTr("Hide Figma sidebar scrollbars")
-                                                checked: appSettings.hideSidebarScrollbars
-                                                onToggled: appSettings.hideSidebarScrollbars = checked
+                                        }
+                                    }
+
+                                    SettingsGroup {
+                                        title: qsTr("Window appearance")
+                                        Kirigami.FormLayout {
+                                            id: windowAppearanceForm
+                                            twinFormLayouts: [themeForm]
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            wideMode: width >= 560
+
+                                            RowLayout {
+                                                Layout.maximumWidth: Math.max(180, windowAppearanceForm.width - (windowAppearanceForm.wideMode ? 210 : 0))
+                                                Kirigami.FormData.label: "Background opacity:"
+                                                Layout.fillWidth: true
+                                                spacing: Kirigami.Units.smallSpacing
+
+                                                Controls.Slider {
+                                                    Layout.fillWidth: true
+                                                    from: 0
+                                                    to: 100
+                                                    stepSize: 1
+                                                    value: appSettings.toolbarOpacity
+                                                    onMoved: appSettings.toolbarOpacity = Math.round(value)
+                                                }
+
+                                                Controls.Label {
+                                                    text: appSettings.toolbarOpacity + "%"
+                                                    Layout.minimumWidth: Kirigami.Units.gridUnit * 2
+                                                    horizontalAlignment: Text.AlignRight
+                                                }
                                             }
+
+                                            Controls.CheckBox {
+                                                Kirigami.FormData.label: "Background blur:"
+                                                text: "Ignore blur"
+                                                checked: appSettings.ignoreToolbarBlur
+                                                onToggled: appSettings.ignoreToolbarBlur = checked
+                                            }
+
+                                            Controls.CheckBox {
+                                                Kirigami.FormData.label: "Window controls:"
+                                                text: "Show in tab bar"
+                                                checked: appSettings.windowControlsInTabBar
+                                                onToggled: appSettings.windowControlsInTabBar = checked
+                                            }
+
+                                            Controls.CheckBox {
+                                                Kirigami.FormData.label: "Title bar:"
+                                                text: "Keep window decorations"
+                                                enabled: appSettings.windowControlsInTabBar
+                                                checked: appSettings.keepWindowDecorations
+                                                onToggled: appSettings.keepWindowDecorations = checked
+                                            }
+
+                                            Controls.Label {
+                                                Layout.maximumWidth: Math.max(180, windowAppearanceForm.width - (windowAppearanceForm.wideMode ? 210 : 0))
+                                                Layout.fillWidth: true
+                                                text: qsTr("Background opacity applies to the toolbar and desktop backdrop.")
+                                                opacity: 0.72
+                                                wrapMode: Text.WordWrap
+                                            }
+                                        }
+                                    }
+
+                                    SettingsGroup {
+                                        title: qsTr("Figma customization")
+                                        Kirigami.FormLayout {
+                                            id: figmaCustomizationForm
+                                            twinFormLayouts: [themeForm]
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            wideMode: width >= 560
 
                                             Controls.CheckBox {
                                                 Kirigami.FormData.label: "Figma colors:"
                                                 text: qsTr("Use app colors (experimental)")
                                                 checked: appSettings.figmaSystemColors
                                                 onToggled: appSettings.figmaSystemColors = checked
+                                            }
+
+                                            Controls.CheckBox {
+                                                objectName: "useSystemCursorToggle"
+                                                Kirigami.FormData.label: "Canvas cursor:"
+                                                text: "Use the system cursor instead of Figma's cursor"
+                                                checked: appSettings.useSystemCursor
+                                                onToggled: appSettings.useSystemCursor = checked
+                                                Controls.ToolTip.text: "Figma's custom canvas cursors are shown by default. Text and resize cursors still follow the current tool."
+                                                Controls.ToolTip.visible: hovered
                                             }
 
                                             Controls.CheckBox {
@@ -636,6 +738,7 @@ Kirigami.ApplicationWindow {
                                             }
 
                                             Controls.ScrollView {
+                                                Layout.maximumWidth: Math.max(180, figmaCustomizationForm.width - (figmaCustomizationForm.wideMode ? 210 : 0))
                                                 Layout.fillWidth: true
                                                 Layout.preferredHeight: 140
                                                 implicitHeight: 140
@@ -660,40 +763,37 @@ Kirigami.ApplicationWindow {
                                             }
 
                                             Controls.Label {
+                                                Layout.maximumWidth: Math.max(180, figmaCustomizationForm.width - (figmaCustomizationForm.wideMode ? 210 : 0))
                                                 Layout.fillWidth: true
-                                                Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
                                                 text: "Figma appearance changes apply immediately to all tabs. Custom CSS overrides KDE colors."
                                                 opacity: 0.72
                                                 wrapMode: Text.WordWrap
                                             }
+                                        }
+                                    }
 
-                                            RowLayout {
-                                                Kirigami.FormData.label: "Background opacity:"
-                                                Layout.fillWidth: true
-                                                Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
-                                                spacing: Kirigami.Units.smallSpacing
-
-                                                Controls.Slider {
-                                                    Layout.fillWidth: true
-                                                    from: 0
-                                                    to: 100
-                                                    stepSize: 1
-                                                    value: appSettings.toolbarOpacity
-                                                    onMoved: appSettings.toolbarOpacity = Math.round(value)
-                                                }
-
-                                                Controls.Label {
-                                                    text: appSettings.toolbarOpacity + "%"
-                                                    Layout.minimumWidth: Kirigami.Units.gridUnit * 2
-                                                    horizontalAlignment: Text.AlignRight
-                                                }
-                                            }
+                                    SettingsGroup {
+                                        title: qsTr("Sidebar layout")
+                                        Kirigami.FormLayout {
+                                            id: sidebarLayoutForm
+                                            twinFormLayouts: [themeForm]
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            wideMode: width >= 560
 
                                             Controls.CheckBox {
                                                 Kirigami.FormData.label: "Figma sidebars:"
                                                 text: "Translucent left and right sidebars"
                                                 checked: appSettings.translucentSidebars
                                                 onToggled: appSettings.translucentSidebars = checked
+                                            }
+
+                                            Controls.CheckBox {
+                                                objectName: "floatingSidebarsToggle"
+                                                Kirigami.FormData.label: "Floating sidebars:"
+                                                text: "Float sidebars over the Figma file canvas"
+                                                checked: appSettings.floatingSidebars
+                                                onToggled: appSettings.floatingSidebars = checked
                                             }
 
                                             Controls.ComboBox {
@@ -703,72 +803,6 @@ Kirigami.ApplicationWindow {
                                                 model: ["Desktop", "Figma canvas"]
                                                 currentIndex: appSettings.sidebarBackdrop === "canvas" ? 1 : 0
                                                 onActivated: appSettings.sidebarBackdrop = currentIndex === 1 ? "canvas" : "desktop"
-                                            }
-
-                                            RowLayout {
-                                                Kirigami.FormData.label: "Canvas backdrop blur:"
-                                                visible: appSettings.sidebarBackdrop === "canvas"
-                                                enabled: appSettings.translucentSidebars || appSettings.floatingSidebars
-                                                Layout.fillWidth: true
-                                                Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
-
-                                                Controls.Slider {
-                                                    objectName: "sidebarCanvasBlurControl"
-                                                    Layout.fillWidth: true
-                                                    from: 0
-                                                    to: 40
-                                                    stepSize: 1
-                                                    value: appSettings.sidebarCanvasBlur
-                                                    onMoved: appSettings.sidebarCanvasBlur = Math.round(value)
-                                                    Accessible.name: "Canvas backdrop blur"
-                                                }
-                                                Controls.Label {
-                                                    text: appSettings.sidebarCanvasBlur + " px"
-                                                    Layout.minimumWidth: Kirigami.Units.gridUnit * 3
-                                                    horizontalAlignment: Text.AlignRight
-                                                }
-                                            }
-
-                                            RowLayout {
-                                                Kirigami.FormData.label: "Canvas backdrop opacity:"
-                                                visible: appSettings.sidebarBackdrop === "canvas"
-                                                enabled: appSettings.translucentSidebars || appSettings.floatingSidebars
-                                                Layout.fillWidth: true
-                                                Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
-
-                                                Controls.Slider {
-                                                    objectName: "sidebarCanvasOpacityControl"
-                                                    Layout.fillWidth: true
-                                                    from: 0
-                                                    to: 100
-                                                    stepSize: 1
-                                                    value: appSettings.sidebarCanvasOpacity
-                                                    onMoved: appSettings.sidebarCanvasOpacity = Math.round(value)
-                                                    Accessible.name: "Canvas backdrop opacity"
-                                                }
-                                                Controls.Label {
-                                                    text: appSettings.sidebarCanvasOpacity + "%"
-                                                    Layout.minimumWidth: Kirigami.Units.gridUnit * 3
-                                                    horizontalAlignment: Text.AlignRight
-                                                }
-                                            }
-
-                                            Controls.CheckBox {
-                                                objectName: "useSystemCursorToggle"
-                                                Kirigami.FormData.label: "Canvas cursor:"
-                                                text: "Use the system cursor instead of Figma's cursor"
-                                                checked: appSettings.useSystemCursor
-                                                onToggled: appSettings.useSystemCursor = checked
-                                                Controls.ToolTip.text: "Figma's custom canvas cursors are shown by default. Text and resize cursors still follow the current tool."
-                                                Controls.ToolTip.visible: hovered
-                                            }
-
-                                            Controls.CheckBox {
-                                                objectName: "floatingSidebarsToggle"
-                                                Kirigami.FormData.label: "Floating sidebars:"
-                                                text: "Float sidebars over the Figma file canvas"
-                                                checked: appSettings.floatingSidebars
-                                                onToggled: appSettings.floatingSidebars = checked
                                             }
 
                                             Controls.SpinBox {
@@ -792,12 +826,71 @@ Kirigami.ApplicationWindow {
                                                 value: appSettings.sidebarMargin
                                                 onValueModified: appSettings.sidebarMargin = value
                                             }
+                                        }
+                                    }
+
+                                    SettingsGroup {
+                                        title: qsTr("Sidebar effects")
+                                        Kirigami.FormLayout {
+                                            id: sidebarEffectsForm
+                                            twinFormLayouts: [themeForm]
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            wideMode: width >= 560
 
                                             RowLayout {
+                                                Layout.maximumWidth: Math.max(180, sidebarEffectsForm.width - (sidebarEffectsForm.wideMode ? 210 : 0))
+                                                Kirigami.FormData.label: "Canvas backdrop blur:"
+                                                visible: appSettings.sidebarBackdrop === "canvas"
+                                                enabled: appSettings.translucentSidebars || appSettings.floatingSidebars
+                                                Layout.fillWidth: true
+
+                                                Controls.Slider {
+                                                    objectName: "sidebarCanvasBlurControl"
+                                                    Layout.fillWidth: true
+                                                    from: 0
+                                                    to: 40
+                                                    stepSize: 1
+                                                    value: appSettings.sidebarCanvasBlur
+                                                    onMoved: appSettings.sidebarCanvasBlur = Math.round(value)
+                                                    Accessible.name: "Canvas backdrop blur"
+                                                }
+                                                Controls.Label {
+                                                    text: appSettings.sidebarCanvasBlur + " px"
+                                                    Layout.minimumWidth: Kirigami.Units.gridUnit * 3
+                                                    horizontalAlignment: Text.AlignRight
+                                                }
+                                            }
+
+                                            RowLayout {
+                                                Layout.maximumWidth: Math.max(180, sidebarEffectsForm.width - (sidebarEffectsForm.wideMode ? 210 : 0))
+                                                Kirigami.FormData.label: "Canvas backdrop opacity:"
+                                                visible: appSettings.sidebarBackdrop === "canvas"
+                                                enabled: appSettings.translucentSidebars || appSettings.floatingSidebars
+                                                Layout.fillWidth: true
+
+                                                Controls.Slider {
+                                                    objectName: "sidebarCanvasOpacityControl"
+                                                    Layout.fillWidth: true
+                                                    from: 0
+                                                    to: 100
+                                                    stepSize: 1
+                                                    value: appSettings.sidebarCanvasOpacity
+                                                    onMoved: appSettings.sidebarCanvasOpacity = Math.round(value)
+                                                    Accessible.name: "Canvas backdrop opacity"
+                                                }
+                                                Controls.Label {
+                                                    text: appSettings.sidebarCanvasOpacity + "%"
+                                                    Layout.minimumWidth: Kirigami.Units.gridUnit * 3
+                                                    horizontalAlignment: Text.AlignRight
+                                                }
+                                            }
+
+                                            RowLayout {
+                                                Layout.maximumWidth: Math.max(180, sidebarEffectsForm.width - (sidebarEffectsForm.wideMode ? 210 : 0))
                                                 Kirigami.FormData.label: "Shadow transparency:"
                                                 enabled: appSettings.floatingSidebars
                                                 Layout.fillWidth: true
-                                                Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
                                                 Controls.Slider {
                                                     objectName: "sidebarShadowTransparencyControl"
                                                     Layout.fillWidth: true
@@ -816,10 +909,10 @@ Kirigami.ApplicationWindow {
                                             }
 
                                             RowLayout {
+                                                Layout.maximumWidth: Math.max(180, sidebarEffectsForm.width - (sidebarEffectsForm.wideMode ? 210 : 0))
                                                 Kirigami.FormData.label: "Shadow strength:"
                                                 enabled: appSettings.floatingSidebars
                                                 Layout.fillWidth: true
-                                                Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
                                                 Controls.Slider {
                                                     objectName: "sidebarShadowStrengthControl"
                                                     Layout.fillWidth: true
@@ -838,11 +931,30 @@ Kirigami.ApplicationWindow {
                                             }
 
                                             Controls.Label {
+                                                Layout.maximumWidth: Math.max(180, sidebarEffectsForm.width - (sidebarEffectsForm.wideMode ? 210 : 0))
                                                 Layout.fillWidth: true
-                                                Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
-                                                text: "Shadow strength controls its size and softness; 0% turns it off. Background opacity controls the toolbar and desktop backdrop. Canvas backdrop blur and opacity apply to both floating and docked sidebars; 0% opacity shows the canvas fully."
+                                                text: "Canvas backdrop blur and opacity apply to floating and docked sidebars. Shadow strength controls its size and softness; 0% turns it off."
                                                 opacity: 0.72
                                                 wrapMode: Text.WordWrap
+                                            }
+                                        }
+                                    }
+
+                                    SettingsGroup {
+                                        title: qsTr("Scrollbars")
+                                        Kirigami.FormLayout {
+                                            id: scrollbarsForm
+                                            twinFormLayouts: [themeForm]
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            wideMode: width >= 560
+
+                                            Controls.CheckBox {
+                                                objectName: "hideSidebarScrollbarsToggle"
+                                                Kirigami.FormData.label: qsTr("Sidebar scrollbars:")
+                                                text: qsTr("Hide Figma sidebar scrollbars")
+                                                checked: appSettings.hideSidebarScrollbars
+                                                onToggled: appSettings.hideSidebarScrollbars = checked
                                             }
 
                                             Controls.CheckBox {
@@ -855,47 +967,56 @@ Kirigami.ApplicationWindow {
                                             }
 
                                             Controls.Label {
+                                                Layout.maximumWidth: Math.max(180, scrollbarsForm.width - (scrollbarsForm.wideMode ? 210 : 0))
                                                 Layout.fillWidth: true
-                                                Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
                                                 text: "File tabs reload to apply this setting. Sleeping tabs apply it when selected. Canvas scrolling stays enabled."
                                                 opacity: 0.72
                                                 wrapMode: Text.WordWrap
                                             }
-
-                                            Controls.CheckBox {
-                                                Kirigami.FormData.label: "Background blur:"
-                                                text: "Ignore blur"
-                                                checked: appSettings.ignoreToolbarBlur
-                                                onToggled: appSettings.ignoreToolbarBlur = checked
-                                            }
-
-                                            Controls.CheckBox {
-                                                Kirigami.FormData.label: "Window controls:"
-                                                text: "Show in tab bar"
-                                                checked: appSettings.windowControlsInTabBar
-                                                onToggled: appSettings.windowControlsInTabBar = checked
-                                            }
-
-                                            Controls.CheckBox {
-                                                Kirigami.FormData.label: "Title bar:"
-                                                text: "Keep window decorations"
-                                                enabled: appSettings.windowControlsInTabBar
-                                                checked: appSettings.keepWindowDecorations
-                                                onToggled: appSettings.keepWindowDecorations = checked
-                                            }
                                         }
                                     }
                                 }
-                                Controls.Frame {
+                                ColumnLayout {
                                     Layout.fillWidth: true
                                     visible: settingsWindow.selectedSection === 2
-                                    padding: 0
-                                    background: Item { }
-                                    contentItem: ColumnLayout {
-                                        spacing: Kirigami.Units.smallSpacing
+                                    spacing: Kirigami.Units.largeSpacing
 
+                                    SettingsGroup {
+                                        title: qsTr("Startup and restore")
                                         Kirigami.FormLayout {
+                                            id: startupForm
                                             Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            wideMode: width >= 560
+
+                                            Controls.CheckBox {
+                                                objectName: "rememberOpenedTabs"
+                                                text: "Remember opened tabs"
+                                                checked: appSettings.rememberOpenedTabs
+                                                onToggled: appSettings.rememberOpenedTabs = checked
+                                                Controls.ToolTip.text: "Restore file tabs and their groups on startup. Empty tabs, Home, and the new-file screen are not saved."
+                                                Controls.ToolTip.visible: hovered
+                                            }
+
+                                            Controls.CheckBox {
+                                                objectName: "deferRestoredTabs"
+                                                text: "Load restored tabs only when selected"
+                                                enabled: appSettings.rememberOpenedTabs
+                                                checked: appSettings.deferRestoredTabs
+                                                onToggled: appSettings.deferRestoredTabs = checked
+                                                Controls.ToolTip.text: "On startup, leave remembered files unloaded until you select their tab or overview card."
+                                                Controls.ToolTip.visible: hovered
+                                            }
+                                        }
+                                    }
+
+                                    SettingsGroup {
+                                        title: qsTr("Tab sleeping")
+                                        Kirigami.FormLayout {
+                                            id: sleepingForm
+                                            twinFormLayouts: [startupForm]
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
                                             wideMode: width >= 560
 
                                             Controls.SpinBox {
@@ -927,25 +1048,6 @@ Kirigami.ApplicationWindow {
                                             }
 
                                             Controls.CheckBox {
-                                                objectName: "rememberOpenedTabs"
-                                                text: "Remember opened tabs"
-                                                checked: appSettings.rememberOpenedTabs
-                                                onToggled: appSettings.rememberOpenedTabs = checked
-                                                Controls.ToolTip.text: "Restore file tabs and their groups on startup. Empty tabs, Home, and the new-file screen are not saved."
-                                                Controls.ToolTip.visible: hovered
-                                            }
-
-                                            Controls.CheckBox {
-                                                objectName: "deferRestoredTabs"
-                                                text: "Load restored tabs only when selected"
-                                                enabled: appSettings.rememberOpenedTabs
-                                                checked: appSettings.deferRestoredTabs
-                                                onToggled: appSettings.deferRestoredTabs = checked
-                                                Controls.ToolTip.text: "On startup, leave remembered files unloaded until you select their tab or overview card."
-                                                Controls.ToolTip.visible: hovered
-                                            }
-
-                                            Controls.CheckBox {
                                                 text: "Keep Home running"
                                                 enabled: !appSettings.desktopNotifications
                                                 checked: appSettings.keepHomeAwake
@@ -956,6 +1058,25 @@ Kirigami.ApplicationWindow {
                                                 Controls.ToolTip.visible: hovered
                                             }
 
+                                            Controls.Label {
+                                                Layout.maximumWidth: Math.max(180, sleepingForm.width - (sleepingForm.wideMode ? 210 : 0))
+                                                Layout.fillWidth: true
+                                                text: "The maximum tab count takes priority over the minimum loaded tabs."
+                                                opacity: 0.72
+                                                wrapMode: Text.WordWrap
+                                            }
+                                        }
+                                    }
+
+                                    SettingsGroup {
+                                        title: qsTr("Overview previews")
+                                        Kirigami.FormLayout {
+                                            id: overviewForm
+                                            twinFormLayouts: [startupForm]
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            wideMode: width >= 560
+
                                             Controls.CheckBox {
                                                 text: "Show sleeping tabs in overview"
                                                 checked: appSettings.sleepingTabPreviews
@@ -964,28 +1085,22 @@ Kirigami.ApplicationWindow {
                                                 Controls.ToolTip.visible: hovered
                                             }
                                         }
-
-                                        Controls.Label {
-                                            Layout.fillWidth: true
-                                            text: "The maximum tab count takes priority over the minimum loaded tabs."
-                                            opacity: 0.72
-                                            wrapMode: Text.WordWrap
-                                        }
                                     }
                                 }
-                                Controls.Frame {
+                                ColumnLayout {
                                     Layout.fillWidth: true
                                     visible: settingsWindow.selectedSection === 4
-                                    padding: 0
-                                    background: Item { }
-                                    contentItem: ColumnLayout {
-                                        spacing: Kirigami.Units.largeSpacing
+                                    spacing: Kirigami.Units.largeSpacing
+
+                                    SettingsGroup {
+                                        title: qsTr("Desktop notifications")
                                         Controls.CheckBox {
                                             objectName: "desktopNotifications"
                                             text: "Enable desktop notifications"
                                             checked: appSettings.desktopNotifications
                                             onToggled: appSettings.desktopNotifications = checked
                                         }
+
                                         Controls.Label {
                                             Layout.fillWidth: true
                                             text: "Receive Figma activity through your desktop's notification system. Home stays running to receive updates. Turning this off stops notification checks and desktop alerts immediately."
@@ -994,22 +1109,23 @@ Kirigami.ApplicationWindow {
                                         }
                                     }
                                 }
-                                Controls.Frame {
+                                ColumnLayout {
                                     Layout.fillWidth: true
                                     visible: settingsWindow.selectedSection === 3
-                                    padding: 0
-                                    background: Item { }
-                                    contentItem: ColumnLayout {
-                                        spacing: Kirigami.Units.smallSpacing
+                                    spacing: Kirigami.Units.largeSpacing
 
+                                    SettingsGroup {
+                                        title: qsTr("Memory limit")
                                         Kirigami.FormLayout {
+                                            id: memoryForm
                                             Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
                                             wideMode: width >= 560
 
                                             RowLayout {
+                                                Layout.maximumWidth: Math.max(180, memoryForm.width - (memoryForm.wideMode ? 210 : 0))
                                                 Kirigami.FormData.label: "Total memory limit:"
                                                 Layout.fillWidth: true
-                                                Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
                                                 Controls.Slider {
                                                     id: memoryLimitSlider
                                                     objectName: "memoryLimitSlider"
@@ -1029,18 +1145,32 @@ Kirigami.ApplicationWindow {
                                                           : qsTr("%1 GiB").arg((memoryLimitSlider.value / 1024).toFixed(1))
                                                 }
                                             }
+
                                             Controls.Label {
+                                                Layout.maximumWidth: Math.max(180, memoryForm.width - (memoryForm.wideMode ? 210 : 0))
                                                 objectName: "totalMemoryUsageLabel"
                                                 Layout.fillWidth: true
                                                 text: qsTr("Current total: %1 MiB").arg(Math.round(appSettings.totalAppMemoryMiB))
                                             }
+
                                             Controls.Label {
+                                                Layout.maximumWidth: Math.max(180, memoryForm.width - (memoryForm.wideMode ? 210 : 0))
                                                 Layout.fillWidth: true
-                                                Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
                                                 text: qsTr("Includes the app and all Chromium processes, counting shared memory once. Unloads the least recently used background tabs until usage falls below the limit. Unloaded tabs reload when selected. Active tabs and Home kept running are protected, so this is a target rather than a hard cap.")
                                                 wrapMode: Text.WordWrap
                                                 opacity: 0.72
                                             }
+                                        }
+                                    }
+
+                                    SettingsGroup {
+                                        title: qsTr("Interface and preview resources")
+                                        Kirigami.FormLayout {
+                                            id: interfaceResourcesForm
+                                            twinFormLayouts: [memoryForm]
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            wideMode: width >= 560
 
                                             Controls.CheckBox {
                                                 Kirigami.FormData.label: "UI memory:"
@@ -1068,9 +1198,9 @@ Kirigami.ApplicationWindow {
                                             }
 
                                             RowLayout {
+                                                Layout.maximumWidth: Math.max(180, interfaceResourcesForm.width - (interfaceResourcesForm.wideMode ? 210 : 0))
                                                 Kirigami.FormData.label: "Overview preview quality:"
                                                 Layout.fillWidth: true
-                                                Layout.maximumWidth: Math.max(200, sectionScroll.availableWidth - 210)
                                                 Controls.Slider {
                                                     id: overviewQualitySlider
                                                     objectName: "overviewPreviewQuality"
@@ -1085,15 +1215,17 @@ Kirigami.ApplicationWindow {
                                                 }
                                                 Controls.Label { text: Math.round(overviewQualitySlider.value) + "%" }
                                             }
+                                        }
+                                    }
 
-                                            Controls.CheckBox {
-                                                Kirigami.FormData.label: "Menus:"
-                                                text: "Integrate Figma menus with Plasma"
-                                                checked: appSettings.menuIntegration
-                                                onToggled: appSettings.menuIntegration = checked
-                                                Controls.ToolTip.text: "Export Figma actions to the global menu. Changes apply immediately."
-                                                Controls.ToolTip.visible: hovered
-                                            }
+                                    SettingsGroup {
+                                        title: qsTr("Chromium rendering")
+                                        Kirigami.FormLayout {
+                                            id: chromiumForm
+                                            twinFormLayouts: [memoryForm]
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            wideMode: width >= 560
 
                                             Controls.CheckBox {
                                                 Kirigami.FormData.label: "Chromium:"
@@ -1134,13 +1266,14 @@ Kirigami.ApplicationWindow {
                                                 placeholderText: "--enable-features=..."
                                                 onTextEdited: appSettings.chromiumFlags = text
                                             }
-                                        }
 
-                                        Controls.Label {
-                                            Layout.fillWidth: true
-                                            text: "UI memory options apply immediately. Extra switches override the Chromium toggles. Restart ReSketch to apply Chromium changes."
-                                            opacity: 0.72
-                                            wrapMode: Text.WordWrap
+                                            Controls.Label {
+                                                Layout.maximumWidth: Math.max(180, chromiumForm.width - (chromiumForm.wideMode ? 210 : 0))
+                                                Layout.fillWidth: true
+                                                text: qsTr("Restart ReSketch to apply Chromium changes. Extra switches override the options above.")
+                                                opacity: 0.72
+                                                wrapMode: Text.WordWrap
+                                            }
                                         }
                                     }
                                 }

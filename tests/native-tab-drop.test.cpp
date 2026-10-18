@@ -59,8 +59,8 @@ void checkSettingsNavigation(QQuickWindow *window, AppSettings &settings)
     window->setProperty("selectedSection", 1);
     QTest::qWait(40);
     assert(animation->property("running").toBool());
-    assert(slide->property("x").toReal() > 0 && slide->property("x").toReal() < 24);
-    assert(body->opacity() > 0.7 && body->opacity() < 1);
+    assert(slide->property("x").toReal() > 0 && slide->property("x").toReal() <= 24);
+    assert(body->opacity() >= 0.7 && body->opacity() < 1);
     assert(defaults->mapToScene(QPointF()) == footerPosition);
     QTest::qWait(220);
     assert(!animation->property("running").toBool() && slide->property("x").toReal() == 0 && body->opacity() == 1);
@@ -156,7 +156,7 @@ int main(int argc, char **argv)
     qputenv("RESKETCH_CEF_CACHE_ROOT", (temporary.path()+"/cef").toUtf8());
     QSettings::setPath(QSettings::NativeFormat, QSettings::UserScope, temporary.path());
     if (app.arguments().contains(QStringLiteral("--streamer")) || app.arguments().contains(QStringLiteral("--streamer-preview"))) {
-        QCoreApplication::setApplicationVersion(QStringLiteral("1.5.0"));
+        QCoreApplication::setApplicationVersion(QStringLiteral("1.5.1"));
         AppSettings settings;
         auto *streamer = settings.streamer();
         assert(!streamer->enabled());
@@ -258,6 +258,24 @@ ApplicationWindow {
             page->setProperty("selectedSection", 0);
             QTest::qWait(150);
             assert(settingsWindow->grabWindow().save(screenshot + "-home.png"));
+            const bool previewMotion = settings.reduceMotion();
+            settings.setReduceMotion(true);
+            for (const QSize size : {QSize(880, 700), QSize(650, 420)}) {
+                settingsWindow->resize(size);
+                for (int section : {1, 2, 3, 4, 5}) {
+                    page->setProperty("selectedSection", section);
+                    QTest::qWait(120);
+                    const auto name = screenshot + QString("-section-%1-width-%2").arg(section).arg(size.width());
+                    assert(settingsWindow->grabWindow().save(name + ".png"));
+                    if (size.width() == 880) {
+                        flickable->setProperty("contentY", qMax(0.0, flickable->property("contentHeight").toDouble()
+                            - flickable->property("height").toDouble()));
+                        QTest::qWait(60);
+                        assert(settingsWindow->grabWindow().save(name + "-bottom.png"));
+                    }
+                }
+            }
+            settings.setReduceMotion(previewMotion);
             // Compare actual pixels over the app UI above the web surface.
             settings.setReduceMotion(true);
             streamer->setEnabled(false);

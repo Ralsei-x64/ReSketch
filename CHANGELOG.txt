@@ -3,6 +3,9 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
 About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
+1.5.1 - 2026-10-18
+Organized Settings into consistent titled containers for appearance, tab behavior, memory and rendering, toolbar buttons and desktop integration; reused the Streamer container style throughout and kept existing controls and tab navigation.
+
 1.5.0 - 2026-10-17
 Added Streamer Mode with window-local keyboard, mouse and scroll overlays, shortcut combinations, a fading input queue, configurable timing and entry limits, four spawn directions, smooth motion and a detachable window. Added live previews, per-side key padding, text and background styling, blur, shadows and sticky positioning. Added Settings Home, consistent section containers and sizing, smooth tab transitions and reliable slider value fields. Fixed Space accidentally activating window controls after mouse clicks.
 
