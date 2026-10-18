@@ -10,7 +10,7 @@ Build and install, then launch ReSketch:
 
 ```sh
 sudo pacman -S --needed base-devel git
-git clone --branch resketch-cef https://github.com/Ralsei-x64/ReSketch.git
+git clone https://github.com/Ralsei-x64/ReSketch.git
 cd ReSketch/packaging/arch
 makepkg -si
 resketch
