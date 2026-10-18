@@ -4,8 +4,6 @@
 
 A client for Figma which seeks to replace Figma-linux or using the webapp in your browser. It uses QT and kirigami for the UI and uses chromium to display Figma.
 
-This is the CEF version which will replace the version in the main repo. Very broken, very much a work in progress.
-
 ## Arch Linux (PKGBUILD)
 
 Build and install, then launch ReSketch:
