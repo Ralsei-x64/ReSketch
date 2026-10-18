@@ -142,7 +142,7 @@ signals:
 private:
     static QVariantMap normalizedStyle(const QVariantMap &input)
     {
-        QVariantMap result{{"marginX", 12}, {"marginY", 12},
+        QVariantMap result{{"marginX", 12}, {"marginY", 12}, {"windowWidth", 384}, {"windowHeight", 328},
             {"paddingLeft", 12}, {"paddingRight", 12}, {"paddingTop", 8}, {"paddingBottom", 8}, {"minWidth", 0}, {"minHeight", 34}, {"alignment", 0},
             {"background", "#20232a"}, {"textColor", "#ffffff"},
             {"fontFamily", QGuiApplication::font().family()}, {"fontSize", 14},
@@ -165,6 +165,8 @@ private:
             number(key, 0, 100);
         for (const auto *key : {"transparency", "shadowStrength"}) number(key, 0, 100);
         for (const auto *key : {"offsetX", "offsetY"}) number(key, -10000, 10000);
+        number("windowWidth", 200, 3840);
+        number("windowHeight", 100, 2160);
         number("fontSize", 8, 96);
         number("minWidth", 0, 400);
         number("minHeight", 0, 200);

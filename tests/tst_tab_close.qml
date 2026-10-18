@@ -24,7 +24,7 @@ Item {
             property int maximumEntries: 8
             property bool spawnUpwards: false
             property int spawnDirection: 0
-            property var style: ({marginX: 12, marginY: 12, paddingTop: 8, paddingRight: 12,
+            property var style: ({marginX: 12, marginY: 12, windowWidth: 384, windowHeight: 328, paddingTop: 8, paddingRight: 12,
                 paddingBottom: 8, paddingLeft: 12, minWidth: 0, minHeight: 34,
                 alignment: 0, background: "#20232a", textColor: "#ffffff", fontFamily: "Sans Serif", fontSize: 14,
                 radius: 8, transparency: 19, blur: 0, shadow: false, shadowStrength: 35,
@@ -132,7 +132,7 @@ Item {
         function showHomeNotification(title, body, url, owner) {}
         function chooseGroupColor(initial, owner) { return "#e75d73" }
         function chooseColor(initial, owner, title) { return initial }
-        function setStreamerBlur(window, enabled, area) {}
+        function setStreamerBlur(window, enabled, queue, radius) {}
         function copyToClipboard(text) { copiedText = text }
         function chooseExportFolder(key, filename, owner) {
             requestedExportKey = key

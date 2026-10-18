@@ -3,6 +3,9 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
 About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
+1.5.2 - 2026-10-18
+Clipped separate-window streamer blur to each animated, rounded key, leaving gaps and corners clear; added saved default overlay window width and height controls with live resizing, and removed the Settings search box.
+
 1.5.1 - 2026-10-18
 Organized Settings into consistent titled containers for appearance, tab behavior, memory and rendering, toolbar buttons and desktop integration; reused the Streamer container style throughout and kept existing controls and tab navigation.
 

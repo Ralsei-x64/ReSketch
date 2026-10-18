@@ -156,11 +156,14 @@ int main(int argc, char **argv)
     qputenv("RESKETCH_CEF_CACHE_ROOT", (temporary.path()+"/cef").toUtf8());
     QSettings::setPath(QSettings::NativeFormat, QSettings::UserScope, temporary.path());
     if (app.arguments().contains(QStringLiteral("--streamer")) || app.arguments().contains(QStringLiteral("--streamer-preview"))) {
-        QCoreApplication::setApplicationVersion(QStringLiteral("1.5.1"));
+        QCoreApplication::setApplicationVersion(QStringLiteral("1.5.2"));
         AppSettings settings;
         auto *streamer = settings.streamer();
         assert(!streamer->enabled());
         assert(streamer->maximumEntries() == 8);
+        assert(streamer->style().value("windowWidth").toInt() == 384 && streamer->style().value("windowHeight").toInt() == 328);
+        streamer->setStyle({{"windowWidth", -1}, {"windowHeight", 10000}});
+        assert(streamer->style().value("windowWidth").toInt() == 200 && streamer->style().value("windowHeight").toInt() == 2160);
         streamer->setStyle({{"paddingX", 19}, {"paddingY", 7}});
         assert(streamer->style().value("paddingLeft").toInt() == 19
             && streamer->style().value("paddingRight").toInt() == 19
@@ -336,6 +339,18 @@ ApplicationWindow {
         auto *separate = window->findChild<QWindow *>("streamerOverlayWindow");
         assert(overlay->property("detached").toBool() && separate && separate->isVisible());
         assert(queue->window() == separate);
+        assert(separate->size() == QSize(384, 328));
+        auto windowDefaults = streamer->style();
+        windowDefaults["windowWidth"] = 640; windowDefaults["windowHeight"] = 240;
+        streamer->setStyle(windowDefaults);
+        assert(separate->size() == QSize(640, 240));
+        separate->resize(700, 300);
+        windowDefaults["radius"] = 12;
+        streamer->setStyle(windowDefaults);
+        assert(separate->size() == QSize(700, 300)); // Styling must preserve a manual resize.
+        assert(separate->close());
+        assert(QMetaObject::invokeMethod(detach, "clicked"));
+        assert(separate->size() == QSize(640, 240)); // A fresh detach uses the saved defaults.
         assert(separate->close());
         assert(!overlay->property("detached").toBool() && queue->window() == window);
         QTest::qWait(1500);
@@ -565,10 +580,44 @@ ApplicationWindow {
         }
         assert(QMetaObject::invokeMethod(detach, "clicked"));
         assert(queue->window() == separate && queue->x() == 48 && queue->y() == 64);
+        const auto keyBounds = [&](QQuickItem *tile) {
+            return tile->mapRectToItem(qobject_cast<QQuickWindow *>(separate)->contentItem(), QRectF(0, 0, tile->width(), tile->height()));
+        };
+        const auto checkKeyBlur = [&] {
+            assert(QMetaObject::invokeMethod(separate, "updateBlur"));
+            assert(requestedBlurEnabled);
+            for (auto *tile : tiles) {
+                const auto bounds = keyBounds(tile);
+                assert(requestedBlurRegion.contains(bounds.center().toPoint()));
+                assert(!requestedBlurRegion.contains(bounds.topLeft().toPoint()));
+            }
+            const auto left = keyBounds(tiles[1]), right = keyBounds(tiles[0]);
+            const QPoint gap(qRound((left.right() + right.left()) / 2), qRound(left.center().y()));
+            assert(!requestedBlurRegion.contains(gap));
+        };
+        checkKeyBlur();
+        const auto beforePop = keyBounds(tiles[0]);
+        tiles[0]->setScale(0.88);
+        checkKeyBlur();
+        assert(!requestedBlurRegion.contains(QPoint(qRound(beforePop.left() + 1), qRound(beforePop.center().y()))));
+        tiles[0]->setScale(1);
+        const auto oldX = tiles[0]->x();
+        tiles[0]->setX(oldX + 20);
+        checkKeyBlur();
+        assert(!requestedBlurRegion.contains(QPoint(qRound(beforePop.left() + 1), qRound(beforePop.center().y()))));
+        tiles[0]->setX(oldX);
+        separate->resize(200, 100);
+        QTest::qWait(30);
+        assert(QMetaObject::invokeMethod(separate, "updateBlur"));
+        assert(queue->clip());
+        const QRegion queueClip(QRectF(queue->x(), queue->y(), queue->width(), queue->height()).toAlignedRect());
+        assert((requestedBlurRegion - queueClip).isEmpty());
         separate->resize(500, 400);
         QTest::qWait(50);
         assert(queue->x() == 48 && queue->y() == 64);
+        checkKeyBlur();
         assert(separate->close());
+        assert(!requestedBlurEnabled && requestedBlurRegion.isEmpty());
         appearance["horizontalAnchor"] = 2; appearance["verticalAnchor"] = 2;
         appearance["offsetX"] = -17; appearance["offsetY"] = 23;
         streamer->setStyle(appearance);
@@ -666,7 +715,17 @@ ApplicationWindow {
         auto *windowMargins = settingsPage->findChild<QObject *>("streamerStyleRow-marginX");
         assert(windowMargins && !windowMargins->property("visible").toBool());
         settingsPage->setProperty("streamerOverlay", QVariant::fromValue(overlay));
+        auto *windowWidth = settingsPage->findChild<QObject *>("streamerStyle-windowWidth");
+        auto *windowHeight = settingsPage->findChild<QObject *>("streamerStyle-windowHeight");
+        assert(windowWidth && windowHeight && windowWidth->property("visible").toBool());
+        windowWidth->setProperty("value", 720);
+        assert(QMetaObject::invokeMethod(windowWidth, "valueModified"));
+        windowHeight->setProperty("value", 360);
+        assert(QMetaObject::invokeMethod(windowHeight, "valueModified"));
+        assert(restored.streamer()->style().value("windowWidth").toInt() == 720
+            && restored.streamer()->style().value("windowHeight").toInt() == 360);
         overlay->setProperty("detached", true);
+        assert(separate->size() == QSize(720, 360));
         assert(windowMargins->property("visible").toBool());
         overlay->setProperty("detached", false);
         assert(!windowMargins->property("visible").toBool());
@@ -721,6 +780,8 @@ ApplicationWindow {
         assert(streamer->maximumEntries() == 8 && maximumControl->property("value").toInt() == 8);
         assert(!streamer->spawnUpwards() && direction->property("currentIndex").toInt() == 0);
         assert(streamer->style().value("fontSize").toInt() == 14 && !streamer->style().value("sticky").toBool());
+        assert(streamer->style().value("windowWidth").toInt() == 384 && streamer->style().value("windowHeight").toInt() == 328);
+        assert(windowWidth->property("value").toInt() == 384 && windowHeight->property("value").toInt() == 328);
         assert(window->findChild<QObject *>("streamerXPosition")->property("value").toInt() == 2);
         puts("Streamer: input, timers, directions, styling, edited-number/slider synchronization, live preview, settings navigation, shortcut frames, persistence and reset passed");
         return 0;

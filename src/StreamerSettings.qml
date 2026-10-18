@@ -153,6 +153,20 @@ ColumnLayout {
     }
 
     SettingsGroup {
+        title: qsTr("Separate window")
+        StyleNumber { title: qsTr("Default width (px)"); field: "windowWidth"; minimum: 200; maximum: 3840 }
+        StyleNumber { title: qsTr("Default height (px)"); field: "windowHeight"; minimum: 100; maximum: 2160 }
+        Controls.Label {
+            Layout.fillWidth: true
+            text: qsTr("Used when opening the separate overlay. Changing these values also resizes it while open.")
+            wrapMode: Text.WordWrap
+        }
+        Controls.Label { visible: settings.detached; text: qsTr("Window margins"); font.bold: true }
+        StyleNumber { visible: settings.detached; title: qsTr("Horizontal (px)"); field: "marginX" }
+        StyleNumber { visible: settings.detached; title: qsTr("Vertical (px)"); field: "marginY" }
+    }
+
+    SettingsGroup {
         title: qsTr("Position")
         Controls.CheckBox {
             objectName: "streamerStickyPosition"
@@ -241,13 +255,6 @@ ColumnLayout {
                 Accessible.name: qsTr("Overlay Y position, percent")
             }
         }
-        Controls.Label {
-            visible: settings.detached
-            text: qsTr("Separate window margins")
-            font.bold: true
-        }
-        StyleNumber { visible: settings.detached; title: qsTr("Horizontal (px)"); field: "marginX" }
-        StyleNumber { visible: settings.detached; title: qsTr("Vertical (px)"); field: "marginY" }
     }
 
     SettingsGroup {

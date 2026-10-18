@@ -14,12 +14,13 @@ Kirigami.ApplicationWindow {
     objectName: "settingsWindow"
     component SectionButton: Controls.ItemDelegate {
         required property var modelData
-        objectName: "settingsSection-" + modelData.section
+        required property int index
+        objectName: "settingsSection-" + index
         Layout.fillWidth: true
         Layout.preferredHeight: 76
         id: sectionButton
-        highlighted: settingsWindow.selectedSection === modelData.section
-        onClicked: settingsWindow.selectedSection = modelData.section
+        highlighted: settingsWindow.selectedSection === index
+        onClicked: settingsWindow.selectedSection = index
         contentItem: Column {
             spacing: 5
             Kirigami.Icon {
@@ -83,18 +84,16 @@ Kirigami.ApplicationWindow {
             ? Object.assign({}, item, {enabled: checked}) : item)
     }
     readonly property var sections: [
-        {title: "Home", icon: "go-home", keywords: "ReSketch about version GitHub"},
-        {title: "Appearance", icon: "preferences-desktop-theme", keywords: "theme colors CSS transparency opacity blur shadow strength floating sidebars corners radius cursor window controls decorations motion scrolling smooth inertia mouse trackpad gestures pinch swipe sensitivity speed scrollbars"},
-        {title: "Tabs", icon: "tab-duplicate", keywords: "sleep remember restore loaded Home"},
-        {title: "Performance", icon: "preferences-system-performance", keywords: "memory preview quality Chromium GPU Vulkan canvas flags switches"},
-        {title: "Notifications", icon: "preferences-desktop-notification", keywords: "desktop alerts enable disable Home"},
-        {title: "Toolbar", icon: "configure", keywords: "buttons icons rearrange order new tab overview refresh menu export history settings task manager developer tools Plasma integration"},
-        {title: "Shortcuts", icon: "preferences-desktop-keyboard", keywords: "keyboard keys bindings shortcuts reset defaults selection group delete"},
-        {title: "Streamer", icon: "preferences-desktop-keyboard", keywords: "stream streaming overlay keys keypress mouse clicks scroll counter input duration seconds maximum count limit position X Y separate window detach margins padding text alignment colors shadow font size radius transparency blur sticky center edge horizontal vertical direction"},
-        {title: "Updates", icon: "view-refresh", keywords: "update startup version GitHub branch changelog release skip"}
+        {title: "Home", icon: "go-home"},
+        {title: "Appearance", icon: "preferences-desktop-theme"},
+        {title: "Tabs", icon: "tab-duplicate"},
+        {title: "Performance", icon: "preferences-system-performance"},
+        {title: "Notifications", icon: "preferences-desktop-notification"},
+        {title: "Toolbar", icon: "configure"},
+        {title: "Shortcuts", icon: "preferences-desktop-keyboard"},
+        {title: "Streamer", icon: "preferences-desktop-keyboard"},
+        {title: "Updates", icon: "view-refresh"}
     ]
-    readonly property var filteredSections: sections.map((section, index) => ({title: section.title, icon: section.icon, keywords: section.keywords, section: index}))
-        .filter(section => section.section === 0 || (section.title + " " + section.keywords).toLowerCase().includes(settingsSearch.text.toLowerCase()))
     onClosing: {
         cssSaveTimer.stop()
         appSettings.figmaCustomCss = customCssEditor.text
@@ -145,18 +144,6 @@ Kirigami.ApplicationWindow {
                 Layout.preferredWidth: 164
                 Layout.fillHeight: true
                 spacing: 4
-                Controls.TextField {
-                    id: settingsSearch
-                    objectName: "settingsSearch"
-                    Layout.fillWidth: true
-                    Layout.margins: 6
-                    placeholderText: "Search settings…"
-                    onTextChanged: {
-                        if (settingsWindow.filteredSections.length)
-                            settingsWindow.selectedSection = (settingsSearch.text && settingsWindow.filteredSections.length > 1
-                                ? settingsWindow.filteredSections[1] : settingsWindow.filteredSections[0]).section
-                    }
-                }
                 Controls.ScrollView {
                     id: sectionNavigation
                     Layout.fillWidth: true
@@ -167,7 +154,7 @@ Kirigami.ApplicationWindow {
                         width: sectionNavigation.availableWidth
                         spacing: 4
                         Repeater {
-                            model: settingsWindow.filteredSections
+                            model: settingsWindow.sections
                             SectionButton {}
                         }
                     }

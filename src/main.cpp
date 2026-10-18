@@ -25,6 +25,7 @@
 #include <QMap>
 #include <QModelIndex>
 #include <QPalette>
+#include <QPainterPath>
 #include <QPointer>
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
@@ -340,10 +341,31 @@ public:
         if (auto *window = qobject_cast<QWindow *>(owner)) dialog.windowHandle()->setTransientParent(window);
         return dialog.exec() == QDialog::Accepted ? dialog.selectedColor() : initial;
     }
-    Q_INVOKABLE void setStreamerBlur(QObject *object, bool enabled, const QRectF &area)
+    Q_INVOKABLE void setStreamerBlur(QObject *object, bool enabled, QQuickItem *queue, qreal radius)
     {
-        if (auto *window = qobject_cast<QWindow *>(object))
-            KWindowEffects::enableBlurBehind(window, enabled && !area.isEmpty(), QRegion(area.toAlignedRect()));
+        auto *window = qobject_cast<QQuickWindow *>(object);
+        if (!window) return;
+        QRegion region;
+        if (enabled && queue && queue->window() == window) {
+            const auto collect = [&](auto &&self, QQuickItem *item) -> void {
+                if (item->objectName() == "streamerKeyEntry") {
+                    if (!item->isVisible() || item->opacity() <= 0 || item->width() <= 0 || item->height() <= 0) return;
+                    const auto bounds = item->mapRectToItem(window->contentItem(), QRectF(0, 0, item->width(), item->height()));
+                    const qreal corner = qBound(qreal(0), radius, qMin(item->width(), item->height()) / 2)
+                        * bounds.width() / item->width();
+                    QPainterPath shape;
+                    shape.addRoundedRect(bounds, corner, corner);
+                    region |= QRegion(shape.toFillPolygon().toPolygon());
+                    return;
+                }
+                for (auto *child : item->childItems()) self(self, child);
+            };
+            collect(collect, queue);
+            if (queue->clip())
+                region &= QRegion(queue->mapRectToItem(window->contentItem(), QRectF(0, 0, queue->width(), queue->height())).toAlignedRect());
+            region &= QRegion(QRect(0, 0, window->width(), window->height()));
+        }
+        KWindowEffects::enableBlurBehind(window, enabled && !region.isEmpty(), region);
     }
     KNotification *createFigmaNotification(const QString &title, const QString &text)
     {

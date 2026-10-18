@@ -10,6 +10,10 @@ Item {
     required property var targetWindow
     property bool preview: false
     property bool detached: false
+    onDetachedChanged: if (detached) {
+        separateWindow.width = style.windowWidth
+        separateWindow.height = style.windowHeight
+    }
     readonly property int entryCount: entries.count
     readonly property var style: appSettings.streamer.style
     readonly property bool horizontal: appSettings.streamer.spawnDirection >= 2
@@ -58,7 +62,10 @@ Item {
         function onChanged() {
             while (entries.count > appSettings.streamer.maximumEntries) entries.remove(0)
         }
-        function onCleared() { entries.clear() }
+        function onCleared() {
+            entries.clear()
+            if (overlay.detached) separateWindow.updateBlur()
+        }
         function onPressed(window, label, replace) {
             if (window !== overlay.targetWindow) return
             if (replace && entries.count) entries.setProperty(entries.count - 1, "label", label)
@@ -252,8 +259,12 @@ Item {
         objectName: "streamerOverlayWindow"
         title: qsTr("ReSketch — Streamer Overlay")
         transientParent: null
-        width: 384
-        height: 328
+        readonly property int defaultWidth: overlay.style.windowWidth
+        readonly property int defaultHeight: overlay.style.windowHeight
+        width: defaultWidth
+        height: defaultHeight
+        onDefaultWidthChanged: width = defaultWidth
+        onDefaultHeightChanged: height = defaultHeight
         minimumWidth: 200
         minimumHeight: 100
         color: "transparent"
@@ -261,7 +272,7 @@ Item {
         visible: !overlay.preview && overlay.detached && appSettings.streamer.enabled && overlay.targetWindow.visible
         function updateBlur() {
             appSettings.setStreamerBlur(separateWindow, visible && overlay.entryCount > 0 && overlay.style.blur > 0,
-                                        Qt.rect(queue.x, queue.y, queue.width, queue.height))
+                                        queue, overlay.style.radius)
         }
         onWidthChanged: updateBlur()
         onHeightChanged: updateBlur()
