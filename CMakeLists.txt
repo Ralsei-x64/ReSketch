@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-project(ReSketch VERSION 1.4.18 LANGUAGES C CXX)
+project(ReSketch VERSION 1.5.0 LANGUAGES C CXX)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Network Quick QuickControls2 OpenGL Widgets)
 find_package(KF6WindowSystem REQUIRED)
@@ -68,7 +68,7 @@ install(TARGETS resketch_cefplugin LIBRARY DESTINATION lib/qt6/qml/ReSketch/Cef)
 install(FILES "${CMAKE_BINARY_DIR}/qml/ReSketch/Cef/qmldir" "${CMAKE_BINARY_DIR}/qml/ReSketch/Cef/resketch_cef.qmltypes" DESTINATION lib/qt6/qml/ReSketch/Cef)
 install(TARGETS resketch-cef-helper RUNTIME DESTINATION bin)
 
-qt_add_executable(resketch src/main.cpp src/FontHelper.cpp src/FontHelper.h src/UpdateChecker.cpp src/UpdateChecker.h)
+qt_add_executable(resketch src/main.cpp src/FontHelper.cpp src/FontHelper.h src/UpdateChecker.cpp src/UpdateChecker.h src/StreamerMode.h)
 target_compile_definitions(resketch PRIVATE
     RESKETCH_VERSION="${PROJECT_VERSION}"
     RESKETCH_COMMIT="${RESKETCH_COMMIT}"
@@ -80,6 +80,7 @@ qt_add_qml_module(resketch
     VERSION 1.0
     NO_IMPORT_SCAN
     QML_FILES src/Main.qml src/SettingsWindow.qml src/AboutWindow.qml src/ExportHistoryWindow.qml src/WindowControls.qml src/WindowResizeHandles.qml src/TabBarButton.qml src/ScrollGestureArea.qml src/FigmaMenus.qml src/TabGroupMenu.qml src/ChromiumToolsWindow.qml src/ExternalWindowHeader.qml src/UpdateSettings.qml src/UpdateDialog.qml src/UpdateCompleteDialog.qml src/ChangelogDialog.qml
+    QML_FILES src/StreamerOverlay.qml src/StreamerSettings.qml
     RESOURCES src/Policy.js src/FigmaMenu.js src/FigmaTheme.js src/NotificationPolicy.js src/Shortcuts.js
 )
 

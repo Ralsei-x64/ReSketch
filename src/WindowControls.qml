@@ -18,6 +18,7 @@ Row {
     spacing: 0
 
     TabBarButton {
+        focusPolicy: Qt.TabFocus
         visible: controls.showMinimizeMaximize
         width: controls.buttonSize
         height: controls.buttonSize
@@ -30,6 +31,7 @@ Row {
         onClicked: controls.targetWindow.showMinimized()
     }
     TabBarButton {
+        focusPolicy: Qt.TabFocus
         objectName: "maximizeWindowButton"
         visible: controls.showMinimizeMaximize
         width: controls.buttonSize
@@ -48,6 +50,7 @@ Row {
         }
     }
     TabBarButton {
+        focusPolicy: Qt.TabFocus
         width: controls.buttonSize
         height: controls.buttonSize
         icon.name: "window-close"

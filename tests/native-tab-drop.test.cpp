@@ -24,8 +24,62 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <cassert>
+#include <QTest>
 
 void checkUpdates();
+
+void checkSettingsNavigation(QQuickWindow *window, AppSettings &settings)
+{
+    const QSize originalSize = window->size();
+    const bool originalMotion = settings.reduceMotion();
+    auto *navigation = window->findChild<QQuickItem *>("settingsNavigation");
+    auto *viewport = window->findChild<QQuickItem *>("settingsSectionViewport");
+    auto *body = window->findChild<QQuickItem *>("settingsSectionBody");
+    auto *slide = window->findChild<QObject *>("settingsSectionSlide");
+    auto *animation = window->findChild<QObject *>("settingsSectionTransition");
+    auto *defaults = window->findChild<QQuickItem *>("resetSettingsButton");
+    assert(navigation && viewport && body && slide && animation && defaults);
+    settings.setReduceMotion(true);
+    window->show();
+    for (const auto size : {QSize(650, 420), QSize(880, 700)}) {
+        window->resize(size);
+        window->setProperty("selectedSection", 0);
+        QTest::qWait(50);
+        const qreal paneWidth = viewport->width();
+        for (int section = 0; section < 9; ++section) {
+            window->setProperty("selectedSection", section);
+            QTest::qWait(30);
+            assert(navigation->width() == 164);
+            assert(viewport->width() == paneWidth && paneWidth > 0);
+        }
+    }
+    const auto footerPosition = defaults->mapToScene(QPointF());
+    window->setProperty("selectedSection", 0);
+    settings.setReduceMotion(false);
+    window->setProperty("selectedSection", 1);
+    QTest::qWait(40);
+    assert(animation->property("running").toBool());
+    assert(slide->property("x").toReal() > 0 && slide->property("x").toReal() < 24);
+    assert(body->opacity() > 0.7 && body->opacity() < 1);
+    assert(defaults->mapToScene(QPointF()) == footerPosition);
+    QTest::qWait(220);
+    assert(!animation->property("running").toBool() && slide->property("x").toReal() == 0 && body->opacity() == 1);
+    window->setProperty("selectedSection", 0);
+    QTest::qWait(40);
+    assert(slide->property("x").toReal() < 0);
+    for (int section : {8, 3, 7}) window->setProperty("selectedSection", section);
+    QTest::qWait(240);
+    assert(window->property("selectedSection").toInt() == 7 && slide->property("x").toReal() == 0);
+    window->setProperty("selectedSection", 1);
+    settings.setReduceMotion(true);
+    assert(!animation->property("running").toBool() && slide->property("x").toReal() == 0 && body->opacity() == 1);
+    window->hide();
+    window->setProperty("selectedSection", 0);
+    window->resize(originalSize);
+    settings.setReduceMotion(originalMotion);
+    puts("Settings: stable sizing at minimum/default sizes, forward/backward slides, rapid switches, stationary footer and reduced motion passed");
+}
+
 
 // Capture requests to the compositor, including when tests run without KWin.
 static QRegion requestedBlurRegion;
@@ -59,6 +113,8 @@ protected:
 
 int main(int argc, char **argv)
 {
+    setbuf(stdout, nullptr);
+    setbuf(stderr, nullptr);
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
     qputenv("RESKETCH_CEF_FLAGS", "--disable-gpu --no-sandbox");
     KIconTheme::initTheme();
@@ -99,6 +155,558 @@ int main(int argc, char **argv)
     assert(temporary.isValid());
     qputenv("RESKETCH_CEF_CACHE_ROOT", (temporary.path()+"/cef").toUtf8());
     QSettings::setPath(QSettings::NativeFormat, QSettings::UserScope, temporary.path());
+    if (app.arguments().contains(QStringLiteral("--streamer")) || app.arguments().contains(QStringLiteral("--streamer-preview"))) {
+        QCoreApplication::setApplicationVersion(QStringLiteral("1.5.0"));
+        AppSettings settings;
+        auto *streamer = settings.streamer();
+        assert(!streamer->enabled());
+        assert(streamer->maximumEntries() == 8);
+        streamer->setStyle({{"paddingX", 19}, {"paddingY", 7}});
+        assert(streamer->style().value("paddingLeft").toInt() == 19
+            && streamer->style().value("paddingRight").toInt() == 19
+            && streamer->style().value("paddingTop").toInt() == 7
+            && streamer->style().value("paddingBottom").toInt() == 7);
+        streamer->setStyle({{"paddingX", 19}, {"paddingLeft", 3}});
+        assert(streamer->style().value("paddingLeft").toInt() == 3
+            && streamer->style().value("paddingRight").toInt() == 19);
+        streamer->setStyle({});
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("appSettings", &settings);
+        engine.loadData(R"(
+import QtQuick
+import QtQuick.Controls
+import "../src" as App
+ApplicationWindow {
+    id: inputWindow
+    visible: true; width: 880; height: 700
+    property int shortcutsFired: 0
+    property int wheelEvents: 0
+    property alias streamerBackdrop: inputSurface
+    property alias browserContent: webSurface
+    TextInput {
+        id: inputSurface
+        anchors.fill: parent; focus: true
+        Item { id: webSurface; y: 90; width: parent.width; height: parent.height - y }
+        Rectangle { anchors.fill: parent; color: "white"; z: -2 }
+        Repeater {
+            model: 30
+            Rectangle { required property int index; x: index * 40; width: 20; height: inputSurface.height; color: "#d6badd"; z: -1 }
+        }
+        WheelHandler { onWheel: event => inputWindow.wheelEvents++ }
+    }
+    Shortcut { sequence: "Ctrl+K"; onActivated: shortcutsFired++ }
+    App.StreamerOverlay { id: overlay; objectName: "overlay"; anchors.fill: parent; targetWindow: Window.window }
+    App.StreamerSettings { objectName: "streamerSettings"; visible: false; overlay: overlay }
+})", QUrl::fromLocalFile(QDir::current().absoluteFilePath("tests/streamer-fixture.qml")));
+        assert(!engine.rootObjects().isEmpty());
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        if (!app.arguments().contains(QStringLiteral("--streamer-preview")))
+            settings.registerMainWindow(window);
+        window->requestActivate();
+        QTest::qWait(100);
+        auto *overlay = window->findChild<QObject *>("overlay");
+        auto *queue = window->findChild<QQuickItem *>("streamerKeyQueue");
+        const auto count = [&] { return overlay->property("entryCount").toInt(); };
+        const auto labels = [&] {
+            QStringList result;
+            const auto visit = [&](auto &&self, QQuickItem *item) -> void {
+                if (item->objectName() == "streamerKeyLabel") result << item->property("text").toString();
+                for (auto *child : item->childItems()) self(self, child);
+            };
+            visit(visit, queue);
+            return result;
+        };
+        if (app.arguments().contains(QStringLiteral("--streamer-preview"))) {
+            auto appearance = streamer->style();
+            appearance["paddingLeft"] = 17; appearance["paddingRight"] = 23;
+            appearance["paddingTop"] = 9; appearance["paddingBottom"] = 15;
+            appearance["minWidth"] = 140; appearance["minHeight"] = 72;
+            appearance["fontSize"] = 22; appearance["fontFamily"] = "Monospace";
+            appearance["alignment"] = 4; appearance["radius"] = 16;
+            appearance["blur"] = 24; appearance["transparency"] = 55; appearance["shadow"] = true;
+            appearance["sticky"] = true; appearance["horizontalAnchor"] = 2; appearance["verticalAnchor"] = 2;
+            appearance["offsetX"] = 0; appearance["offsetY"] = 0;
+            streamer->setStyle(appearance);
+            streamer->setSpawnDirection(2);
+            streamer->setDurationMs(10000);
+            streamer->setEnabled(true);
+            streamer->pressed(window, QStringLiteral("A"), false);
+            streamer->pressed(window, QStringLiteral("W"), false);
+            streamer->pressed(window, QStringLiteral("Ctrl + K"), false);
+            QTest::qWait(400);
+            assert(count() == 3 && queue->height() == 72);
+            const auto screenshot = qEnvironmentVariable("RESKETCH_STREAMER_STYLE_SCREENSHOT");
+            assert(!screenshot.isEmpty() && window->grabWindow().save(screenshot + ".png"));
+            QQmlComponent component(&engine, QUrl::fromLocalFile(QDir::current().absoluteFilePath("src/SettingsWindow.qml")));
+            std::unique_ptr<QObject> page(component.create());
+            assert(page);
+            checkSettingsNavigation(qobject_cast<QQuickWindow *>(page.get()), settings);
+            page->setProperty("selectedSection", 7);
+            auto *settingsWindow = qobject_cast<QQuickWindow *>(page.get());
+            settingsWindow->show();
+            QTest::qWait(200);
+            assert(settingsWindow->grabWindow().save(screenshot + "-settings.png"));
+            auto *scroll = page->findChild<QObject *>("settingsSectionScroll");
+            auto *flickable = scroll->property("contentItem").value<QObject *>();
+            assert(flickable && flickable->setProperty("contentY", 650));
+            QTest::qWait(100);
+            assert(settingsWindow->grabWindow().save(screenshot + "-spacing.png"));
+            page->setProperty("selectedSection", 6);
+            flickable->setProperty("contentY", 0);
+            QTest::qWait(150);
+            assert(settingsWindow->grabWindow().save(screenshot + "-shortcuts.png"));
+            page->setProperty("selectedSection", 0);
+            QTest::qWait(150);
+            assert(settingsWindow->grabWindow().save(screenshot + "-home.png"));
+            // Compare actual pixels over the app UI above the web surface.
+            settings.setReduceMotion(true);
+            streamer->setEnabled(false);
+            appearance["verticalAnchor"] = 0;
+            appearance["transparency"] = 100; appearance["blur"] = 0;
+            appearance["shadow"] = false; appearance["minWidth"] = 240;
+            streamer->setStyle(appearance);
+            streamer->setEnabled(true);
+            streamer->pressed(window, QStringLiteral("Ctrl + K"), false);
+            QTest::qWait(150);
+            const auto sharp = window->grabWindow();
+            appearance["blur"] = 32;
+            streamer->setStyle(appearance);
+            QTest::qWait(200);
+            const auto blurred = window->grabWindow();
+            assert(blurred.save(screenshot + "-app-ui-blur.png"));
+            const auto variation = [&](const QImage &frame) {
+                const qreal dpr = frame.devicePixelRatio();
+                const int y = qRound((queue->y() + 10) * dpr);
+                const int left = qRound((queue->x() + 20) * dpr);
+                const int right = qRound((queue->x() + queue->width() - 20) * dpr);
+                int total = 0;
+                for (int x = left + 1; x < right; ++x)
+                    total += qAbs(qGray(frame.pixel(x, y)) - qGray(frame.pixel(x - 1, y)));
+                return total;
+            };
+            const int beforeBlur = variation(sharp), afterBlur = variation(blurred);
+            printf("App UI blur pixel variation: %d -> %d\n", beforeBlur, afterBlur);
+            assert(beforeBlur > 0 && afterBlur < beforeBlur * 0.8);
+            puts("Streamer GPU preview: styled keys, horizontal layout, backdrop blur, shadow and settings render");
+            return 0;
+        }
+        QTest::keyClick(window, Qt::Key_A);
+        assert(count() == 0);
+        streamer->setEnabled(true);
+        QTest::keyClick(window, Qt::Key_K, Qt::ControlModifier);
+        assert(window->property("shortcutsFired").toInt() == 1);
+        assert(count() == 1 && labels() == QStringList{"Ctrl + K"});
+        QTest::keyClick(window, Qt::Key_A);
+        QTest::keyClick(window, Qt::Key_B);
+        assert(count() == 3 && labels() == (QStringList{"Ctrl + K", "A", "B"}));
+        QKeyEvent repeat(QEvent::ShortcutOverride, Qt::Key_B, Qt::NoModifier, "b", true, 1);
+        QCoreApplication::sendEvent(window, &repeat);
+        assert(count() == 3);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::ShiftModifier, QPoint(400, 400));
+        assert(count() == 4 && labels().last() == "Shift + Mouse Left");
+        if (const auto screenshot = qEnvironmentVariable("RESKETCH_STREAMER_SCREENSHOT"); !screenshot.isEmpty())
+            assert(window->grabWindow().save(screenshot));
+        QQuickWindow unrelated;
+        QTest::keyClick(&unrelated, Qt::Key_Z);
+        assert(count() == 4);
+        streamer->setXPosition(100);
+        streamer->setYPosition(0);
+        QTest::qWait(200);
+        assert(queue->x() == window->width() - queue->width() && queue->y() == 0);
+        auto *detach = window->findChild<QObject *>("streamerDetachButton");
+        assert(detach && QMetaObject::invokeMethod(detach, "clicked"));
+        auto *separate = window->findChild<QWindow *>("streamerOverlayWindow");
+        assert(overlay->property("detached").toBool() && separate && separate->isVisible());
+        assert(queue->window() == separate);
+        assert(separate->close());
+        assert(!overlay->property("detached").toBool() && queue->window() == window);
+        QTest::qWait(1500);
+        assert(count() == 4);
+        assert(queue->childItems().first()->childItems().first()->opacity() < 1);
+        QTest::qWait(400);
+        assert(count() == 0);
+        QTest::keyPress(window, Qt::Key_Control);
+        QTest::qWait(1700);
+        QTest::keyPress(window, Qt::Key_C, Qt::ControlModifier);
+        assert(count() == 1 && labels().last() == "Ctrl + C");
+        QTest::keyRelease(window, Qt::Key_C, Qt::ControlModifier);
+        QTest::keyRelease(window, Qt::Key_Control);
+        QTest::qWait(350);
+        assert(count() == 0); // Completing a combo must not extend its two-second lifetime.
+        QTest::keyClick(window, Qt::Key_C);
+        assert(count() == 1);
+        streamer->setEnabled(false);
+        assert(count() == 0 && !overlay->property("visible").toBool());
+        AppSettings restored;
+        assert(!restored.streamer()->enabled() && restored.streamer()->xPosition() == 100 && restored.streamer()->yPosition() == 0);
+        auto *durationSlider = window->findChild<QObject *>("streamerDurationSlider");
+        assert(durationSlider && durationSlider->property("value").toInt() == 2000);
+        durationSlider->setProperty("value", 1500);
+        assert(QMetaObject::invokeMethod(durationSlider, "moved"));
+        assert(streamer->durationMs() == 1500 && restored.streamer()->durationMs() == 1500);
+        streamer->setEnabled(true);
+        QTest::keyClick(window, Qt::Key_A);
+        auto *entry = queue->childItems().first()->childItems().first();
+        assert(entry->scale() >= 0.88 && entry->scale() < 1);
+        QTest::qWait(300);
+        assert(qAbs(entry->scale() - 1) < 0.001);
+        streamer->setDurationMs(500);
+        QTest::keyClick(window, Qt::Key_B);
+        QTest::qWait(600);
+        assert(count() == 1 && labels() == QStringList{"A"}); // Short entries expire before older long entries.
+        streamer->setEnabled(false);
+        settings.setReduceMotion(true);
+        streamer->setEnabled(true);
+        QTest::keyClick(window, Qt::Key_B);
+        assert(queue->childItems().first()->childItems().first()->scale() == 1);
+        QTest::qWait(550);
+        assert(count() == 0);
+        streamer->setDurationMs(3000);
+        QTest::keyPress(window, Qt::Key_Control);
+        QTest::qWait(2100);
+        QTest::keyClick(window, Qt::Key_C, Qt::ControlModifier);
+        QTest::keyRelease(window, Qt::Key_Control);
+        assert(count() == 1 && labels() == QStringList{"Ctrl + C"});
+        QTest::qWait(950);
+        assert(count() == 0);
+        streamer->setEnabled(false);
+        settings.setReduceMotion(false);
+        auto *direction = window->findChild<QObject *>("streamerSpawnDirection");
+        assert(direction && direction->property("currentIndex").toInt() == 0);
+        direction->setProperty("currentIndex", 1);
+        assert(QMetaObject::invokeMethod(direction, "activated", Q_ARG(int, 1)));
+        assert(streamer->spawnUpwards() && restored.streamer()->spawnUpwards());
+        streamer->setEnabled(true);
+        QTest::keyClick(window, Qt::Key_A);
+        entry = queue->childItems().first()->childItems().first();
+        const int topMargin = 0;
+        const auto entryStep = entry->height() + 5;
+        assert(entry->y() == topMargin);
+        QTest::keyClick(window, Qt::Key_B);
+        QTest::qWait(50);
+        assert(entry->y() > topMargin && entry->y() < entryStep + topMargin); // Existing keys glide when a new key spawns above them.
+        QTest::qWait(160);
+        assert(entry->y() == entryStep + topMargin);
+        assert(count() == 2 && labels() == (QStringList{"A", "B"}));
+        streamer->setSpawnUpwards(false);
+        QTest::qWait(200);
+        assert(entry->y() == topMargin);
+        settings.setReduceMotion(true);
+        streamer->setSpawnUpwards(true);
+        assert(entry->y() == entryStep + topMargin); // Reduced motion snaps directly to the new placement.
+        assert(QMetaObject::invokeMethod(detach, "clicked"));
+        QTest::keyClick(window, Qt::Key_C);
+        assert(entry->y() == entryStep * 2 + topMargin && queue->window() == separate);
+        assert(separate->close());
+        streamer->setEnabled(false);
+        settings.setReduceMotion(false);
+        streamer->setDurationMs(500);
+        streamer->setEnabled(true);
+        const auto scroll = [&](QWindow *target, QPoint angles, QPoint pixels = {},
+                                Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
+            QWheelEvent event(QPointF(400, 400), target->mapToGlobal(QPoint(400, 400)), pixels, angles,
+                              Qt::NoButton, modifiers, Qt::NoScrollPhase, false);
+            QCoreApplication::sendEvent(target, &event);
+        };
+        scroll(window, QPoint(0, 120));
+        assert(count() == 1 && labels().last() == "Scroll: +1");
+        scroll(window, QPoint(0, 240));
+        assert(count() == 1 && labels().last() == "Scroll: +3");
+        scroll(window, QPoint(0, -120));
+        assert(labels().last() == "Scroll: +2");
+        scroll(window, QPoint(0, -360));
+        assert(labels().last() == "Scroll: -1");
+        scroll(window, QPoint(0, 120));
+        assert(labels().last() == "Scroll: 0");
+        scroll(window, QPoint(120, 0));
+        scroll(window, {});
+        scroll(&unrelated, QPoint(0, 120));
+        assert(count() == 1 && labels().last() == "Scroll: 0");
+        assert(window->property("wheelEvents").toInt() >= 5); // Capture leaves scrolling available to the UI.
+        QTest::keyClick(window, Qt::Key_A);
+        scroll(window, {}, QPoint(0, -8));
+        assert(count() == 3 && labels().last() == "Scroll: -1");
+        QTest::qWait(300);
+        scroll(window, {}, QPoint(0, 8));
+        assert(count() == 3 && labels().last() == "Scroll: 0");
+        QTest::qWait(250);
+        assert(count() == 1 && labels().last() == "Scroll: 0"); // Only the active counter's deadline refreshes.
+        assert(QMetaObject::invokeMethod(detach, "clicked"));
+        scroll(window, QPoint(0, 120));
+        assert(count() == 1 && labels().last() == "Scroll: +1" && queue->window() == separate);
+        assert(separate->close());
+        QTest::qWait(550);
+        assert(count() == 0);
+        scroll(window, QPoint(0, -120));
+        assert(count() == 1 && labels().last() == "Scroll: -1");
+        streamer->setEnabled(false);
+        scroll(window, QPoint(0, 120));
+        assert(count() == 0);
+        streamer->setEnabled(true);
+        QTest::keyPress(window, Qt::Key_Control);
+        scroll(window, QPoint(0, 120), {}, Qt::ControlModifier);
+        assert(count() == 1 && labels().last() == "Ctrl + Scroll: +1");
+        scroll(window, QPoint(0, 120), {}, Qt::ControlModifier);
+        assert(count() == 1 && labels().last() == "Ctrl + Scroll: +2");
+        scroll(window, QPoint(0, -360), {}, Qt::ControlModifier);
+        assert(count() == 1 && labels().last() == "Ctrl + Scroll: -1");
+        QTest::keyPress(window, Qt::Key_Shift, Qt::ControlModifier);
+        scroll(window, QPoint(0, 120), {}, Qt::ControlModifier | Qt::ShiftModifier);
+        assert(count() == 2 && labels().last() == "Ctrl + Shift + Scroll: +1");
+        QTest::keyRelease(window, Qt::Key_Shift, Qt::ControlModifier);
+        scroll(window, QPoint(0, 120), {}, Qt::ControlModifier);
+        assert(count() == 3 && labels().last() == "Ctrl + Scroll: +1");
+        QTest::keyRelease(window, Qt::Key_Control);
+        scroll(window, QPoint(0, 120));
+        assert(count() == 4 && labels().last() == "Scroll: +1");
+        assert(QMetaObject::invokeMethod(detach, "clicked"));
+        scroll(window, QPoint(0, 120), {}, Qt::ControlModifier | Qt::AltModifier | Qt::ShiftModifier | Qt::MetaModifier);
+        assert(count() == 5 && labels().last() == "Ctrl + Alt + Shift + Meta + Scroll: +1");
+        assert(queue->window() == separate && separate->close());
+        QTest::qWait(550);
+        assert(count() == 0);
+        streamer->setEnabled(false);
+        auto appearance = streamer->style();
+        appearance["marginX"] = 18; appearance["marginY"] = 24;
+        appearance["paddingLeft"] = 17; appearance["paddingRight"] = 23;
+        appearance["paddingTop"] = 9; appearance["paddingBottom"] = 15;
+        appearance["minWidth"] = 140; appearance["minHeight"] = 72;
+        appearance["fontFamily"] = "Monospace"; appearance["fontSize"] = 22;
+        appearance["background"] = "#123456"; appearance["textColor"] = "#abcdef";
+        appearance["radius"] = 14; appearance["transparency"] = 50; appearance["alignment"] = 4;
+        appearance["shadow"] = true; appearance["sticky"] = true;
+        appearance["horizontalAnchor"] = 1; appearance["verticalAnchor"] = 1;
+        appearance["offsetX"] = 30; appearance["offsetY"] = 40;
+        streamer->setStyle(appearance);
+        streamer->setDurationMs(3000);
+        streamer->setSpawnDirection(2);
+        settings.setReduceMotion(true);
+        streamer->setEnabled(true);
+        QTest::keyClick(window, Qt::Key_A);
+        QTest::keyClick(window, Qt::Key_W);
+        auto *row = queue->childItems().first();
+        QList<QQuickItem *> tiles;
+        for (auto *child : row->childItems()) if (child->objectName() == "streamerKeyEntry") tiles << child;
+        assert(tiles.size() == 2 && tiles[0]->x() == 0 && tiles[1]->x() == tiles[0]->width() + 5);
+        assert(tiles[0]->y() == 0 && tiles[1]->y() == 0);
+        assert(tiles[0]->width() == 140 && tiles[0]->height() == 72);
+        auto *styledLabel = tiles[0]->findChild<QObject *>("streamerKeyLabel");
+        auto *surface = tiles[0]->findChild<QObject *>("streamerKeyBackground");
+        assert(styledLabel && surface);
+        assert(styledLabel->property("font").value<QFont>().pixelSize() == 22);
+        assert(styledLabel->property("font").value<QFont>().family() == "Monospace");
+        assert(styledLabel->property("color").value<QColor>() == QColor("#abcdef"));
+        assert(surface->property("radius").toInt() == 14);
+        assert(qAbs(surface->property("color").value<QColor>().alphaF() - 0.5) < 0.01);
+        auto *textItem = qobject_cast<QQuickItem *>(styledLabel);
+        assert(textItem->x() == 17 && textItem->y() == 9);
+        assert(textItem->width() == tiles[0]->width() - 40 && textItem->height() == tiles[0]->height() - 24);
+        auto paddingStyle = appearance;
+        paddingStyle["minWidth"] = 0; paddingStyle["minHeight"] = 0;
+        streamer->setStyle(paddingStyle);
+        for (const auto *side : {"paddingTop", "paddingRight", "paddingBottom", "paddingLeft"}) {
+            const auto widthBefore = tiles[0]->width(), heightBefore = tiles[0]->height();
+            const bool horizontalPadding = QByteArray(side) == "paddingRight" || QByteArray(side) == "paddingLeft";
+            paddingStyle[side] = paddingStyle.value(side).toInt() + 7;
+            streamer->setStyle(paddingStyle);
+            assert(tiles[0]->width() == widthBefore + (horizontalPadding ? 7 : 0));
+            assert(tiles[0]->height() == heightBefore + (horizontalPadding ? 0 : 7));
+            assert(textItem->x() == paddingStyle.value("paddingLeft").toInt());
+            assert(textItem->y() == paddingStyle.value("paddingTop").toInt());
+            assert(tiles[1]->x() - tiles[0]->width() == 5);
+        }
+        streamer->setStyle(appearance);
+        for (int alignment = 0; alignment < 5; ++alignment) {
+            appearance["alignment"] = alignment;
+            streamer->setStyle(appearance);
+            assert(styledLabel->property("horizontalAlignment").toInt() == (alignment == 0 ? Qt::AlignHCenter
+                : alignment == 2 || alignment == 4 ? Qt::AlignRight : Qt::AlignLeft));
+            assert(styledLabel->property("verticalAlignment").toInt() == (alignment == 0 ? Qt::AlignVCenter
+                : alignment >= 3 ? Qt::AlignBottom : Qt::AlignTop));
+        }
+        assert(qAbs(window->width() - queue->x() - queue->width() - 30) < 1);
+        assert(qAbs(window->height() - queue->y() - queue->height() - 40) < 1);
+        window->resize(1050, 800);
+        QTest::qWait(50);
+        assert(qAbs(window->width() - queue->x() - queue->width() - 30) < 1);
+        assert(qAbs(window->height() - queue->y() - queue->height() - 40) < 1);
+        streamer->setSpawnDirection(3);
+        assert(tiles[1]->x() == 0 && tiles[0]->x() == tiles[1]->width() + 5);
+        appearance["horizontalAnchor"] = 0; appearance["verticalAnchor"] = 0;
+        appearance["blur"] = 24; appearance["transparency"] = 65;
+        streamer->setStyle(appearance);
+        assert(queue->x() == 30 && queue->y() == 40);
+        window->resize(1150, 900);
+        QTest::qWait(50);
+        assert(queue->x() == 30 && queue->y() == 40);
+        auto *blur = tiles[0]->findChild<QObject *>("streamerBackgroundBlur");
+        assert(blur && blur->property("visible").toBool() && blur->property("blur").toDouble() == 0.75);
+        if (const auto screenshot = qEnvironmentVariable("RESKETCH_STREAMER_STYLE_SCREENSHOT"); !screenshot.isEmpty()) {
+            QTest::qWait(100);
+            assert(window->grabWindow().save(screenshot));
+        }
+        assert(QMetaObject::invokeMethod(detach, "clicked"));
+        assert(queue->window() == separate && queue->x() == 48 && queue->y() == 64);
+        separate->resize(500, 400);
+        QTest::qWait(50);
+        assert(queue->x() == 48 && queue->y() == 64);
+        assert(separate->close());
+        appearance["horizontalAnchor"] = 2; appearance["verticalAnchor"] = 2;
+        appearance["offsetX"] = -17; appearance["offsetY"] = 23;
+        streamer->setStyle(appearance);
+        assert(qAbs(queue->x() + queue->width() / 2 - window->width() / 2 + 17) < 1);
+        assert(qAbs(queue->y() + queue->height() / 2 - window->height() / 2 - 23) < 1);
+        window->resize(900, 720);
+        QTest::qWait(50);
+        assert(qAbs(queue->x() + queue->width() / 2 - window->width() / 2 + 17) < 1);
+        assert(qAbs(queue->y() + queue->height() / 2 - window->height() / 2 - 23) < 1);
+        assert(QMetaObject::invokeMethod(detach, "clicked"));
+        separate->resize(600, 400);
+        QTest::qWait(50);
+        assert(qAbs(queue->x() + queue->width() / 2 - separate->width() / 2 + 17) < 1);
+        assert(qAbs(queue->y() + queue->height() / 2 - separate->height() / 2 - 23) < 1);
+        assert(separate->close());
+        window->resize(200, 140);
+        for (int i = 0; i < 7; ++i) QTest::keyClick(window, Qt::Key_I);
+        assert(queue->width() <= 200 && queue->x() >= 0 && queue->x() + queue->width() <= window->width());
+        assert(restored.streamer()->style() == streamer->style() && restored.streamer()->spawnDirection() == 3);
+        appearance["fontSize"] = 999; appearance["paddingLeft"] = -10;
+        appearance["radius"] = "invalid"; appearance["background"] = "invalid";
+        streamer->setStyle(appearance);
+        assert(streamer->style().value("fontSize").toInt() == 96 && streamer->style().value("paddingLeft").toInt() == 0);
+        assert(streamer->style().value("radius").toInt() == 8 && streamer->style().value("background").toString() == "#20232a");
+        streamer->setEnabled(false);
+        settings.setReduceMotion(false);
+        QQmlComponent settingsComponent(&engine, QUrl::fromLocalFile(QDir::current().absoluteFilePath("src/SettingsWindow.qml")));
+        std::unique_ptr<QObject> settingsPage(settingsComponent.create());
+        assert(settingsPage);
+        checkSettingsNavigation(qobject_cast<QQuickWindow *>(settingsPage.get()), settings);
+        assert(settingsPage->property("selectedSection").toInt() == 0);
+        assert(settingsPage->findChild<QObject *>("settingsHomeVersion"));
+        assert(settingsPage->findChild<QObject *>("settingsGitHubButton"));
+        settingsPage->setProperty("selectedSection", 6);
+        QList<QQuickItem *> shortcutFrames;
+        const auto collectFrames = [&](auto &&self, QQuickItem *item) -> void {
+            if (item->objectName().startsWith("shortcutCategory-")) shortcutFrames << item;
+            for (auto *child : item->childItems()) self(self, child);
+        };
+        collectFrames(collectFrames, qobject_cast<QQuickWindow *>(settingsPage.get())->contentItem());
+        assert(shortcutFrames.size() == 4);
+        for (auto *frame : shortcutFrames) assert(frame->property("padding").toInt() > 0);
+        settingsPage->setProperty("selectedSection", 7);
+        assert(settingsPage->findChild<QObject *>("streamerDurationSlider")->property("visible").toBool());
+        // Reproduce the desktop SpinBox text editor replacing its value binding.
+        for (const auto *field : {"offsetX", "offsetY", "marginX", "marginY", "paddingTop", "paddingRight",
+                                 "paddingBottom", "paddingLeft", "minWidth",
+                                 "minHeight", "fontSize", "radius", "transparency", "blur", "shadowStrength"}) {
+            auto *spin = settingsPage->findChild<QObject *>(QStringLiteral("streamerStyle-") + field);
+            auto *slider = settingsPage->findChild<QObject *>(QStringLiteral("streamerStyleSlider-") + field);
+            assert(spin && slider);
+            auto *editor = spin->property("contentItem").value<QObject *>();
+            editor->setProperty("text", QString::number(spin->property("from").toInt()));
+            assert(QMetaObject::invokeMethod(editor, "textEdited"));
+            const int expected = qMin(37, spin->property("to").toInt());
+            slider->setProperty("value", expected);
+            assert(QMetaObject::invokeMethod(slider, "moved"));
+            assert(streamer->style().value(field).toInt() == expected);
+            assert(spin->property("value").toInt() == expected);
+            assert(editor->property("text").toString() == spin->property("displayText").toString());
+        }
+        for (const auto *axis : {"X", "Y"}) {
+            auto *spin = settingsPage->findChild<QObject *>(QStringLiteral("streamer") + axis + "Position");
+            auto *slider = settingsPage->findChild<QObject *>(QStringLiteral("streamer") + axis + "Slider");
+            auto *editor = spin->property("contentItem").value<QObject *>();
+            editor->setProperty("text", "0");
+            assert(QMetaObject::invokeMethod(editor, "textEdited"));
+            slider->setProperty("value", 63);
+            assert(QMetaObject::invokeMethod(slider, "moved"));
+            assert(spin->property("value").toInt() == 63 && editor->property("text").toString() == "63");
+        }
+        auto *preview = settingsPage->findChild<QQuickItem *>("streamerSettingsPreview");
+        assert(preview && preview->property("entryCount").toInt() == 1 && preview->isVisible());
+        QQuickItem *previewLabel = nullptr;
+        const auto findPreviewLabel = [&](auto &&self, QQuickItem *item) -> void {
+            if (item->objectName() == "streamerKeyLabel") previewLabel = item;
+            for (auto *child : item->childItems()) self(self, child);
+        };
+        findPreviewLabel(findPreviewLabel, preview);
+        assert(previewLabel && previewLabel->property("text").toString() == "Ctrl + K");
+        auto previewStyle = streamer->style();
+        previewStyle["fontSize"] = 26; previewStyle["textColor"] = "#ab1234";
+        streamer->setStyle(previewStyle);
+        assert(previewLabel->property("font").value<QFont>().pixelSize() == 26);
+        assert(previewLabel->property("color").value<QColor>() == QColor("#ab1234"));
+        QTest::qWait(550);
+        assert(preview->property("entryCount").toInt() == 1);
+        auto *paddingControl = settingsPage->findChild<QObject *>("streamerStyle-paddingLeft");
+        assert(paddingControl);
+        paddingControl->setProperty("value", 16);
+        assert(QMetaObject::invokeMethod(paddingControl, "valueModified"));
+        assert(streamer->style().value("paddingLeft").toInt() == 16);
+        auto *stickyControl = settingsPage->findChild<QObject *>("streamerStickyPosition");
+        assert(stickyControl && stickyControl->property("checked").toBool());
+        auto *windowMargins = settingsPage->findChild<QObject *>("streamerStyleRow-marginX");
+        assert(windowMargins && !windowMargins->property("visible").toBool());
+        settingsPage->setProperty("streamerOverlay", QVariant::fromValue(overlay));
+        overlay->setProperty("detached", true);
+        assert(windowMargins->property("visible").toBool());
+        overlay->setProperty("detached", false);
+        assert(!windowMargins->property("visible").toBool());
+        for (const auto *field : {"paddingTop", "paddingRight", "paddingBottom", "paddingLeft"}) {
+            auto *control = settingsPage->findChild<QObject *>(QStringLiteral("streamerStyle-") + field);
+            assert(control);
+            control->setProperty("value", 11);
+            assert(QMetaObject::invokeMethod(control, "valueModified"));
+            assert(streamer->style().value(field).toInt() == 11);
+        }
+        auto *horizontalAnchor = settingsPage->findChild<QObject *>("streamerHorizontalAnchor");
+        auto *verticalAnchor = settingsPage->findChild<QObject *>("streamerVerticalAnchor");
+        assert(horizontalAnchor->property("count").toInt() == 3 && verticalAnchor->property("count").toInt() == 3);
+        auto *maximumControl = settingsPage->findChild<QObject *>("streamerMaximumEntriesValue");
+        auto *maximumSlider = settingsPage->findChild<QObject *>("streamerMaximumEntriesSlider");
+        assert(maximumControl && maximumSlider);
+        auto *maximumEditor = maximumControl->property("contentItem").value<QObject *>();
+        maximumEditor->setProperty("text", "2");
+        assert(QMetaObject::invokeMethod(maximumEditor, "textEdited"));
+        maximumSlider->setProperty("value", 7);
+        assert(QMetaObject::invokeMethod(maximumSlider, "moved"));
+        assert(maximumControl->property("value").toInt() == 7);
+        assert(maximumEditor->property("text").toString() == "7");
+        maximumControl->setProperty("value", 10);
+        assert(QMetaObject::invokeMethod(maximumControl, "valueModified"));
+        streamer->setEnabled(true);
+        for (int i = 0; i < 12; ++i) streamer->pressed(window, QString::number(i), false);
+        assert(count() == 10 && labels().first() == "2" && labels().last() == "11");
+        maximumControl->setProperty("value", 3);
+        assert(QMetaObject::invokeMethod(maximumControl, "valueModified"));
+        assert(count() == 3 && labels() == (QStringList{"9", "10", "11"}));
+        maximumSlider->setProperty("value", 1);
+        assert(QMetaObject::invokeMethod(maximumSlider, "moved"));
+        assert(count() == 1 && labels().last() == "11");
+        streamer->pressed(window, QStringLiteral("Ctrl"), false);
+        streamer->scrolled(window, 1, QStringLiteral("Ctrl"), true);
+        streamer->scrolled(window, 1, QStringLiteral("Ctrl"), false);
+        assert(count() == 1 && labels().last() == "Ctrl + Scroll: +2");
+        assert(restored.streamer()->maximumEntries() == 1);
+        streamer->setMaximumEntries(0);
+        assert(streamer->maximumEntries() == 1);
+        streamer->setMaximumEntries(99);
+        assert(streamer->maximumEntries() == 32);
+        const auto sections = settingsPage->property("sections").value<QJSValue>().toVariant().toList();
+        assert(sections[7].toMap().value("title") == "Streamer" && sections[8].toMap().value("title") == "Updates");
+        streamer->setEnabled(true);
+        QTest::keyClick(window, Qt::Key_D);
+        settings.resetSettings();
+        assert(!streamer->enabled() && count() == 0 && !overlay->property("visible").toBool());
+        assert(streamer->xPosition() == 2 && streamer->yPosition() == 95);
+        assert(streamer->durationMs() == 2000 && durationSlider->property("value").toInt() == 2000);
+        assert(streamer->maximumEntries() == 8 && maximumControl->property("value").toInt() == 8);
+        assert(!streamer->spawnUpwards() && direction->property("currentIndex").toInt() == 0);
+        assert(streamer->style().value("fontSize").toInt() == 14 && !streamer->style().value("sticky").toBool());
+        assert(window->findChild<QObject *>("streamerXPosition")->property("value").toInt() == 2);
+        puts("Streamer: input, timers, directions, styling, edited-number/slider synchronization, live preview, settings navigation, shortcut frames, persistence and reset passed");
+        return 0;
+    }
     if (app.arguments().contains(QStringLiteral("--updates"))) {
         checkUpdates();
         return 0;
@@ -142,6 +750,11 @@ int main(int argc, char **argv)
         engine.load(QUrl::fromLocalFile(QDir::current().absoluteFilePath("src/SettingsWindow.qml")));
         assert(!engine.rootObjects().isEmpty());
         auto *window = engine.rootObjects().first();
+        window->setProperty("selectedSection", 7);
+        assert(window->findChild<QObject *>("streamerModeToggle")->property("visible").toBool());
+        const auto sections = window->property("sections").value<QJSValue>().toVariant().toList();
+        assert(sections[7].toMap().value("title") == "Streamer" && sections[8].toMap().value("title") == "Updates");
+        window->setProperty("selectedSection", 1);
         auto *systemCheck = window->findChild<QObject *>("useSystemColorsCheck");
         auto *combo = window->findChild<QObject *>("appThemeCombo");
         assert(systemCheck && combo);
@@ -525,6 +1138,32 @@ int main(int argc, char **argv)
         QTimer::singleShot(100, &loop, &QEventLoop::quit);
         loop.exec();
     };
+    settings.setWindowControlsInTabBar(true);
+    evaluate("destination.homeView.stop(); destination.homeView.loadHtml('<html><body><input autofocus></body></html>'); destination.activateHome(false);");
+    render();
+    auto *maximize = destination->findChild<QQuickItem *>("maximizeWindowButton");
+    assert(maximize);
+    destination->showNormal();
+    destination->requestActivate();
+    auto *home = qobject_cast<QQuickItem *>(evaluate("destination.homeView").toQObject());
+    home->forceActiveFocus();
+    for (int click = 0; click < 2; ++click) {
+        const auto point = maximize->mapToScene(QPointF(maximize->width() / 2, maximize->height() / 2)).toPoint();
+        QTest::mouseClick(destination, Qt::LeftButton, Qt::NoModifier, point);
+        render();
+        const auto visibility = destination->visibility();
+        assert(visibility == (click == 0 ? QWindow::Maximized : QWindow::Windowed));
+        assert(home->hasActiveFocus() && !maximize->hasActiveFocus());
+        QTest::keyClick(destination, Qt::Key_Space);
+        assert(destination->visibility() == visibility);
+    }
+    // Deliberately reaching the control by keyboard must still allow activation.
+    maximize->forceActiveFocus(Qt::TabFocusReason);
+    QTest::keyClick(destination, Qt::Key_Space);
+    assert(destination->visibility() == QWindow::Maximized);
+    destination->showNormal();
+    home->forceActiveFocus();
+    puts("Home Space: mouse maximize/restore preserves web focus; keyboard window controls remain accessible");
     evaluate("destination.homeView.stop(); for (let i = 0; i < 3; ++i) { destination.openTab('about:blank', null, true); destination.views[i].stop(); }"
              "destination.views[0].lastUsedAt = 200; destination.views[1].lastUsedAt = 100; destination.views[2].lastUsedAt = 300;");
     render();

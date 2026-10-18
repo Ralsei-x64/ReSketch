@@ -5,17 +5,21 @@
 set -eu
 cd "$(dirname "$0")/.."
 updater_moc=$(mktemp /tmp/resketch-updates-moc.XXXXXX.cpp)
+streamer_moc=$(mktemp /tmp/resketch-streamer-moc.XXXXXX.cpp)
 test_binary=$(mktemp /tmp/resketch-native-tab-drop.XXXXXX)
 icon_data=$(mktemp -d /tmp/resketch-empty-icon-data.XXXXXX)
-trap 'rm -f "$test_binary" "$updater_moc"; rm -rf "$icon_data"' EXIT
+trap 'rm -f "$test_binary" "$updater_moc" "$streamer_moc"; rm -rf "$icon_data"' EXIT
 /usr/lib/qt6/moc src/UpdateChecker.h -o "$updater_moc"
-c++ -std=c++20 -DCEF_API_VERSION=15400 -fPIC tests/native-tab-drop.test.cpp tests/update-checker.test.cpp build-cef/.qt/rcc/qrc_branding.cpp src/FontHelper.cpp src/UpdateChecker.cpp "$updater_moc" -Ibuild-cef/resketch_autogen/include -Isrc -I"${CEF_ROOT:?Set CEF_ROOT to the extracted distribution}" -I/usr/include/KF6/KNotifications -I/usr/include/KF6/KColorScheme -I/usr/include/KF6/KIconThemes \
-    $(pkg-config --cflags --libs fontconfig freetype2 Qt6DBus Qt6Concurrent Qt6Widgets Qt6Network Qt6Quick Qt6QuickControls2 KF6WindowSystem) -lKF6Notifications -lKF6ColorScheme -lKF6IconThemes \
+/usr/lib/qt6/moc src/StreamerMode.h -o "$streamer_moc"
+c++ -std=c++20 -DCEF_API_VERSION=15400 -fPIC tests/native-tab-drop.test.cpp tests/update-checker.test.cpp build-cef/.qt/rcc/qrc_branding.cpp src/FontHelper.cpp src/UpdateChecker.cpp "$updater_moc" "$streamer_moc" -Ibuild-cef/resketch_autogen/include -Isrc -I"${CEF_ROOT:?Set CEF_ROOT to the extracted distribution}" -I/usr/include/KF6/KNotifications -I/usr/include/KF6/KColorScheme -I/usr/include/KF6/KIconThemes \
+    $(pkg-config --cflags --libs fontconfig freetype2 Qt6DBus Qt6Concurrent Qt6Widgets Qt6Network Qt6Quick Qt6QuickControls2 Qt6Test KF6WindowSystem) -lKF6Notifications -lKF6ColorScheme -lKF6IconThemes \
     -Lbuild-cef -lresketch_cef -Lbuild-cef/cef -lcef -Wl,-rpath,"$PWD/build-cef:$PWD/build-cef/cef" -o "$test_binary"
-if [ "${1:-}" = --updates ]; then
-    QT_NO_GLIB=1 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QUICK_CONTROLS_STYLE=org.kde.desktop "$test_binary" --updates
+if [ "${1:-}" = --updates ] || [ "${1:-}" = --streamer ] || [ "${1:-}" = --streamer-preview ]; then
+    QT_NO_GLIB=1 QT_QPA_PLATFORM="${RESKETCH_TEST_PLATFORM:-offscreen}" QT_QUICK_BACKEND="${RESKETCH_TEST_BACKEND:-software}" QT_QUICK_CONTROLS_STYLE=org.kde.desktop "$test_binary" "$1"
     exit
 fi
+QT_NO_GLIB=1 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+    QT_QUICK_CONTROLS_STYLE=org.kde.desktop "$test_binary" --streamer
 QT_NO_GLIB=1 RESKETCH_CEF_HELPER="$PWD/build-cef/resketch-cef-helper" QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QSG_RHI_BACKEND=software \
     QT_QUICK_CONTROLS_STYLE=org.kde.desktop "$test_binary"
 QT_NO_GLIB=1 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \

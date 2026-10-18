@@ -45,6 +45,7 @@
 #include <QWidget>
 #include "FontHelper.h"
 #include "UpdateChecker.h"
+#include "StreamerMode.h"
 #include <KWindowEffects>
 #include <KNotification>
 #include <KColorSchemeManager>
@@ -218,6 +219,7 @@ class AppSettings : public QObject
     Q_OBJECT
     Q_PROPERTY(QString buildCommit READ buildCommit CONSTANT)
     Q_PROPERTY(UpdateChecker *updates READ updates CONSTANT)
+    Q_PROPERTY(StreamerMode *streamer READ streamer CONSTANT)
     Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY changed)
     Q_PROPERTY(bool useSystemColors READ useSystemColors WRITE setUseSystemColors NOTIFY changed)
     Q_PROPERTY(bool darkTheme READ darkTheme NOTIFY effectiveThemeChanged)
@@ -278,10 +280,12 @@ class AppSettings : public QObject
 
 public:
     UpdateChecker *updates() { return &updateChecker; }
+    StreamerMode *streamer() { return &streamerMode; }
     QString buildCommit() const { return QStringLiteral(RESKETCH_COMMIT); }
 
     QString gpuAccelerationWarning() const { return graphicsWarning; }
     bool safeMode() const { return recoveryMode; }
+    ~AppSettings() override { qGuiApp->removeEventFilter(this); }
     explicit AppSettings(QObject *parent = nullptr, bool safeMode = false)
         : QObject(parent), store(QStringLiteral("aether64"), QStringLiteral("ReSketch")), recoveryMode(safeMode)
     {
@@ -325,12 +329,21 @@ public:
     }
     Q_INVOKABLE QColor chooseGroupColor(const QColor &initial, QObject *owner)
     {
+        return chooseColor(initial, owner, tr("Tab group color"));
+    }
+    Q_INVOKABLE QColor chooseColor(const QColor &initial, QObject *owner, const QString &title)
+    {
         QColorDialog dialog(initial);
-        dialog.setWindowTitle(tr("Tab group color"));
+        dialog.setWindowTitle(title);
         dialog.setWindowModality(Qt::WindowModal);
         dialog.winId();
         if (auto *window = qobject_cast<QWindow *>(owner)) dialog.windowHandle()->setTransientParent(window);
         return dialog.exec() == QDialog::Accepted ? dialog.selectedColor() : initial;
+    }
+    Q_INVOKABLE void setStreamerBlur(QObject *object, bool enabled, const QRectF &area)
+    {
+        if (auto *window = qobject_cast<QWindow *>(object))
+            KWindowEffects::enableBlurBehind(window, enabled && !area.isEmpty(), QRegion(area.toAlignedRect()));
     }
     KNotification *createFigmaNotification(const QString &title, const QString &text)
     {
@@ -636,6 +649,7 @@ public:
         store.setValue(QStringLiteral("settingsInitialized"), true);
         store.sync();
         updateChecker.reset();
+        streamerMode.reload();
         applyTheme();
         emit changed();
         emit effectiveThemeChanged();
@@ -1149,6 +1163,12 @@ signals:
 private:
     bool eventFilter(QObject *watched, QEvent *event) override
     {
+        if (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyRelease
+                || event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonDblClick
+                || event->type() == QEvent::WindowDeactivate || event->type() == QEvent::Wheel) {
+            if (auto *window = qobject_cast<QWindow *>(watched); registeredWindows.contains(window))
+                streamerMode.observe(window, event);
+        }
         if (event->type() == QEvent::Wheel) {
             auto *window = qobject_cast<QQuickWindow *>(watched);
             if (registeredWindows.contains(window) && !window->property("overviewVisible").toBool()
@@ -1209,6 +1229,7 @@ private:
 
     QSettings store;
     UpdateChecker updateChecker{this};
+    StreamerMode streamerMode{this};
     const bool recoveryMode;
     QSet<QWindow *> registeredWindows;
     QTimer memoryMonitor;

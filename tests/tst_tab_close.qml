@@ -16,6 +16,23 @@ Item {
     property QtObject appSettings: QtObject {
         readonly property string buildCommit: "abc1234"
         property var updates: null
+        property QtObject streamer: QtObject {
+            property bool enabled: false
+            property int xPosition: 2
+            property int yPosition: 95
+            property int durationMs: 2000
+            property int maximumEntries: 8
+            property bool spawnUpwards: false
+            property int spawnDirection: 0
+            property var style: ({marginX: 12, marginY: 12, paddingTop: 8, paddingRight: 12,
+                paddingBottom: 8, paddingLeft: 12, minWidth: 0, minHeight: 34,
+                alignment: 0, background: "#20232a", textColor: "#ffffff", fontFamily: "Sans Serif", fontSize: 14,
+                radius: 8, transparency: 19, blur: 0, shadow: false, shadowStrength: 35,
+                sticky: false, horizontalAnchor: 0, verticalAnchor: 1, offsetX: 0, offsetY: 0})
+            signal cleared()
+            signal pressed(var window, string label, bool replace)
+            signal scrolled(var window, int steps, string modifiers, bool replaceModifier)
+        }
         property bool safeMode: false
         property bool desktopNotifications: false
         property string theme: "auto"
@@ -114,6 +131,8 @@ Item {
         function showDesktopNotification(notification, owner) {}
         function showHomeNotification(title, body, url, owner) {}
         function chooseGroupColor(initial, owner) { return "#e75d73" }
+        function chooseColor(initial, owner, title) { return initial }
+        function setStreamerBlur(window, enabled, area) {}
         function copyToClipboard(text) { copiedText = text }
         function chooseExportFolder(key, filename, owner) {
             requestedExportKey = key
@@ -233,8 +252,8 @@ Item {
             const settings = findChild(app, "settingsWindow")
             verify(settings)
             settings.height = 420
-            settings.selectedSection = 6
-            const navigation = visualChild(settings.contentItem, "settingsSection-6")
+            settings.selectedSection = 8
+            const navigation = visualChild(settings.contentItem, "settingsSection-8")
             verify(navigation)
             tryVerify(() => navigation.width > 100)
             const check = findChild(settings, "checkForUpdatesButton")
@@ -3154,7 +3173,7 @@ Item {
         function test_memory_limit_slider_commits_on_release() {
             app.openSettings()
             const window = findChild(app, "settingsWindow")
-            window.selectedSection = 2
+            window.selectedSection = 3
             const slider = findChild(window, "memoryLimitSlider")
             tryVerify(() => slider.visible && slider.width > 0)
             waitForRendering(window.contentItem)
@@ -4151,7 +4170,7 @@ Item {
             appSettings.reduceMotion = true
             app.openSettings()
             const settings = findChild(app, "settingsWindow")
-            settings.selectedSection = 4
+            settings.selectedSection = 5
             waitForRendering(settings.contentItem)
             const handle = visualChild(settings.contentItem, "toolbarDragHandle-new-tab")
             const start = handle.mapToItem(settings.contentItem, handle.width / 2, handle.height / 2)
@@ -4179,7 +4198,7 @@ Item {
             mouseClick(configure, configure.width / 2, configure.height / 2)
             const reopened = findChild(app, "settingsWindow")
             verify(reopened && reopened.visible)
-            compare(reopened.selectedSection, 4)
+            compare(reopened.selectedSection, 5)
             const toggle = visualChild(reopened.contentItem, "toolbarToggle-menu")
             toggle.checked = true
             toggle.toggled()

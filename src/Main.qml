@@ -20,6 +20,14 @@ import "Shortcuts.js" as Shortcuts
 Kirigami.ApplicationWindow {
     id: root
 
+    StreamerOverlay {
+        id: inputOverlay
+        parent: root.contentItem
+        anchors.fill: parent
+        z: 2000
+        targetWindow: root
+    }
+
     readonly property url homeUrl: "https://www.figma.com/files/recent"
     readonly property url loginUrl: "https://www.figma.com/login"
     readonly property url newTabUrl: "https://www.figma.com/desktop_new_tab"
@@ -138,6 +146,8 @@ Kirigami.ApplicationWindow {
     property size dragPreviewSize: Qt.size(220, 40)
     property bool nativeTabDragRunning: false
     property bool nativeTabDragRequested: false
+    // Capture the page and its toolbar without the sibling streamer overlay.
+    readonly property Item streamerBackdrop: root.pageStack
     property alias browserContent: browserArea
     readonly property real browserWidth: browserArea.width
     readonly property real tabSlideGap: 64
@@ -2560,14 +2570,14 @@ Kirigami.ApplicationWindow {
     }
     AuxiliaryWindowLoader {
         id: settingsWindowLoader
-        sourceComponent: SettingsWindow { visible: false }
+        sourceComponent: SettingsWindow { visible: false; streamerOverlay: inputOverlay }
     }
     UpdateDialog {
         id: updateNotice
         updater: appSettings.updates
         onUpdateStarted: {
             root.openSettings()
-            settingsWindowLoader.item.selectedSection = 6
+            settingsWindowLoader.item.selectedSection = 8
         }
     }
     UpdateCompleteDialog { id: updateCompleteNotice; updater: appSettings.updates }
@@ -4373,7 +4383,7 @@ Kirigami.ApplicationWindow {
             icon.name: "configure"
             onTriggered: {
                 root.openSettings()
-                settingsWindowLoader.item.selectedSection = 4
+                settingsWindowLoader.item.selectedSection = 5
             }
         }
     }
