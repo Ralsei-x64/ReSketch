@@ -31,6 +31,7 @@
 #include <QWheelEvent>
 #include <cstdio>
 #include <cstdlib>
+#include <stdexcept>
 #include <time.h>
 
 static void require(bool ok, const char *message) {
@@ -53,6 +54,33 @@ static void processFor(int milliseconds) {
     QTimer::singleShot(milliseconds, &loop, &QEventLoop::quit);
     loop.exec();
 }
+class ClipboardInput final : public QObject {
+  public:
+    bool ready = false;
+
+  protected:
+    bool eventFilter(QObject *, QEvent *event) override {
+        if (event->type() == QEvent::KeyPress)
+            ready = true;
+        return false;
+    }
+};
+class LazyClipboard final : public QMimeData {
+  public:
+    QStringList formats() const override {
+        return QMimeData::formats() + QStringList{"application/web;type=\"custom/format0\""};
+    }
+
+  protected:
+    QVariant retrieveData(const QString &format, QMetaType type) const override {
+        if (format == "application/web;type=\"custom/format0\"") {
+            puts("binary-read");
+            fflush(stdout);
+            return QByteArray(16 * 1024 * 1024, 'q');
+        }
+        return QMimeData::retrieveData(format, type);
+    }
+};
 class CancelledPicker final : public CefFileDialogCallback {
   public:
     bool cancelled = false;
@@ -85,9 +113,13 @@ int main(int argc, char **argv) {
     QApplication app(argc, argv);
     if (clipboardOwner) {
         require(argc > 2, "Clipboard owner payload type");
-        auto *mime = new QMimeData;
         const QByteArray kind(argv[2]);
-        if (kind == "image") {
+        QMimeData *mime = kind == "bridge" ? new LazyClipboard : new QMimeData;
+        if (kind == "bridge") {
+            mime->setText(QStringLiteral("ReSketch clipboard α\n二"));
+            mime->setHtml("<b>ReSketch clipboard</b>");
+            mime->setData("application/web;type=\"custom/formatmap\"", "opaque-format-map");
+        } else if (kind == "image") {
             QImage image(2048, 2048, QImage::Format_RGB32);
             quint32 noise = 1;
             for (int y = 0; y < image.height(); ++y) {
@@ -106,8 +138,26 @@ int main(int argc, char **argv) {
             mime->setText(QString(4 * 1024 * 1024, 'x'));
             if (kind == "html") mime->setHtml("<b>" + QString(4 * 1024 * 1024, 'y') + "</b>");
         }
+        QQuickWindow nativeWindow;
+        ClipboardInput nativeInput;
+        if (kind == "native") {
+            app.installEventFilter(&nativeInput);
+            nativeWindow.setTitle("ReSketch external clipboard source");
+            nativeWindow.resize(240, 120);
+            nativeWindow.show();
+            nativeWindow.requestActivate();
+            until([&] { return nativeInput.ready && QGuiApplication::focusWindow() == &nativeWindow; },
+                  "External Wayland source has input focus");
+            mime->setText(QStringLiteral("External Wayland α\n二"));
+            mime->setHtml("<b>External Wayland</b>");
+        }
         app.clipboard()->setMimeData(mime);
-        puts("ready"); fflush(stdout);
+        if (kind == "native") {
+            processFor(100);
+            nativeWindow.hide();
+        }
+        puts("ready");
+        fflush(stdout);
         return app.exec();
     }
     QTemporaryDir directory;
@@ -126,7 +176,7 @@ CefView {
     property var result
     property bool answered:false
     function evaluate(source) {answered=false;runJavaScript(source, function(value){result=value;answered=true})}
-    userScripts.collection: [{sourceCode:'window.created=true', injectionPoint:CefScript.DocumentCreation},
+    userScripts.collection: [{sourceCode:'window.created=true;window.pointerLockAtCreation=!!Element.prototype.requestPointerLock', injectionPoint:CefScript.DocumentCreation},
                             {sourceCode:'window.ready=true', injectionPoint:CefScript.DocumentReady}]
 }
 )QML",
@@ -180,7 +230,63 @@ CefView {
             return view->property("result");
         };
         require(js("Boolean(seenCreation && ready)").toBool(), "script injection ordering");
+        require(!js("pointerLockAtCreation || !!document.documentElement.requestPointerLock").toBool(),
+                "Unsupported OSR pointer lock is absent before page feature detection");
         require(js("document.title").toString() == "CEF fixture", "JavaScript result");
+        // VP9 playback must preserve the canvas context, including after a reload.
+        if (gpu) {
+            QFile videoFile(QStringLiteral(RESKETCH_TEST_VIDEO));
+            require(videoFile.open(QIODevice::ReadOnly), "Local video fixture");
+            const QString videoUrl = "data:video/webm;base64," + QString::fromLatin1(videoFile.readAll().toBase64());
+            for (int pass = 0; pass < 2; ++pass) {
+                js(R"JS(
+                    window.videoCheck={frames:0,lost:0,error:'',red:false};
+                    window.videoCanvas=document.createElement('canvas');
+                    videoCanvas.width=640;videoCanvas.height=480;document.body.appendChild(videoCanvas);
+                    videoCanvas.addEventListener('webglcontextlost',e=>{e.preventDefault();videoCheck.lost++});
+                    const gl=videoCanvas.getContext('webgl2')||videoCanvas.getContext('webgl');
+                    if(!gl){videoCheck.error='WebGL unavailable';}else{
+                        const debug=gl.getExtension('WEBGL_debug_renderer_info');
+                        videoCheck.renderer=gl.getParameter(debug?debug.UNMASKED_RENDERER_WEBGL:gl.RENDERER);
+                        const texture=gl.createTexture(),framebuffer=gl.createFramebuffer();
+                        gl.bindTexture(gl.TEXTURE_2D,texture);
+                        gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);
+                        gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+                        window.fixtureVideo=document.createElement('video');
+                        fixtureVideo.muted=true;fixtureVideo.loop=true;document.body.appendChild(fixtureVideo);
+                        fixtureVideo.onerror=()=>videoCheck.error='Video decode failed';
+                        const frame=()=>{
+                            if(gl.isContextLost()){videoCheck.lost++;return;}
+                            try{
+                                gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,fixtureVideo);
+                                gl.bindFramebuffer(gl.FRAMEBUFFER,framebuffer);
+                                gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,texture,0);
+                                const pixel=new Uint8Array(4);gl.readPixels(1,1,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);
+                                videoCheck.red=pixel[0]>180&&pixel[1]<90&&pixel[2]<90;
+                                if(gl.getError()!==gl.NO_ERROR)videoCheck.error='Video texture upload failed';
+                                videoCheck.frames++;
+                            }catch(e){videoCheck.error=String(e);}
+                            fixtureVideo.requestVideoFrameCallback(frame);
+                        };
+                        fixtureVideo.requestVideoFrameCallback(frame);
+                    }
+                )JS");
+                require(js("videoCheck.error").toString().isEmpty(), "WebGL is available before video playback");
+                js("fixtureVideo.src='" + videoUrl + "';fixtureVideo.play().catch(e=>videoCheck.error=String(e))");
+                until([&] { return js("videoCheck.frames>=12||videoCheck.lost>0||!!videoCheck.error").toBool(); },
+                      "Video frames reach WebGL");
+                fprintf(stderr, "Video WebGL pass %d: %s\n", pass+1, qPrintable(js("JSON.stringify(videoCheck)").toString()));
+                require(js("videoCheck.frames>=12 && !videoCheck.lost && !videoCheck.error && videoCheck.red").toBool(),
+                        "Video playback preserves WebGL and produces real pixels");
+                view->reload();
+                until([&] { return !view->loading() && js("typeof videoCheck==='undefined' && ready===true").toBool(); },
+                      "Video page reload completes");
+            }
+            fprintf(stderr, "PASS: video playback, video-to-WebGL uploads and WebGL after reload\n");
+            if (hasArgument("--video-only")) {
+                view->setParentItem(nullptr);object.reset();window.close();ReSketchCef::shutdown();return 0;
+            }
+        }
         for (const auto setting : {CEF_CONTENT_SETTING_TYPE_CLIPBOARD_READ_WRITE,
                 CEF_CONTENT_SETTING_TYPE_LOCAL_FONTS, CEF_CONTENT_SETTING_TYPE_LOOPBACK_NETWORK}) {
             require(view->profile()->context()->GetContentSetting(fixtureUrl.toString().toStdString(),
@@ -188,6 +294,151 @@ CefView {
                     "Accepted origins receive clipboard/font/loopback permissions before script requests");
             require(view->profile()->context()->GetContentSetting("https://example.invalid", "https://example.invalid",
                     setting) != CEF_CONTENT_SETTING_VALUE_ALLOW, "Other origins do not inherit permissions");
+        }
+        if (hasArgument("--wayland-clipboard")) {
+            require(QGuiApplication::platformName().startsWith("wayland"), "Native Wayland clipboard test platform");
+            ClipboardInput input;
+            app.installEventFilter(&input);
+            window.setTitle("ReSketch Wayland clipboard check");
+            window.requestActivate();
+            until([&] { return QGuiApplication::focusWindow() == &window; },
+                  "Wayland clipboard window has keyboard focus");
+            fprintf(stderr, "Waiting for a key press in the Wayland test window (input serial required)\n");
+            until([&] { return input.ready; }, "Wayland clipboard has a native input serial");
+            processFor(200);
+            auto *clipboard = app.clipboard();
+            auto saved = std::make_unique<QMimeData>();
+            const auto *original = clipboard->mimeData();
+            for (const auto &format : original->formats())
+                saved->setData(format, original->data(format));
+            if (original->hasImage())
+                saved->setImageData(original->imageData());
+            QProcess owner;
+            QString failure;
+            try {
+                const auto check = [](bool ok, const char *message) {
+                    if (!ok)
+                        throw std::runtime_error(message);
+                };
+                const auto wait = [&](auto predicate, const char *message) {
+                    QElapsedTimer timer;
+                    timer.start();
+                    while (!predicate() && timer.elapsed() < 10000)
+                        processFor(5);
+                    check(predicate(), message);
+                };
+                wait([&] { return QGuiApplication::focusWindow() == &window; }, "Clipboard fixture retains focus");
+                input.ready = false;
+                wait([&] { return input.ready; }, "Fresh input authorizes native clipboard copy");
+                auto *native = new QMimeData;
+                native->setText(QStringLiteral("Native Wayland α\n二"));
+                native->setHtml("<b>Native Wayland</b>");
+                clipboard->setMimeData(native);
+                processFor(100);
+                js("window.nativePaste=null;document.querySelector('input').focus();addEventListener('paste',e=>{e."
+                   "preventDefault();nativePaste={text:e.clipboardData.getData('text/"
+                   "plain'),html:e.clipboardData.getData('text/html'),files:e.clipboardData.files.length}})");
+                view->browser()->GetMainFrame()->Paste();
+                wait([&] { return js("!!nativePaste").toBool(); }, "Native Wayland paste arrives in Chromium");
+                check(js("nativePaste.text").toString() == QStringLiteral("Native Wayland α\n二") &&
+                          js("nativePaste.html").toString() == "<b>Native Wayland</b>",
+                      "Wayland text and HTML survive Chromium paste");
+                js("addEventListener('copy',e=>{e.preventDefault();e.clipboardData.setData('text/plain','Chromium "
+                   "text');e.clipboardData.setData('text/html','<i>Chromium "
+                   "text</i>');e.clipboardData.setData('application/x-resketch','custom bytes')})");
+                view->browser()->GetMainFrame()->Copy();
+                wait([&] { return clipboard->text() == "Chromium text"; }, "Chromium copy reaches native Wayland");
+                check(clipboard->mimeData()->html() == "<i>Chromium text</i>",
+                      "Chromium HTML survives native Wayland copy");
+                check(clipboard->mimeData()->hasFormat("chromium/x-web-custom-data"),
+                      "Chromium custom clipboard map is advertised");
+                check(!clipboard->mimeData()->data("chromium/x-web-custom-data").isEmpty(),
+                      "Chromium custom clipboard bytes survive Wayland copy");
+                auto environment = QProcessEnvironment::systemEnvironment();
+                environment.insert("QT_QPA_PLATFORM", "xcb");
+                owner.setProcessEnvironment(environment);
+                owner.start(app.applicationFilePath(), {"--clipboard-owner", "bridge"});
+                check(owner.waitForStarted(), "External X11 clipboard owner starts");
+                QByteArray output;
+                wait(
+                    [&] {
+                        output += owner.readAllStandardOutput();
+                        return output.contains("ready\n");
+                    },
+                    "External X11 clipboard is ready");
+                wait([&] { return clipboard->mimeData()->hasFormat("application/web;type=\"custom/format0\""); },
+                     "Custom formats reach Wayland without reading their bytes");
+                processFor(100);
+                output += owner.readAllStandardOutput();
+                check(!output.contains("binary-read"), "Large Figma-style clipboard data is fetched lazily");
+                QElapsedTimer transfer;
+                transfer.start();
+                const auto bytes = clipboard->mimeData()->data("application/web;type=\"custom/format0\"");
+                check(bytes == QByteArray(16 * 1024 * 1024, 'q'),
+                      "Large custom clipboard payload survives Wayland transfer");
+                fprintf(stderr, "16 MiB custom transfer: %lld ms\n", (long long)transfer.elapsed());
+                check(transfer.elapsed() < 3000, "Large custom clipboard transfer does not stall");
+                check(clipboard->mimeData()->data("application/web;type=\"custom/formatmap\"") == "opaque-format-map",
+                      "Custom clipboard format map is unchanged");
+                check(clipboard->text() == QStringLiteral("ReSketch clipboard α\n二"),
+                      "X11 source text is decoded as UTF-8");
+                owner.terminate();
+                owner.waitForFinished(2000);
+                environment.insert("QT_QPA_PLATFORM", "wayland");
+                owner.setProcessEnvironment(environment);
+                owner.start(app.applicationFilePath(), {"--clipboard-owner", "native"});
+                check(owner.waitForStarted(), "External Wayland clipboard source starts");
+                output.clear();
+                wait(
+                    [&] {
+                        output += owner.readAllStandardOutput();
+                        return output.contains("ready\n");
+                    },
+                    "External Wayland source copies text and HTML");
+                wait([&] { return QGuiApplication::focusWindow() == &window; },
+                     "Clipboard fixture regains native focus");
+                processFor(100);
+                js("nativePaste=null");
+                view->browser()->GetMainFrame()->Paste();
+                wait([&] { return js("!!nativePaste").toBool(); }, "External Wayland paste arrives in Chromium");
+                check(js("nativePaste.text").toString() == QStringLiteral("External Wayland α\n二") &&
+                          js("nativePaste.html").toString() == "<b>External Wayland</b>",
+                      "External Wayland text and HTML survive Chromium paste");
+                owner.terminate();
+                owner.waitForFinished(2000);
+                input.ready = false;
+                wait([&] { return input.ready; }, "Fresh input authorizes image clipboard copy");
+                QImage image(24, 24, QImage::Format_ARGB32);
+                image.fill(Qt::red);
+                clipboard->setImage(image);
+                processFor(100);
+                js("nativePaste=null");
+                view->browser()->GetMainFrame()->Paste();
+                wait([&] { return js("!!nativePaste").toBool(); }, "Wayland image paste arrives");
+                check(js("nativePaste.files").toInt() == 1, "Native Wayland images reach Chromium");
+                puts("PASS: external/native Wayland text, HTML, PNG, opaque custom formats and lazy 16 MiB transfers");
+            } catch (const std::exception &error) {
+                failure = QString::fromUtf8(error.what());
+                fprintf(stderr, "Clipboard check failed: %s\n", error.what());
+            }
+            if (owner.state() != QProcess::NotRunning) {
+                owner.terminate();
+                owner.waitForFinished(2000);
+            }
+            // A newer input serial authorizes restoring the previous selection.
+            input.ready = false;
+            QElapsedTimer restoreInput;
+            restoreInput.start();
+            while (!input.ready && restoreInput.elapsed() < 5000)
+                processFor(5);
+            clipboard->setMimeData(saved.release());
+            processFor(300);
+            view->setParentItem(nullptr);
+            object.reset();
+            window.close();
+            ReSketchCef::shutdown();
+            require(failure.isEmpty(), qPrintable(failure));
+            return 0;
         }
         js("window.fontCount=-1;queryLocalFonts().then(fonts=>fontCount=fonts.length,e=>window.fontError=e.name)");
         until([&] { return js("fontCount>=0 || Boolean(window.fontError)").toBool(); }, "Local-font enumeration completes");
@@ -233,19 +484,29 @@ CefView {
                 owner.terminate();
                 owner.waitForFinished();
             }
-            js("window.copies=0;addEventListener('copy',e=>{e.preventDefault();copies++;"
-               "e.clipboardData.setData('text/plain','z'.repeat(4*1024*1024));"
-               "e.clipboardData.setData('text/html','<b>'+ 'w'.repeat(4*1024*1024)+'</b>')})");
+            const int requestedMiB = qEnvironmentVariableIntValue("RESKETCH_CLIPBOARD_MIB");
+            const int internalMiB = qBound(1, requestedMiB > 0 ? requestedMiB : 4, 64);
+            const int internalBytes = internalMiB * 1024 * 1024;
+            js(QStringLiteral("window.copies=0;addEventListener('copy',e=>{e.preventDefault();copies++;"
+               "e.clipboardData.setData('text/plain','z'.repeat(%1));"
+               "e.clipboardData.setData('text/html','<b>'+ 'w'.repeat(%1)+'</b>')})").arg(internalBytes));
             QElapsedTimer roundTrip;
             roundTrip.start();
-            view->browser()->GetMainFrame()->Copy();
+            const auto shortcut = [view](Qt::Key key) {
+                QKeyEvent down(QEvent::KeyPress, key, Qt::ControlModifier);
+                QKeyEvent up(QEvent::KeyRelease, key, Qt::ControlModifier);
+                QCoreApplication::sendEvent(view, &down);
+                QCoreApplication::sendEvent(view, &up);
+            };
+            shortcut(Qt::Key_C);
             until([&] { return js("copies").toInt() == 1; }, "Large native browser copy completes");
             const int previous = js("pastes").toInt();
-            view->browser()->GetMainFrame()->Paste();
+            shortcut(Qt::Key_V);
             until([&] { return js("pastes").toInt() > previous; }, "Large native browser round trip completes");
-            require(roundTrip.elapsed() < 1500 && js("pasteHtmlSize").toInt() >= 4*1024*1024,
+            fprintf(stderr, "CLIPBOARD: internal %d MiB text/HTML copy and paste %lld ms\n", internalMiB, roundTrip.elapsed());
+            require(roundTrip.elapsed() < 1500 && js("pasteHtmlSize").toInt() >= internalBytes
+                        && js("pasteTextSize").toInt() == internalBytes,
                     "Large internal copy/paste is fast and preserves HTML");
-            fprintf(stderr, "CLIPBOARD: internal 4 MiB text/HTML copy and paste %lld ms\n", roundTrip.elapsed());
             js("clearInterval(pasteHeartbeat)");
             timespec beforeIdle{}, afterIdle{};
             clock_gettime(CLOCK_THREAD_CPUTIME_ID, &beforeIdle);
@@ -260,6 +521,13 @@ CefView {
                 + (afterIdle.tv_nsec - beforeIdle.tv_nsec) / 1e6;
             require(idleCpuMs < idle.elapsed() / 2.0, "Native event wakeups do not spin while idle");
             fprintf(stderr, "CLIPBOARD: idle main-thread CPU %.1f%%\n", 100 * idleCpuMs / idle.elapsed());
+            if (hasArgument("--clipboard-only")) {
+                view->setParentItem(nullptr);
+                object.reset();
+                window.close();
+                ReSketchCef::shutdown();
+                return 0;
+            }
         }
         struct PickerFilters {
             std::vector<CefString> accepted, expanded;
@@ -463,6 +731,37 @@ CefView {
         js("document.body.style.cursor='auto'");
         movePointer();
         until([&] { return view->cursor().shape() == Qt::ArrowCursor; }, "standard cursor restored");
+        // Figma's numeric scrub controls fall back to captured pointer movement
+        // when pointer lock is unavailable, without creating a virtual cursor.
+        js(R"JS(
+            window.scrubValue=20;window.scrubbing=false;window.scrubStart=0;
+            const scrub=document.createElement('div');scrub.id='scrub';
+            scrub.style.cssText='position:absolute;left:100px;top:80px;width:120px;height:30px;cursor:ew-resize';
+            document.body.appendChild(scrub);
+            scrub.onpointerdown=e=>{
+                if(scrub.requestPointerLock)throw Error('Unsupported pointer-lock path selected');
+                scrubbing=true;scrubStart=e.clientX;scrub.setPointerCapture(e.pointerId);
+            };
+            scrub.onpointermove=e=>{if(scrubbing)scrubValue=20+e.clientX-scrubStart};
+            scrub.onpointerup=e=>{scrubbing=false;scrub.releasePointerCapture(e.pointerId)};
+        )JS");
+        QMouseEvent scrubPress(QEvent::MouseButtonPress, QPointF(110,90), QPointF(110,90),
+                              Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &scrubPress);
+        until([&] { return js("scrubbing").toBool(); }, "Numeric scrub starts without pointer lock");
+        QMouseEvent scrubMove(QEvent::MouseMove, QPointF(250,90), QPointF(250,90),
+                             Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &scrubMove);
+        until([&] { return js("scrubValue").toInt()==160; }, "Captured numeric scrub continues outside its field");
+        QMouseEvent beyondScreen(QEvent::MouseMove, QPointF(20000,90), QPointF(20000,90),
+                                Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &beyondScreen);
+        until([&] { return js("scrubValue").toInt()==19910; }, "Captured numeric scrub accepts unbounded client coordinates");
+        QMouseEvent scrubRelease(QEvent::MouseButtonRelease, QPointF(250,90), QPointF(250,90),
+                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &scrubRelease);
+        until([&] { return !js("scrubbing").toBool(); }, "Numeric scrub releases cleanly");
+        js("document.getElementById('scrub').remove()");
         QMouseEvent press(QEvent::MouseButtonPress, QPointF(40, 35), QPointF(40, 35), Qt::LeftButton,
                           Qt::LeftButton, Qt::NoModifier);
         QMouseEvent release(QEvent::MouseButtonRelease, QPointF(40, 35), QPointF(40, 35), Qt::LeftButton,
@@ -507,8 +806,11 @@ CefView {
         js("scrollTo(0,0);window.scrollSamples=[];addEventListener('scroll',()=>scrollSamples.push(scrollY)"
            ")");
         until([&] { return js("scrollY").toInt() == 0; }, "reset scroll position");
+        // Wayland's primary pointer can be a touchpad; this case needs a mouse.
+        QPointingDevice fixtureMouse("Fixture mouse", 102, QInputDevice::DeviceType::Mouse,
+            QPointingDevice::PointerType::Generic, QInputDevice::Capability::Position | QInputDevice::Capability::Scroll, 1, 3);
         QWheelEvent mouseWheel(QPointF(200, 200), QPointF(200, 200), QPoint(), QPoint(0, -120), Qt::NoButton,
-                               Qt::NoModifier, Qt::NoScrollPhase, false);
+                               Qt::NoModifier, Qt::NoScrollPhase, false, Qt::MouseEventNotSynthesized, &fixtureMouse);
         QCoreApplication::sendEvent(view, &mouseWheel);
         const int wheelDistance = 40 * QGuiApplication::styleHints()->wheelScrollLines();
         until([&] { return js("scrollY").toInt() >= wheelDistance; }, "mouse wheel scrolling");
@@ -550,7 +852,7 @@ CefView {
         const int beforeMouse = js("homeScroll.scrollTop").toInt();
         js("homeWheels=[]");
         QWheelEvent homeMouse(QPointF(80,160), QPointF(80,160), {}, QPoint(0,-120), Qt::NoButton,
-                              Qt::NoModifier, Qt::NoScrollPhase, false);
+                              Qt::NoModifier, Qt::NoScrollPhase, false, Qt::MouseEventNotSynthesized, &fixtureMouse);
         QCoreApplication::sendEvent(view, &homeMouse);
         until([&] { return js("homeScroll.scrollTop").toInt() == beforeMouse + wheelDistance; }, "Mouse scrolling retains its full distance");
         require(js("homeWheels.length>=3").toBool(), "Custom Figma/Home wheel handlers receive smooth mouse steps");
@@ -573,12 +875,12 @@ CefView {
         until([&] { return js("homeScroll.scrollTop").toInt() == sensitivityStart + wheelDistance * 2 + 24; }, "Scroll sensitivity scales trackpad pixels too");
         const int precisionStart = js("homeScroll.scrollTop").toInt();
         QWheelEvent precisionMouse(QPointF(80,160), QPointF(80,160), QPoint(0,-12), {}, Qt::NoButton,
-                                  Qt::NoModifier, Qt::NoScrollPhase, false);
+                                  Qt::NoModifier, Qt::NoScrollPhase, false, Qt::MouseEventNotSynthesized, &fixtureMouse);
         QCoreApplication::sendEvent(view, &precisionMouse);
         until([&] { return js("homeScroll.scrollTop").toInt() == precisionStart + 24; }, "Precision mouse pixels use scroll sensitivity");
         const int phasedMouseStart = js("homeScroll.scrollTop").toInt();
         QWheelEvent phasedMouse(QPointF(80,160), QPointF(80,160), {}, QPoint(0,-120), Qt::NoButton,
-                               Qt::NoModifier, Qt::ScrollUpdate, false);
+                               Qt::NoModifier, Qt::ScrollUpdate, false, Qt::MouseEventNotSynthesized, &fixtureMouse);
         QCoreApplication::sendEvent(view, &phasedMouse);
         until([&] { return js("homeScroll.scrollTop").toInt() == phasedMouseStart + wheelDistance * 2; }, "Mouse wheels with scroll phases use scroll sensitivity");
         view->settings()->setProperty("inertialScrollingEnabled", true);

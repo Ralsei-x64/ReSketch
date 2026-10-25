@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Ralsei-x64
 // SPDX-License-Identifier: GPL-3.0-only
 #include "CefView.h"
+#include "CefMouseCapture.h"
 #include "CefApp.h"
+#include "CefClipboard.h"
 #include "CefTexture.h"
 #include "include/cef_client.h"
 #include "include/cef_context_menu_handler.h"
@@ -96,7 +98,11 @@ struct Runtime {
             pumping = true;
             // Qt uses its own dispatcher. Chromium's X11 clipboard and GTK
             // sources still need the GLib default context to make progress.
-            g_main_context_iteration(nullptr, false);
+            // Drain a burst of ready clipboard/GTK events together instead of
+            // handing every INCR chunk back through Qt's external pump.
+            const auto nativeDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2);
+            while (g_main_context_iteration(nullptr, false)
+                   && std::chrono::steady_clock::now() < nativeDeadline) {}
             CefDoMessageLoopWork();
             pumping = false;
             watchNativeSources();
@@ -343,6 +349,7 @@ void setTexture(QQuickWindow *window, ViewNode *root, QSGSimpleTextureNode *&nod
 } // namespace
 namespace ReSketchCef {
 bool initialized() { return runtime().started; }
+quint16 debuggingPort() { return runtime().debugPort; }
 void initialize(const QStringList &switches) {
     auto &state = runtime();
     if (state.started)
@@ -369,6 +376,9 @@ void initialize(const QStringList &switches) {
             : QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/ReSketch/CEF";
     QDir().mkpath(cache);
     CefString(&settings.root_cache_path) = utf8(cache);
+    // Keep extension management and document views in the same saved profile.
+    CefString(&settings.cache_path) = utf8(cache + "/resketch");
+    settings.persist_session_cookies = true;
     CefString(&settings.log_file) = utf8(cache + "/cef.log");
     settings.log_severity = LOGSEVERITY_WARNING;
     std::vector<std::string> flags;
@@ -399,6 +409,7 @@ void initialize(const QStringList &switches) {
     if (!CefInitialize(CefMainArgs(argc, argv), settings, state.app, nullptr))
         qFatal("CEF initialization failed");
     state.started = true;
+    ReSketchClipboard::initialize();
     state.schedule(0);
     qAddPostRoutine(ReSketchCef::shutdown);
 }
@@ -424,6 +435,7 @@ void shutdown() {
     state.browsers.clear();
     state.app = nullptr;
     CefShutdown();
+    ReSketchClipboard::shutdown();
     state.started = false;
 }
 } // namespace ReSketchCef
@@ -558,6 +570,7 @@ class CefQuickClient final : public CefClient,
     }
     void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
         if (current(browser)) {
+            view->stopNumericScrub();
             view->m_observer = nullptr;
             view->m_browser = nullptr;
             view->m_pid = 0;
@@ -598,6 +611,7 @@ class CefQuickClient final : public CefClient,
                         CefRefPtr<CefRequest> request, bool, bool) override {
         if (!current(browser))
             return false;
+        if (frame->IsMain()) view->stopNumericScrub(true);
         const QUrl address(text(request->GetURL()));
         if (address.toString() == view->m_htmlAddress)
             return false;
@@ -941,6 +955,10 @@ class CefQuickClient final : public CefClient,
         QTimer::singleShot(0, view, [target = view, id, success, json] {
             if (!target)
                 return;
+            if (auto native = target->m_nativeCallbacks.take(id)) {
+                native(success, json);
+                return;
+            }
             if (auto native = target->m_protocolCallbacks.take(id)) {
                 native(success ? json : QJsonObject{});
                 return;
@@ -980,6 +998,15 @@ class CefQuickClient final : public CefClient,
         }
         if (message->GetName() != "resketch.bridge")
             return false;
+        if (args->GetString(0) == "numeric-scrub") {
+            const QUrl origin(text(frame->GetURL()));
+            if (frame->IsMain() && origin.scheme() == "https"
+                && (origin.host() == "figma.com" || origin.host().endsWith(".figma.com"))) {
+                if (args->GetString(1) == "start") view->startNumericScrub();
+                else if (args->GetString(1) == "stop") view->stopNumericScrub(true);
+            }
+            return true;
+        }
         if (args->GetString(0) == "home-file") {
             const QUrl address(text(args->GetString(1)));
             const auto host = address.host();
@@ -1122,6 +1149,7 @@ double CefQuickView::taskCpuUsage(qint64 taskId) {
 }
 
 CefQuickView::CefQuickView(QQuickItem *parent) : QQuickItem(parent), m_scripts(this), m_settings(this) {
+    m_mouseCapture = new CefMouseCapture(this);
     connect(&m_settings, &CefViewSettings::changed, this, [this] {
         stopWheelScrolling();
         m_scrollSensitivityRemainder = {};
@@ -1153,6 +1181,7 @@ CefQuickView::CefQuickView(QQuickItem *parent) : QQuickItem(parent), m_scripts(t
     setAcceptHoverEvents(true);
     connect(&m_scripts, &CefScriptCollection::changed, this, &CefQuickView::syncScripts);
     connect(this, &QQuickItem::windowChanged, this, [this] {
+        stopNumericScrub(true);
         disconnect(m_screenConnection);
         if (window())
             m_screenConnection = connect(window(), &QWindow::screenChanged, this, [this] { syncScreen(); });
@@ -1161,6 +1190,7 @@ CefQuickView::CefQuickView(QQuickItem *parent) : QQuickItem(parent), m_scripts(t
 }
 CefQuickView::~CefQuickView() {
     m_closing = true;
+    stopNumericScrub();
     backgroundResizeQueue.removeAll(this);
     finishBackgroundResize();
     if (m_inspected && m_inspected->m_devTools == this) {
@@ -1173,6 +1203,10 @@ CefQuickView::~CefQuickView() {
         m_browser->GetHost()->CloseBrowser(true);
     m_browser = nullptr;
     m_client = nullptr;
+}
+void CefQuickView::componentComplete() {
+    QQuickItem::componentComplete();
+    ensureBrowser();
 }
 void CefQuickView::setUrl(const QUrl &value) {
     if (m_url == value)
@@ -1247,7 +1281,8 @@ void CefQuickView::setBackgroundColor(const QColor &value) {
     update();
 }
 void CefQuickView::ensureBrowser() {
-    if (m_browser || m_creating || m_closing || m_url.isEmpty() || m_lifecycle == LifecycleState::Discarded)
+    // QML may assign url before profile; wait until all initial bindings are set.
+    if (!isComponentComplete() || m_browser || m_creating || m_closing || m_url.isEmpty() || m_lifecycle == LifecycleState::Discarded)
         return;
     ReSketchCef::initialize();
     if (!m_profile) {
@@ -1274,7 +1309,8 @@ void CefQuickView::ensureBrowser() {
         m_creating = false;
 }
 CefRefPtr<CefDictionaryValue> CefQuickView::extraInfo() const {
-    QJsonArray scripts;
+    static const auto scrub = [] { QFile file(":/src/FigmaScrub.js"); if (!file.open(QIODevice::ReadOnly)) qFatal("Missing numeric scrub bridge"); return QString::fromUtf8(file.readAll()); }();
+    QJsonArray scripts{QJsonObject{{"sourceCode", scrub}, {"injectionPoint", 0}, {"runsOnSubFrames", false}}};
     for (const auto &script : m_scripts.collection())
         scripts.append(QJsonObject::fromVariantMap(script.toMap()));
     return dictionary({{"scripts", scripts}});
@@ -1304,6 +1340,18 @@ int CefQuickView::devTools(const QString &method, const QJsonObject &params, QJS
 void CefQuickView::runJavaScript(const QString &source, QJSValue callback) {
     devTools("Runtime.evaluate", {{"expression", source}, {"returnByValue", true}}, callback);
 }
+void CefQuickView::runDevTools(const QString &method, const QJsonObject &params,
+                              std::function<void(bool, QJsonObject)> callback) {
+    const int id = devTools(method, params);
+    if (id) {
+        m_nativeCallbacks[id] = std::move(callback);
+        QTimer::singleShot(30000, this, [this, id] {
+            if (auto pending = m_nativeCallbacks.take(id))
+                pending(false, {{"message", "The browser operation timed out"}});
+        });
+    }
+    else callback(false, {{"message", "The tab is not loaded"}});
+}
 void CefQuickView::executeNotificationEvent(const QString &id, const QString &event) {
     auto quoted = [](const QString &value) {
         return QString::fromUtf8(QJsonDocument(QJsonArray{value}).toJson(QJsonDocument::Compact))
@@ -1317,6 +1365,7 @@ void CefQuickView::executeNotificationEvent(const QString &id, const QString &ev
                   quoted(id) + ")}})()");
 }
 void CefQuickView::setLifecycleState(LifecycleState value) {
+    if (value != LifecycleState::Active) stopNumericScrub(true);
     const bool changed = m_lifecycle != value;
     if (value == LifecycleState::Discarded) finishBackgroundResize();
     m_lifecycle = value;
@@ -1327,6 +1376,7 @@ void CefQuickView::setLifecycleState(LifecycleState value) {
         m_observer = nullptr;
         m_callbacks.clear();
         m_protocolCallbacks.clear();
+        m_nativeCallbacks.clear();
         m_pendingAddress.clear();
         m_loading = false;
         emit stateChanged();
@@ -1384,7 +1434,7 @@ void CefQuickView::setUseSystemCursor(bool value) {
 }
 void CefQuickView::syncCursor() {
     const auto shape = m_webCursor.shape();
-    const QCursor desired = m_useSystemCursor && (shape == Qt::BitmapCursor || shape == Qt::BlankCursor)
+    const QCursor desired = m_numericScrubbing ? QCursor(Qt::BlankCursor) : m_useSystemCursor && (shape == Qt::BitmapCursor || shape == Qt::BlankCursor)
         ? QCursor(Qt::ArrowCursor) : m_webCursor;
     if (cursor() != desired)
         setCursor(desired);
@@ -1663,10 +1713,34 @@ void CefQuickView::itemChange(ItemChange change, const ItemChangeData &data) {
     QQuickItem::itemChange(change, data);
     if (change == ItemVisibleHasChanged)
         syncVisibility();
-    if (change == ItemEnabledHasChanged && !isEnabled()) stopWheelScrolling();
+    if (change == ItemEnabledHasChanged && !isEnabled()) { stopWheelScrolling(); stopNumericScrub(true); }
+    if (change == ItemVisibleHasChanged && !isVisible()) stopNumericScrub(true);
+}
+void CefQuickView::startNumericScrub() {
+    if (m_numericScrubbing || !m_browser || m_pointerButtons != Qt::LeftButton || !hasActiveFocus()
+        || !isVisible() || !isEnabled()) return;
+    m_scrubPosition = m_pointerPosition;
+    m_numericScrubbing = m_mouseCapture->start(window(), [this](QPointF delta) {
+        if (!m_numericScrubbing || !m_browser) return;
+        m_scrubPosition += delta;
+        m_browser->GetHost()->SendMouseMoveEvent(mouse(m_scrubPosition, QGuiApplication::keyboardModifiers(), m_pointerButtons), false);
+    }, [this] { stopNumericScrub(true); });
+    syncCursor();
+}
+void CefQuickView::stopNumericScrub(bool release) {
+    if (!m_numericScrubbing) return;
+    m_numericScrubbing = false;
+    m_mouseCapture->stop();
+    m_pointerButtons = Qt::NoButton;
+    if (release && m_browser) {
+        m_browser->GetHost()->SendMouseClickEvent(mouse(m_scrubPosition, QGuiApplication::keyboardModifiers()), MBT_LEFT, true, 1);
+    }
+    if (window()) window()->unsetCursor();
+    syncCursor();
 }
 void CefQuickView::mousePressEvent(QMouseEvent *event) {
     stopWheelScrolling();
+    m_pointerButtons = event->buttons(); m_pointerPosition = event->position();
     forceActiveFocus(Qt::MouseFocusReason);
     if (m_browser)
         m_browser->GetHost()->SendMouseClickEvent(
@@ -1675,9 +1749,11 @@ void CefQuickView::mousePressEvent(QMouseEvent *event) {
     event->accept();
 }
 void CefQuickView::mouseReleaseEvent(QMouseEvent *event) {
+    m_pointerButtons = event->buttons();
     if (m_browser)
         m_browser->GetHost()->SendMouseClickEvent(
-            mouse(event->position(), event->modifiers(), event->buttons()), button(event->button()), true, 1);
+            mouse(m_numericScrubbing ? m_scrubPosition : event->position(), event->modifiers(), event->buttons()), button(event->button()), true, 1);
+    stopNumericScrub();
     event->accept();
 }
 void CefQuickView::mouseDoubleClickEvent(QMouseEvent *event) {
@@ -1689,11 +1765,20 @@ void CefQuickView::mouseDoubleClickEvent(QMouseEvent *event) {
 }
 void CefQuickView::mouseMoveEvent(QMouseEvent *event) {
     m_pointerInside = true;
+    m_pointerPosition = event->position(); m_pointerButtons = event->buttons();
+    if (m_numericScrubbing) {
+        if (event->buttons().testFlag(Qt::LeftButton)) { m_mouseCapture->move(event); event->accept(); return; }
+        stopNumericScrub(true);
+    }
     syncCursor();
     if (m_browser)
         m_browser->GetHost()->SendMouseMoveEvent(
             mouse(event->position(), event->modifiers(), event->buttons()), false);
     event->accept();
+}
+void CefQuickView::mouseUngrabEvent() {
+    stopNumericScrub(true);
+    m_pointerButtons = Qt::NoButton;
 }
 void CefQuickView::hoverEnterEvent(QHoverEvent *event) {
     hoverMoveEvent(event);
@@ -1921,6 +2006,7 @@ void CefQuickView::sendKey(QKeyEvent *event, bool release) {
         }
 }
 void CefQuickView::keyPressEvent(QKeyEvent *event) {
+    if (event->key() == Qt::Key_Escape) stopNumericScrub(true);
     sendKey(event, false);
     event->accept();
 }
@@ -1934,6 +2020,8 @@ void CefQuickView::focusInEvent(QFocusEvent *event) {
         m_browser->GetHost()->SetFocus(true);
 }
 void CefQuickView::focusOutEvent(QFocusEvent *event) {
+    stopNumericScrub(true);
+    m_pointerButtons = Qt::NoButton;
     QQuickItem::focusOutEvent(event);
     if (m_browser)
         m_browser->GetHost()->SetFocus(false);

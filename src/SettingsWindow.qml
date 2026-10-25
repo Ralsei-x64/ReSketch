@@ -10,6 +10,7 @@ import "Shortcuts.js" as Shortcuts
 
 Kirigami.ApplicationWindow {
     id: settingsWindow
+    property var appWindow: null
     transientParent: null
     objectName: "settingsWindow"
     component SectionButton: Controls.ItemDelegate {
@@ -92,6 +93,7 @@ Kirigami.ApplicationWindow {
         {title: "Toolbar", icon: "configure"},
         {title: "Shortcuts", icon: "preferences-desktop-keyboard"},
         {title: "Streamer", icon: "preferences-desktop-keyboard"},
+        {title: "Extensions", icon: "application-x-addon"},
         {title: "Updates", icon: "view-refresh"}
     ]
     onClosing: {
@@ -300,8 +302,13 @@ Kirigami.ApplicationWindow {
                                 }
                                 UpdateSettings {
                                     Layout.fillWidth: true
-                                    visible: settingsWindow.selectedSection === 8
+                                    visible: settingsWindow.selectedSection === 9
                                     updater: appSettings.updates
+                                }
+                                ExtensionSettings {
+                                    appWindow: settingsWindow.appWindow
+                                    Layout.fillWidth: true
+                                    visible: settingsWindow.selectedSection === 8
                                 }
                                 Controls.Frame {
                                     Layout.fillWidth: true
@@ -827,30 +834,6 @@ Kirigami.ApplicationWindow {
 
                                             RowLayout {
                                                 Layout.maximumWidth: Math.max(180, sidebarEffectsForm.width - (sidebarEffectsForm.wideMode ? 210 : 0))
-                                                Kirigami.FormData.label: "Canvas backdrop blur:"
-                                                visible: appSettings.sidebarBackdrop === "canvas"
-                                                enabled: appSettings.translucentSidebars || appSettings.floatingSidebars
-                                                Layout.fillWidth: true
-
-                                                Controls.Slider {
-                                                    objectName: "sidebarCanvasBlurControl"
-                                                    Layout.fillWidth: true
-                                                    from: 0
-                                                    to: 40
-                                                    stepSize: 1
-                                                    value: appSettings.sidebarCanvasBlur
-                                                    onMoved: appSettings.sidebarCanvasBlur = Math.round(value)
-                                                    Accessible.name: "Canvas backdrop blur"
-                                                }
-                                                Controls.Label {
-                                                    text: appSettings.sidebarCanvasBlur + " px"
-                                                    Layout.minimumWidth: Kirigami.Units.gridUnit * 3
-                                                    horizontalAlignment: Text.AlignRight
-                                                }
-                                            }
-
-                                            RowLayout {
-                                                Layout.maximumWidth: Math.max(180, sidebarEffectsForm.width - (sidebarEffectsForm.wideMode ? 210 : 0))
                                                 Kirigami.FormData.label: "Canvas backdrop opacity:"
                                                 visible: appSettings.sidebarBackdrop === "canvas"
                                                 enabled: appSettings.translucentSidebars || appSettings.floatingSidebars
@@ -920,11 +903,16 @@ Kirigami.ApplicationWindow {
                                             Controls.Label {
                                                 Layout.maximumWidth: Math.max(180, sidebarEffectsForm.width - (sidebarEffectsForm.wideMode ? 210 : 0))
                                                 Layout.fillWidth: true
-                                                text: "Canvas backdrop blur and opacity apply to floating and docked sidebars. Shadow strength controls its size and softness; 0% turns it off."
+                                                text: "Canvas backdrop opacity and liquid glass apply to floating and docked sidebars and the toolbox. Shadow strength controls its size and softness; 0% turns it off."
                                                 opacity: 0.72
                                                 wrapMode: Text.WordWrap
                                             }
                                         }
+                                    }
+
+                                    LiquidGlassSettings {
+                                        visible: appSettings.sidebarBackdrop === "canvas"
+                                        enabled: appSettings.translucentSidebars || appSettings.floatingSidebars
                                     }
 
                                     SettingsGroup {

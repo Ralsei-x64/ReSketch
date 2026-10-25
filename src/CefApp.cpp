@@ -45,8 +45,14 @@ const char *notificationBridge = R"JS((()=>{
     if(window.ServiceWorkerRegistration) ServiceWorkerRegistration.prototype.showNotification=function(title,options){new NativeNotification(title,options);return Promise.resolve();};
 })())JS";
 } // namespace
+namespace ReSketchCef {
+std::function<CefRefPtr<CefClient>()> defaultClientFactory;
+}
 ReSketchCefApp::ReSketchCefApp(std::vector<std::string> flags, std::function<void(int64_t)> schedule)
     : switches(std::move(flags)), pump(std::move(schedule)) {}
+CefRefPtr<CefClient> ReSketchCefApp::GetDefaultClient() {
+    return ReSketchCef::defaultClientFactory ? ReSketchCef::defaultClientFactory() : nullptr;
+}
 void ReSketchCefApp::OnBeforeCommandLineProcessing(const CefString &type, CefRefPtr<CefCommandLine> line) {
     if (!type.empty())
         return;
@@ -54,12 +60,18 @@ void ReSketchCefApp::OnBeforeCommandLineProcessing(const CefString &type, CefRef
     line->AppendSwitchWithValue("ozone-platform", "x11");
     line->AppendSwitchWithValue("use-gl", "angle");
     line->AppendSwitchWithValue("use-angle", "gl-egl");
+    // Hardware-decoded NV12 frames can crash the OSR EGL backend. Keep
+    // WebGL/compositing accelerated and decode video on the CPU instead.
+    line->AppendSwitch("disable-accelerated-video-decode");
     line->AppendSwitchWithValue("gtk-version", "3");
+    line->AppendSwitchWithValue("profile-directory", "resketch");
     line->AppendSwitch("disable-setuid-sandbox");
     line->AppendSwitchWithValue("remote-debugging-address", "127.0.0.1");
     line->AppendSwitchWithValue("remote-allow-origins", "devtools://devtools");
     // Enable Chromium's native wheel/keyboard scroll animator on Linux.
     line->AppendSwitch("enable-smooth-scrolling");
+    // Local extension management uses Chromium’s browser-scoped DevTools API.
+    line->AppendSwitch("enable-unsafe-extension-debugging");
     // Figma opens authentication and file popups asynchronously. The app's
     // navigation policy decides which destinations may become windows/tabs.
     line->AppendSwitch("disable-popup-blocking");
@@ -97,6 +109,9 @@ void ReSketchCefApp::OnContextCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<C
     const auto found = scripts.find(browser->GetIdentifier());
     if (found == scripts.end())
         return;
+    // These are windowless views; CEF OSR rejects every pointer-lock request.
+    // Let pages detect that and use their drag fallback before creating a fake cursor.
+    frame->ExecuteJavaScript("delete Element.prototype.requestPointerLock", frame->GetURL(), 0);
     for (size_t i = 0; i < found->second->GetSize(); ++i) {
         const auto script = found->second->GetDictionary(i);
         if (!frame->IsMain() && !script->GetBool("runsOnSubFrames"))

@@ -3,13 +3,15 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-project(ReSketch VERSION 1.5.2 LANGUAGES C CXX)
+project(ReSketch VERSION 1.6.0 LANGUAGES C CXX)
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Network Quick QuickControls2 OpenGL Widgets)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Network Quick QuickControls2 OpenGL Widgets WebSockets)
+find_package(Qt6GuiPrivate REQUIRED)
 find_package(KF6WindowSystem REQUIRED)
 find_package(KF6Notifications REQUIRED)
 find_package(KF6ColorScheme 6.6 REQUIRED)
 find_package(KF6IconThemes 6.3 REQUIRED)
+find_package(LibArchive REQUIRED)
 find_package(Fontconfig REQUIRED)
 find_package(Freetype REQUIRED)
 
@@ -48,6 +50,19 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(cmake/CEF.cmake)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GLIB REQUIRED IMPORTED_TARGET glib-2.0)
+pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
+pkg_check_modules(WAYLAND REQUIRED IMPORTED_TARGET wayland-client)
+pkg_check_modules(WAYLAND_PROTOCOLS REQUIRED wayland-protocols)
+pkg_get_variable(WAYLAND_PROTOCOLS_DIR wayland-protocols pkgdatadir)
+find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
+foreach(protocol pointer-constraints relative-pointer)
+    set(xml "${WAYLAND_PROTOCOLS_DIR}/unstable/${protocol}/${protocol}-unstable-v1.xml")
+    add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${protocol}-client.h" "${CMAKE_CURRENT_BINARY_DIR}/${protocol}-protocol.c"
+        COMMAND "${WAYLAND_SCANNER}" client-header "${xml}" "${CMAKE_CURRENT_BINARY_DIR}/${protocol}-client.h"
+        COMMAND "${WAYLAND_SCANNER}" private-code "${xml}" "${CMAKE_CURRENT_BINARY_DIR}/${protocol}-protocol.c"
+        DEPENDS "${xml}" VERBATIM)
+    list(APPEND pointer_protocol_sources "${CMAKE_CURRENT_BINARY_DIR}/${protocol}-client.h" "${CMAKE_CURRENT_BINARY_DIR}/${protocol}-protocol.c")
+endforeach()
 pkg_check_modules(EGL REQUIRED IMPORTED_TARGET egl)
 option(RESKETCH_DISABLE_UPDATES "Disable built-in updates; updates are managed by the system" OFF)
 qt_standard_project_setup(REQUIRES 6.8)
@@ -55,9 +70,10 @@ qt_standard_project_setup(REQUIRES 6.8)
 qt_add_qml_module(resketch_cef SHARED
     URI ReSketch.Cef VERSION 1.0
     OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/qml/ReSketch/Cef"
-    SOURCES src/CefView.h src/CefView.cpp src/CefApp.h src/CefApp.cpp src/CefTexture.h src/CefTexture.cpp)
-target_include_directories(resketch_cef PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
-target_link_libraries(resketch_cef PUBLIC Qt6::Quick cef_shared libcef_dll_wrapper PRIVATE Qt6::OpenGL Qt6::Widgets Qt6::Network PkgConfig::EGL PkgConfig::GLIB)
+    SOURCES src/CefMouseCapture.h src/CefMouseCapture.cpp ${pointer_protocol_sources} src/CefView.h src/CefView.cpp src/CefApp.h src/CefApp.cpp src/CefTexture.h src/CefTexture.cpp src/CefClipboard.h src/CefClipboard.cpp src/ExtensionManager.h src/ExtensionManager.cpp)
+qt_add_resources(resketch_cef "browser_scripts" PREFIX "/" FILES src/FigmaScrub.js)
+target_include_directories(resketch_cef PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src" PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(resketch_cef PUBLIC Qt6::Quick Qt6::WebSockets cef_shared libcef_dll_wrapper PRIVATE Qt6::GuiPrivate PkgConfig::WAYLAND Qt6::OpenGL Qt6::Widgets Qt6::Network LibArchive::LibArchive PkgConfig::EGL PkgConfig::GLIB PkgConfig::GTK3)
 target_compile_definitions(resketch_cef PRIVATE RESKETCH_CEF_RUNTIME="${RESKETCH_CEF_RUNTIME}")
 set_target_properties(resketch_cef PROPERTIES BUILD_RPATH "${RESKETCH_CEF_RUNTIME}" INSTALL_RPATH "$ORIGIN/cef")
 qt_add_executable(resketch-cef-helper src/CefProcess.cpp src/CefApp.cpp src/CefApp.h)
@@ -80,7 +96,7 @@ qt_add_qml_module(resketch
     VERSION 1.0
     NO_IMPORT_SCAN
     QML_FILES src/Main.qml src/SettingsWindow.qml src/AboutWindow.qml src/ExportHistoryWindow.qml src/WindowControls.qml src/WindowResizeHandles.qml src/TabBarButton.qml src/ScrollGestureArea.qml src/FigmaMenus.qml src/TabGroupMenu.qml src/ChromiumToolsWindow.qml src/ExternalWindowHeader.qml src/UpdateSettings.qml src/UpdateDialog.qml src/UpdateCompleteDialog.qml src/ChangelogDialog.qml
-    QML_FILES src/StreamerOverlay.qml src/StreamerSettings.qml src/SettingsGroup.qml
+    QML_FILES src/StreamerOverlay.qml src/StreamerSettings.qml src/SettingsGroup.qml src/LiquidGlassSettings.qml src/ExtensionSettings.qml src/ExtensionMenu.qml src/ExtensionView.qml src/ExtensionWindow.qml
     RESOURCES src/Policy.js src/FigmaMenu.js src/FigmaTheme.js src/NotificationPolicy.js src/Shortcuts.js
 )
 
@@ -115,7 +131,8 @@ option(RESKETCH_BUILD_TESTS "Build CEF integration checks" OFF)
 if(RESKETCH_BUILD_TESTS)
     qt_add_executable(cef-engine-test tests/cef-engine.test.cpp)
     target_link_libraries(cef-engine-test PRIVATE resketch_cef Qt6::Widgets Qt6::Network)
-    target_compile_definitions(cef-engine-test PRIVATE RESKETCH_TEST_IMPORTS="${CMAKE_BINARY_DIR}/qml")
+    target_compile_definitions(cef-engine-test PRIVATE RESKETCH_TEST_IMPORTS="${CMAKE_BINARY_DIR}/qml"
+        RESKETCH_TEST_VIDEO="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/video.webm")
     set_target_properties(cef-engine-test PROPERTIES BUILD_RPATH "${RESKETCH_CEF_RUNTIME}")
 endif()
 install(FILES LICENSE DESTINATION share/licenses/resketch)

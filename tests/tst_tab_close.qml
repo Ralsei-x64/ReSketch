@@ -252,8 +252,8 @@ Item {
             const settings = findChild(app, "settingsWindow")
             verify(settings)
             settings.height = 420
-            settings.selectedSection = 8
-            const navigation = visualChild(settings.contentItem, "settingsSection-8")
+            settings.selectedSection = 10
+            const navigation = visualChild(settings.contentItem, "settingsSection-10")
             verify(navigation)
             tryVerify(() => navigation.width > 100)
             const check = findChild(settings, "checkForUpdatesButton")

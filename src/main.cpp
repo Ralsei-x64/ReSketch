@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include <QApplication>
+#include "ExtensionManager.h"
 #include <QClipboard>
 #include <QNativeGestureEvent>
 #include <QWheelEvent>
@@ -221,6 +222,7 @@ class AppSettings : public QObject
     Q_PROPERTY(QString buildCommit READ buildCommit CONSTANT)
     Q_PROPERTY(UpdateChecker *updates READ updates CONSTANT)
     Q_PROPERTY(StreamerMode *streamer READ streamer CONSTANT)
+    Q_PROPERTY(ExtensionManager *extensions READ extensions CONSTANT)
     Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY changed)
     Q_PROPERTY(bool useSystemColors READ useSystemColors WRITE setUseSystemColors NOTIFY changed)
     Q_PROPERTY(bool darkTheme READ darkTheme NOTIFY effectiveThemeChanged)
@@ -240,6 +242,7 @@ class AppSettings : public QObject
     Q_PROPERTY(QString sidebarBackdrop READ sidebarBackdrop WRITE setSidebarBackdrop NOTIFY changed)
     Q_PROPERTY(int sidebarCanvasBlur READ sidebarCanvasBlur WRITE setSidebarCanvasBlur NOTIFY changed)
     Q_PROPERTY(int sidebarCanvasOpacity READ sidebarCanvasOpacity WRITE setSidebarCanvasOpacity NOTIFY changed)
+    Q_PROPERTY(QVariantMap sidebarLiquidGlass READ sidebarLiquidGlass WRITE setSidebarLiquidGlass NOTIFY changed)
     Q_PROPERTY(bool menuIntegration READ menuIntegration WRITE setMenuIntegration NOTIFY changed)
     Q_PROPERTY(bool reduceMotion READ reduceMotion WRITE setReduceMotion NOTIFY changed)
     Q_PROPERTY(bool smoothScrolling READ smoothScrolling WRITE setSmoothScrolling NOTIFY changed)
@@ -282,6 +285,7 @@ class AppSettings : public QObject
 public:
     UpdateChecker *updates() { return &updateChecker; }
     StreamerMode *streamer() { return &streamerMode; }
+    ExtensionManager *extensions() { return &extensionManager; }
     QString buildCommit() const { return QStringLiteral(RESKETCH_COMMIT); }
 
     QString gpuAccelerationWarning() const { return graphicsWarning; }
@@ -520,8 +524,40 @@ public:
     bool hideFloatingScrollbars() const { return store.value(QStringLiteral("hideFloatingScrollbars"), true).toBool(); }
     bool hideSidebarScrollbars() const { return store.value(QStringLiteral("hideSidebarScrollbars"), true).toBool(); }
     QString sidebarBackdrop() const { return store.value(QStringLiteral("sidebarBackdrop"), QStringLiteral("desktop")).toString(); }
-    int sidebarCanvasBlur() const { return qBound(0, store.value(QStringLiteral("sidebarCanvasBlur"), 0).toInt(), 40); }
+    int sidebarCanvasBlur() const { return qBound(0, store.value(QStringLiteral("sidebarCanvasBlur"), 15).toInt(), 40); }
     int sidebarCanvasOpacity() const { return qBound(0, store.value(QStringLiteral("sidebarCanvasOpacity"), toolbarOpacity()).toInt(), 100); }
+    static QVariantMap normalizedLiquidGlass(const QVariantMap &values)
+    {
+        QVariantMap result{{"enabled", values.value("enabled", false).toBool()},
+                          {"refractionMode", values.value("refractionMode").toString() == "basic" ? "basic" : "concave"}};
+        const auto number = [&](const char *key, int fallback, int minimum, int maximum) {
+            bool ok = false;
+            const int value = values.value(QLatin1String(key), fallback).toInt(&ok);
+            result.insert(QLatin1String(key), qBound(minimum, ok ? value : fallback, maximum));
+        };
+        number("noiseStrength", 0, 0, 100);
+        number("brightness", 100, 0, 200);
+        number("saturation", 180, 0, 300);
+        number("contrast", 100, 0, 200);
+        number("cornerRadius", 15, 0, 80);
+        number("refractionStrength", 100, 0, 100);
+        number("refractionEdgeSize", 30, 1, 200);
+        number("refractionFalloff", 400, 1, 400);
+        number("refractionCornerRadius", 15, 0, 200);
+        number("rgbFringingStrength", 0, 0, 20);
+        number("innerShadowX", 0, -100, 100);
+        number("innerShadowY", 2, -100, 100);
+        number("innerShadowScale", 12, 0, 100);
+        number("innerShadowBrightness", 100, 0, 200);
+        number("innerShadowStrength", 0, 0, 100);
+        const QColor shadowColor(values.value("innerShadowColor", "#000000").toString());
+        result.insert("innerShadowColor", shadowColor.isValid() ? shadowColor.name() : QStringLiteral("#000000"));
+        return result;
+    }
+    QVariantMap sidebarLiquidGlass() const
+    {
+        return normalizedLiquidGlass(store.value(QStringLiteral("sidebarLiquidGlass")).toMap());
+    }
     QVariantMap figmaPalette() const
     {
         const QPalette palette = QGuiApplication::palette();
@@ -557,7 +593,8 @@ public:
             QVariantMap{{"id", "export-history"}, {"title", tr("Export History")}, {"icon", "document-export"}, {"enabled", false}},
             QVariantMap{{"id", "settings"}, {"title", tr("Settings")}, {"icon", "configure"}, {"enabled", false}},
             QVariantMap{{"id", "task-manager"}, {"title", tr("Task Manager")}, {"icon", "view-process-system"}, {"enabled", false}},
-            QVariantMap{{"id", "developer-tools"}, {"title", tr("Developer Tools")}, {"icon", "applications-development"}, {"enabled", false}}
+            QVariantMap{{"id", "developer-tools"}, {"title", tr("Developer Tools")}, {"icon", "applications-development"}, {"enabled", false}},
+            QVariantMap{{"id", "extensions"}, {"title", tr("Extensions")}, {"icon", "application-x-addon"}, {"enabled", true}}
         };
         QVariantList result;
         QSet<QString> seen;
@@ -608,8 +645,9 @@ public:
     QString chromiumFlags() const { return store.value(QStringLiteral("chromiumFlags")).toString(); }
     QString profileStoragePath() const
     {
-        return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
-               + QStringLiteral("/ReSketch/CEF/resketch");
+        const auto root = qEnvironmentVariableIsSet("RESKETCH_CEF_CACHE_ROOT") ? qEnvironmentVariable("RESKETCH_CEF_CACHE_ROOT")
+            : QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/ReSketch/CEF");
+        return root + QStringLiteral("/resketch");
     }
     Q_INVOKABLE void copyToClipboard(const QString &text) const { QGuiApplication::clipboard()->setText(text); }
     bool nativeTabDragSupported() const
@@ -662,9 +700,12 @@ public:
     }
     Q_INVOKABLE void resetSettings()
     {
+        for (const auto &entry : extensionManager.extensions())
+            extensionManager.setExtensionEnabled(entry.toMap().value("key").toString(), false);
         // Export records and per-document folders are user data, not preferences.
         for (const QString &key : store.allKeys()) {
-            if (key != QStringLiteral("exportHistory") && !key.startsWith(QStringLiteral("exportFolders/")))
+            if (key != QStringLiteral("exportHistory") && key != QStringLiteral("extensions/packages")
+                && !key.startsWith(QStringLiteral("exportFolders/")))
                 store.remove(key);
         }
         // Keep a reset from importing legacy preferences on next launch.
@@ -919,6 +960,14 @@ public:
         value = qBound(0, value, 100);
         if (store.contains(QStringLiteral("sidebarCanvasOpacity")) && sidebarCanvasOpacity() == value) return;
         store.setValue(QStringLiteral("sidebarCanvasOpacity"), value);
+        emit changed();
+        emit figmaAppearanceChanged();
+    }
+    void setSidebarLiquidGlass(const QVariantMap &values)
+    {
+        const auto value = normalizedLiquidGlass(values);
+        if (sidebarLiquidGlass() == value) return;
+        store.setValue(QStringLiteral("sidebarLiquidGlass"), value);
         emit changed();
         emit figmaAppearanceChanged();
     }
@@ -1253,6 +1302,7 @@ private:
     UpdateChecker updateChecker{this};
     StreamerMode streamerMode{this};
     const bool recoveryMode;
+    ExtensionManager extensionManager{this, !recoveryMode};
     QSet<QWindow *> registeredWindows;
     QTimer memoryMonitor;
     QFutureWatcher<double> memorySample;
@@ -1414,6 +1464,7 @@ int main(int argc, char *argv[])
         deliverUrl(incomingUrl);
     const int result = app.exec();
     engine.reset();
+    appSettings.extensions()->shutdown();
     ReSketchCef::shutdown();
     return result;
 }

@@ -134,14 +134,26 @@ runtime.m = {
     23: function(e, exports, require) { const module = require(29); module.layoutApi.updateLayoutForMinimizeUI() },
     29: function() {}
 }
+let viewportHeight = 700
+const nativeHeights = []
+const windowState = {
+    viewElement: {style: {height: '582px'}, get clientHeight() {
+        return this.style.height === 'auto' ? viewportHeight : parseFloat(this.style.height)
+    }},
+    updateSizeAndPixelRatio() { nativeHeights.push(this.viewElement.clientHeight) }
+}
 const layoutContext = vm.createContext({window: {__resketchAppearance: {runtime},
-    _fullscreen_: {_getTsApisForWasm: () => ({FigmaAppUi: () => new NativeUi()})}}})
+    _fullscreen_: {HTMLWindowBindings: {globalWindowState: windowState},
+        _getTsApisForWasm: () => ({FigmaAppUi: () => new NativeUi()})}}})
 vm.runInContext(app.context.sidebarLayoutSource, layoutContext)
 const overlay = vm.runInContext('floatingCanvasLayout()', layoutContext)
 assert.ok(overlay)
 overlay.update()
+viewportHeight = 900
 layoutApi.updateLayoutForMinimizeUI()
 assert.deepEqual(widths, [1280, 1280], 'both the initial layout and later native updates use the entire canvas')
+assert.equal(windowState.viewElement.style.height, 'auto', 'the native window releases its stale fixed height')
+assert.deepEqual(nativeHeights, [700, 900], 'the native render buffer and input space follow the available height')
 assert.deepEqual(flags, {left: false, right: true}, 'panels stay visible without changing their actual state')
 failLayout = true
 assert.throws(() => overlay.update(), /Renderer unavailable/)

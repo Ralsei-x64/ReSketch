@@ -88,6 +88,7 @@ Kirigami.ApplicationWindow {
         sidebarBackdrop: appSettings.sidebarBackdrop,
         sidebarCanvasBlur: appSettings.sidebarCanvasBlur,
         sidebarCanvasOpacity: appSettings.sidebarCanvasOpacity,
+        sidebarLiquidGlass: appSettings.sidebarLiquidGlass,
         opacity: appSettings.toolbarOpacity
     }, FigmaMenu.storeSource)
     property var views: []
@@ -242,6 +243,7 @@ Kirigami.ApplicationWindow {
     onDesktopSidebarsChanged: appSettings.refreshWindowBlur(root)
     onChromiumFrameLoadedChanged: appSettings.refreshWindowBlur(root)
     onClosing: {
+        for (const window of extensionWindows.slice()) window.close()
         for (const view of pendingPopups.slice()) discardPendingPopup(view)
         for (const loader of [settingsWindowLoader, aboutWindowLoader, exportHistoryWindowLoader])
             if (loader.item) loader.item.close()
@@ -2392,6 +2394,9 @@ Kirigami.ApplicationWindow {
                 Controls.TextField {
                     id: overviewSearch
                     objectName: "overviewSearch"
+                    // Hidden editors must not synchronously read CEF's clipboard
+                    // while its X11 owner needs this same UI thread to respond.
+                    readOnly: !root.overviewVisible
                     x: (parent.width - width) / 2
                     y: root.overviewMargin
                     width: Math.min(320, parent.width - root.overviewMargin * 2)
@@ -2516,6 +2521,7 @@ Kirigami.ApplicationWindow {
     }
 
     Kirigami.InlineMessage {
+        id: gpuWarning
         objectName: "gpuAccelerationWarning"
         parent: root.contentItem
         anchors.top: parent.top
@@ -2570,14 +2576,14 @@ Kirigami.ApplicationWindow {
     }
     AuxiliaryWindowLoader {
         id: settingsWindowLoader
-        sourceComponent: SettingsWindow { visible: false; streamerOverlay: inputOverlay }
+        sourceComponent: SettingsWindow { visible: false; streamerOverlay: inputOverlay; appWindow: root }
     }
     UpdateDialog {
         id: updateNotice
         updater: appSettings.updates
         onUpdateStarted: {
             root.openSettings()
-            settingsWindowLoader.item.selectedSection = 8
+            settingsWindowLoader.item.selectedSection = 9
         }
     }
     UpdateCompleteDialog { id: updateCompleteNotice; updater: appSettings.updates }
@@ -4213,28 +4219,37 @@ Kirigami.ApplicationWindow {
     }
 
     function updateTabLifecycle() {
-        const protectedHome = homeMustStayAwake ? homeView : null
-        if (protectedHome) {
-            protectedHome.memoryUnloaded = false
-            protectedHome.requestedSleepState = CefView.LifecycleState.Active
-            if (protectedHome.lifecycleState !== CefView.LifecycleState.Active)
-                protectedHome.lifecycleState = CefView.LifecycleState.Active
-            if (protectedHome.reloadAfterFreeze) {
-                protectedHome.reloadAfterFreeze = false
-                protectedHome.reload()
+        const protectedViews = [homeView].concat(views).filter(view => view
+                                    && view === homeView && homeMustStayAwake)
+        for (const view of protectedViews) {
+            view.memoryUnloaded = false
+            view.requestedSleepState = CefView.LifecycleState.Active
+            if (view.sleepCapturePending) {
+                view.sleepCapturePending = false
+                ++view.sleepCaptureSerial
             }
-            if (overviewVisible) attachOverviewFrame(protectedHome)
+            if (String(view.deferredRestoreUrl)) {
+                view.reloadAfterFreeze = false
+                loadRestoredTab(view)
+            }
+            if (view.lifecycleState !== CefView.LifecycleState.Active)
+                view.lifecycleState = CefView.LifecycleState.Active
+            if (view.reloadAfterFreeze) {
+                view.reloadAfterFreeze = false
+                view.reload()
+            }
+            if (overviewVisible) attachOverviewFrame(view)
         }
         if (allFrozen)
             return
         const background = [homeView].concat(views).filter(view => view && view !== activeView
-                                   && view !== outgoingView && view !== protectedHome && !view.overviewClosingCard)
+                                   && view !== outgoingView && !protectedViews.includes(view) && !view.overviewClosingCard)
         background.sort((a, b) => b.lastUsedAt - a.lastUsedAt)
         const now = Date.now()
         const liveOverview = overviewVisible && !appSettings.sleepingTabPreviews
         const limit = appSettings.maximumLoadedTabs
-        const foreground = (activeView ? 1 : 0) + (outgoingView && outgoingView !== activeView ? 1 : 0)
-                         + (protectedHome && protectedHome !== activeView && protectedHome !== outgoingView ? 1 : 0)
+        const foreground = [activeView, outgoingView].concat(protectedViews)
+                             .filter((view, index, all) => view && all.indexOf(view) === index).length
         const maxBackground = Math.max(0, limit - foreground)
         const minimumBackground = Math.max(0, appSettings.minimumLoadedTabs - foreground)
         let awake = 0
@@ -4368,11 +4383,43 @@ Kirigami.ApplicationWindow {
         case "overview": toggleOverview(); break
         case "refresh": triggerPageAction(CefView.Reload); break
         case "menu": appMenu.popup(button, button.width - appMenu.width, button.height); break
+        case "extensions": extensionsMenu.anchorItem = button; extensionsMenu.popup(button, button.width - extensionsMenu.width, button.height); break
         case "export-history": openExportHistory(); break
         case "settings": openSettings(); break
         case "task-manager": openTaskManager(); break
         case "developer-tools": openDeveloperTools(); break
         }
+    }
+
+    ExtensionMenu { id: extensionsMenu; appWindow: root }
+
+    Connections {
+        target: appSettings.extensions
+        enabled: !root.primaryWindow
+        function onPageRequested(url, key) { root.openExtensionWindow(url, qsTr("Extension"), key, null) }
+    }
+
+    property var extensionWindows: []
+    Component { id: extensionWindowComponent; ExtensionWindow { appWindow: root } }
+
+    function openExtensionWindow(address, title, key, request) {
+        const url = String(address || "about:blank")
+        if (!/^(?:https?|chrome-extension):\/\//i.test(url) && url !== "about:blank") return null
+        if (appSettings.safeMode) return null
+        const window = extensionWindowComponent.createObject(root, {pageTitle: title || qsTr("Extension"), extensionKey: key || ""})
+        if (!window) return null
+        extensionWindows = extensionWindows.concat(window)
+        if (request) window.webView.acceptAsNewWindow(request)
+        else window.webView.url = url
+        window.show()
+        window.raise()
+        window.requestActivate()
+        return window
+    }
+
+    function openExtensionSettings() {
+        openSettings()
+        settingsWindowLoader.item.selectedSection = 8
     }
 
     Controls.Menu {
@@ -5781,6 +5828,7 @@ Kirigami.ApplicationWindow {
                 Controls.TextField {
                     id: groupNameEditor
                     objectName: "tabGroupNameEditor"
+                    readOnly: !groupRenameDialog.visible
                     Layout.fillWidth: true
                     placeholderText: qsTr("e.g. Design research")
                     Accessible.name: qsTr("Group name")

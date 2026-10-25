@@ -22,6 +22,7 @@
 #include <functional>
 #include <memory>
 
+class CefMouseCapture;
 class CefQuickView;
 class CefQuickClient;
 struct CefTextureFrame;
@@ -288,6 +289,8 @@ class CefQuickView : public QQuickItem {
     QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
     CefRefPtr<CefDictionaryValue> extraInfo() const;
     CefRefPtr<CefBrowser> browser() const { return m_browser; }
+    void runDevTools(const QString &method, const QJsonObject &params,
+                     std::function<void(bool, QJsonObject)> callback);
     void executeNotificationEvent(const QString &id, const QString &event);
   signals:
     void urlChanged();
@@ -311,6 +314,7 @@ class CefQuickView : public QQuickItem {
     void permissionRequested(CefPermission *permission);
 
   protected:
+    void componentComplete() override;
     QSGNode *updatePaintNode(QSGNode *, UpdatePaintNodeData *) override;
     void geometryChange(const QRectF &, const QRectF &) override;
     void itemChange(ItemChange, const ItemChangeData &) override;
@@ -318,6 +322,7 @@ class CefQuickView : public QQuickItem {
     void mouseReleaseEvent(QMouseEvent *) override;
     void mouseDoubleClickEvent(QMouseEvent *) override;
     void mouseMoveEvent(QMouseEvent *) override;
+    void mouseUngrabEvent() override;
     void hoverEnterEvent(QHoverEvent *) override;
     void hoverMoveEvent(QHoverEvent *) override;
     void hoverLeaveEvent(QHoverEvent *) override;
@@ -349,6 +354,8 @@ class CefQuickView : public QQuickItem {
     void finishBackgroundResize();
     void backgroundFrameReady(const QSize &pixels);
     void syncCursor();
+    void startNumericScrub();
+    void stopNumericScrub(bool release = false);
     void sendKey(QKeyEvent *, bool release);
     void stopWheelScrolling();
     void advanceWheelScrolling();
@@ -367,7 +374,10 @@ class CefQuickView : public QQuickItem {
     LifecycleState m_lifecycle = LifecycleState::Active;
     bool m_overviewPreview = false, m_useSystemCursor = false;
     QCursor m_webCursor;
-    bool m_pointerInside = false;
+    bool m_pointerInside = false, m_numericScrubbing = false;
+    Qt::MouseButtons m_pointerButtons = Qt::NoButton;
+    QPointF m_pointerPosition, m_scrubPosition;
+    CefMouseCapture *m_mouseCapture = nullptr;
     Qt::DropActions m_dropAction;
     QPointer<CefProfile> m_profile;
     QPointer<CefQuickView> m_inspected, m_devTools;
@@ -394,6 +404,7 @@ class CefQuickView : public QQuickItem {
     CefRefPtr<CefRegistration> m_observer;
     QMap<int, QJSValue> m_callbacks;
     QMap<int, std::function<void(QJsonObject)>> m_protocolCallbacks;
+    QMap<int, std::function<void(bool, QJsonObject)>> m_nativeCallbacks;
     QMap<QString, QPointer<CefNotification>> m_notifications;
     QImage m_image, m_popupImage;
     std::shared_ptr<CefTextureFrame> m_texture, m_popupTexture;

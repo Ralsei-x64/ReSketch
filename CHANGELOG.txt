@@ -3,6 +3,13 @@ Newest commits first; one brief summary per commit.
 Versions use major.minor.patch: +1.0.0 for very large updates, +0.1.0 for large updates, and +0.0.1 for fixes or minor changes.
 About and --version show the build commit; Arch Git packages also include the commit count and hash.
 
+1.6.0 - 2026-10-24
+Added configurable liquid glass backdrops for floating sidebars and the toolbox, including blur, refraction, color, noise, corner radius and inner shadows. Joined sidebars share one continuous backdrop; menus remain clickable beyond panel edges, the canvas follows window resizing, and custom corner radius applies only to floating sidebars.
+Added custom Manifest V3 Chrome extension management with safe .crx extraction, localized names, enable/disable and removal controls, toolbar popups, and separate options and external-link windows. Idle extension management pages unload automatically.
+Improved native Wayland clipboard sharing with Chromium while preserving text, rich text, images and lazy custom formats. Batched clipboard events and stopped hidden editors from reading clipboard contents to prevent copy/paste freezes.
+Fixed video playback crashing the GPU process and disrupting WebGL by decoding video on the CPU while keeping canvas rendering and compositing accelerated.
+Added continuous Figma numeric dragging with Wayland pointer constraints and X11 cursor recentering. Capture releases on mouse-up, Escape, focus loss and navigation.
+
 1.5.2 - 2026-10-18
 Clipped separate-window streamer blur to each animated, rounded key, leaving gaps and corners clear; added saved default overlay window width and height controls with live resizing, and removed the Settings search box.
 

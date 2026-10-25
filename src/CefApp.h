@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 #include "include/cef_app.h"
+#include "include/cef_client.h"
 #include "include/cef_browser_process_handler.h"
 #include "include/cef_render_process_handler.h"
 #include <QStringList>
@@ -15,6 +16,7 @@ class ReSketchCefApp : public CefApp, public CefBrowserProcessHandler, public Ce
     explicit ReSketchCefApp(std::vector<std::string> switches = {}, std::function<void(int64_t)> pump = {});
     CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
     CefRefPtr<CefRenderProcessHandler> GetRenderProcessHandler() override { return this; }
+    CefRefPtr<CefClient> GetDefaultClient() override;
     void OnBeforeCommandLineProcessing(const CefString &, CefRefPtr<CefCommandLine>) override;
     void OnScheduleMessagePumpWork(int64_t delay) override;
     void OnBrowserCreated(CefRefPtr<CefBrowser>, CefRefPtr<CefDictionaryValue>) override;
@@ -30,9 +32,11 @@ class ReSketchCefApp : public CefApp, public CefBrowserProcessHandler, public Ce
     IMPLEMENT_REFCOUNTING(ReSketchCefApp);
 };
 namespace ReSketchCef {
+extern std::function<CefRefPtr<CefClient>()> defaultClientFactory;
 void initialize(const QStringList &switches = {});
 void shutdown();
 void browserCreated(CefRefPtr<CefBrowser> browser);
 void browserClosed(int id);
 bool initialized();
+quint16 debuggingPort();
 } // namespace ReSketchCef

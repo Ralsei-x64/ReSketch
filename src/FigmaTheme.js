@@ -297,6 +297,13 @@ var sidebarLayoutSource = `function floatingCanvasLayout() {
             try {
                 ui.leftPanelCollapsed.set(true);
                 ui.showPropertiesPanel.set(false);
+                // Figma can retain an old pixel height on its outer window.
+                // Stretch that window, then resize the renderer/input space too.
+                const windowState = window._fullscreen_?.HTMLWindowBindings?.globalWindowState;
+                if (windowState?.viewElement?.style && typeof windowState.updateSizeAndPixelRatio === 'function') {
+                    windowState.viewElement.style.height = 'auto';
+                    windowState.updateSizeAndPixelRatio();
+                }
                 return original.apply(this, args);
             } finally {
                 ui.leftPanelCollapsed.set(left);
@@ -346,7 +353,107 @@ var loadingSource = `function loadingAppearance() {
     update();
 }`
 
-var sidebarSource = sidebarLayoutSource + ';' + loadingSource + `;function floatingFilePage() {
+function normalizedLiquidGlass(values) {
+    values = values || {}
+    const number = (key, fallback, minimum, maximum) => Math.max(minimum, Math.min(maximum,
+        Number.isFinite(values[key]) ? Math.round(values[key]) : fallback))
+    return {
+        enabled: !!values.enabled,
+        noiseStrength: number('noiseStrength', 0, 0, 100),
+        brightness: number('brightness', 100, 0, 200),
+        saturation: number('saturation', 180, 0, 300),
+        contrast: number('contrast', 100, 0, 200),
+        cornerRadius: number('cornerRadius', 15, 0, 80),
+        refractionStrength: number('refractionStrength', 100, 0, 100),
+        refractionMode: values.refractionMode === 'basic' ? 'basic' : 'concave',
+        refractionEdgeSize: number('refractionEdgeSize', 30, 1, 200),
+        refractionFalloff: number('refractionFalloff', 400, 1, 400),
+        refractionCornerRadius: number('refractionCornerRadius', 15, 0, 200),
+        rgbFringingStrength: number('rgbFringingStrength', 0, 0, 20),
+        innerShadowX: number('innerShadowX', 0, -100, 100),
+        innerShadowY: number('innerShadowY', 2, -100, 100),
+        innerShadowScale: number('innerShadowScale', 12, 0, 100),
+        innerShadowBrightness: number('innerShadowBrightness', 100, 0, 200),
+        innerShadowStrength: number('innerShadowStrength', 0, 0, 100),
+        innerShadowColor: validColor(values.innerShadowColor) ? values.innerShadowColor : '#000000'
+    }
+}
+
+var liquidGlassSource = `function glassInnerShadow(glass) {
+    if (glass.innerShadowStrength === 0) return '0 0 transparent';
+    const color = [1, 3, 5].map(offset => Math.min(255,
+        Math.round(parseInt(glass.innerShadowColor.slice(offset, offset + 2), 16) * glass.innerShadowBrightness / 100)));
+    return 'inset ' + glass.innerShadowX + 'px ' + glass.innerShadowY + 'px ' + glass.innerShadowScale
+        + 'px 0 rgba(' + color.join(',') + ',' + glass.innerShadowStrength / 100 + ')';
+}
+function glassDisplacement(x, y, width, height, glass) {
+    const radius = Math.min(glass.refractionCornerRadius, width / 2, height / 2);
+    const px = x - width / 2, py = y - height / 2;
+    const qx = Math.abs(px) - width / 2 + radius, qy = Math.abs(py) - height / 2 + radius;
+    const cx = Math.max(qx, 0), cy = Math.max(qy, 0), length = Math.hypot(cx, cy);
+    const distance = length + Math.min(Math.max(qx, qy), 0) - radius;
+    const edge = Math.pow(Math.max(0, 1 - Math.max(0, -distance) / glass.refractionEdgeSize),
+                          glass.refractionFalloff / 100);
+    const direction = glass.refractionMode === 'concave' ? -1 : 1;
+    const nx = length > 0 ? cx / length : qx > qy ? 1 : 0;
+    const ny = length > 0 ? cy / length : qx > qy ? 0 : 1;
+    return [Math.sign(px) * nx * edge * direction, Math.sign(py) * ny * edge * direction];
+}
+function glassFilter(width, height, glass, id) {
+    let markup = '<filter id="' + id + '" x="0" y="0" width="' + width + '" height="' + height
+        + '" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">';
+    let source = 'SourceGraphic';
+    if (glass.refractionStrength > 0 || glass.rgbFringingStrength > 0) {
+        const map = document.createElement('canvas');
+        // ponytail: cap displacement textures at 512px; raise for finer edges on large panels.
+        const ratio = Math.min(1, 512 / Math.max(width, height));
+        map.width = Math.max(2, Math.ceil(width * ratio));
+        map.height = Math.max(2, Math.ceil(height * ratio));
+        const context = map.getContext('2d');
+        const pixels = context.createImageData(map.width, map.height);
+        for (let y = 0; y < map.height; ++y) for (let x = 0; x < map.width; ++x) {
+            const vector = glassDisplacement((x + 0.5) * width / map.width,
+                (y + 0.5) * height / map.height, width, height, glass);
+            const offset = (y * map.width + x) * 4;
+            pixels.data[offset] = Math.round(128 + 127 * vector[0]);
+            pixels.data[offset + 1] = Math.round(128 + 127 * vector[1]);
+            pixels.data[offset + 2] = 128;
+            pixels.data[offset + 3] = 255;
+        }
+        context.putImageData(pixels, 0, 0);
+        markup += '<feImage href="' + map.toDataURL() + '" x="0" y="0" width="' + width
+            + '" height="' + height + '" preserveAspectRatio="none" result="mapImage"/>'
+            // Make the quantized neutral value (128) exactly zero displacement.
+            + '<feComponentTransfer in="mapImage" result="map"><feFuncR type="linear" intercept="-0.00196078431372549"/>'
+            + '<feFuncG type="linear" intercept="-0.00196078431372549"/></feComponentTransfer>';
+        const displacement = (name, strength) => '<feDisplacementMap in="SourceGraphic" in2="map" scale="'
+            + strength * 255 / 127 + '" xChannelSelector="R" yChannelSelector="G" result="' + name + '"/>';
+        if (glass.rgbFringingStrength > 0) {
+            const channels = ['red', 'green', 'blue'];
+            for (let channel = 0; channel < 3; ++channel) {
+                const name = channels[channel];
+                markup += displacement(name + 'Shift', glass.refractionStrength + (1 - channel) * glass.rgbFringingStrength);
+                const matrix = Array(20).fill(0);
+                matrix[channel * 6] = 1;
+                matrix[18] = 1;
+                markup += '<feColorMatrix in="' + name + 'Shift" type="matrix" values="' + matrix.join(' ')
+                    + '" result="' + name + '"/>';
+            }
+            markup += '<feBlend in="red" in2="green" mode="screen" result="rg"/>'
+                + '<feBlend in="rg" in2="blue" mode="screen" result="refracted"/>';
+        } else markup += displacement('refracted', glass.refractionStrength);
+        source = 'refracted';
+    }
+    if (glass.noiseStrength > 0) {
+        markup += '<feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" seed="7" stitchTiles="stitch" result="noise"/>'
+            + '<feColorMatrix in="noise" type="saturate" values="0"/>'
+            + '<feComponentTransfer result="grain"><feFuncA type="linear" slope="' + glass.noiseStrength / 100 + '"/></feComponentTransfer>'
+            + '<feBlend in="grain" in2="' + source + '" mode="soft-light"/>';
+    } else if (source === 'SourceGraphic') markup += '<feOffset/>';
+    return markup + '</filter>';
+}`
+
+var sidebarSource = sidebarLayoutSource + ';' + loadingSource + ';' + liquidGlassSource + `;function floatingFilePage() {
     return /^\\/(file|design|board|proto|slides|deck|site|buzz|make)\\/[^/]+/i.test(location.pathname);
 }
 function sidebarAppearance(options, stylesheet) {
@@ -375,13 +482,23 @@ function sidebarAppearance(options, stylesheet) {
     const authoredSizes = new WeakMap();
     const authoredSize = panel => panel.style.width + ':' + panel.style.height;
     const canvasSizes = new WeakMap();
+    const glassFilters = new WeakMap();
+    let glassSerial = 0, filterSignature = '';
+    const filterSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    filterSvg.id = 'resketch-glass-filters';
+    filterSvg.setAttribute('style', 'position:absolute;width:0;height:0;pointer-events:none');
+    document.body.prepend(filterSvg);
     const canvasSize = node => ['inset','width','height','left','right','top','bottom','transform']
         .map(name => node.style[name]).join(':');
     const underlay = document.createElement('div');
     underlay.id = 'resketch-sidebar-underlay';
     document.body.prepend(underlay);
+    const sharedBackdrop = document.createElement('div');
+    sharedBackdrop.setAttribute('data-resketch-shared-sidebar', '');
+    sharedBackdrop.setAttribute('aria-hidden', 'true');
+    sharedBackdrop.style.cssText = 'position:fixed;pointer-events:none;display:none';
     stylesheet('resketch-sidebars',
-        'body[data-resketch-loading] :is(' + selector + ') { visibility:hidden !important; }'
+        'body[data-resketch-loading] :is(' + selector + ', [data-resketch-shared-sidebar]) { visibility:hidden !important; }'
         + '[data-resketch-sidebar], [data-resketch-sidebar] [data-preferred-theme] { --color-bg:var(--resketch-sidebar-content) !important; }'
         + '[data-resketch-sidebar] { background-color:var(--resketch-sidebar-tint) !important; backdrop-filter:var(--resketch-sidebar-blur) !important; }'
         + '[data-resketch-floating-sidebar] { box-sizing:border-box !important;'
@@ -389,12 +506,12 @@ function sidebarAppearance(options, stylesheet) {
         + 'height:var(--resketch-sidebar-height) !important; min-height:0 !important;'
         + 'border:1px solid var(--color-border) !important;'
         + 'box-shadow:var(--resketch-sidebar-shadow) !important;'
-        + 'margin:calc(var(--resketch-sidebar-gap-vertical) + var(--resketch-sidebar-offset-top, 0px)) var(--resketch-sidebar-gap-right) var(--resketch-sidebar-gap-vertical) var(--resketch-sidebar-gap-left) !important; border-radius:var(--resketch-sidebar-radius) !important; overflow:hidden !important; }'
+        + 'margin:calc(var(--resketch-sidebar-gap-vertical) + var(--resketch-sidebar-offset-top, 0px)) var(--resketch-sidebar-gap-right) var(--resketch-sidebar-gap-vertical) var(--resketch-sidebar-gap-left) !important; border-radius:var(--resketch-sidebar-radius) !important; overflow:visible !important; }'
+        + '[data-resketch-shared-sidebar] { box-shadow:var(--resketch-sidebar-shadow, 0 0 transparent) !important; }'
+        + '[data-resketch-liquid-glass] { '
+        + 'box-shadow:var(--resketch-sidebar-inner-shadow, 0 0 transparent), var(--resketch-sidebar-outer-shadow, 0 0 transparent) !important; }'
         + '[data-resketch-sidebar-join="start"] { border-right:1px solid var(--color-border) !important; border-radius:var(--resketch-sidebar-radius) 0 0 var(--resketch-sidebar-radius) !important; }'
         + '[data-resketch-sidebar-join="end"] { border-left:0 !important; border-radius:0 var(--resketch-sidebar-radius) var(--resketch-sidebar-radius) 0 !important; }'
-        // Joined panels only cast a shadow on the outside of their shared card.
-        + '[data-resketch-sidebar-join="start"] { clip-path:inset(-100px 0 -100px -100px) !important; }'
-        + '[data-resketch-sidebar-join="end"] { clip-path:inset(-100px -100px -100px 0) !important; }'
         + '[data-resketch-floating-sidebar] :is([class*="left_panel_container--panel--"],[class*="properties_panel--panelPosition--"]) '
         + '{ box-sizing:border-box !important; width:100% !important; height:100% !important; border:0 !important; }'
         + '[data-resketch-floating-sidebar] [class*="properties_panel--panelPosition--"] { top:0 !important; bottom:0 !important; }'
@@ -421,11 +538,13 @@ function sidebarAppearance(options, stylesheet) {
         + '[data-resketch-sidebar-canvas] { clip-path:var(--resketch-sidebar-clip) !important; }'
         + '#resketch-sidebar-underlay { position:fixed; inset:0; z-index:-1; pointer-events:none; }');
     function clear() {
-        for (const panel of panels) {
+        sharedBackdrop.style.display = 'none';
+        for (const panel of panels.concat(sharedBackdrop)) {
             panel.removeAttribute('data-resketch-sidebar');
             panel.removeAttribute('data-resketch-floating-sidebar');
             panel.removeAttribute('data-resketch-sidebar-join');
-            for (const name of ['tint','surface','content','blur','shadow','width','height','offset-top','gap-left','gap-right','gap-vertical','radius'])
+            panel.removeAttribute('data-resketch-liquid-glass');
+            for (const name of ['tint','surface','content','blur','shadow','inner-shadow','outer-shadow','width','height','offset-top','gap-left','gap-right','gap-vertical','radius'])
                 panel.style.removeProperty('--resketch-sidebar-' + name);
         }
         for (const ancestor of ancestors) ancestor.removeAttribute('data-resketch-sidebar-ancestor');
@@ -471,7 +590,11 @@ function sidebarAppearance(options, stylesheet) {
         }
         const active = options.floatingSidebars || options.translucentSidebars && options.opacity < 100;
         underlay.style.display = active ? "" : "none";
-        if (!active) return;
+        if (!active) {
+            filterSvg.innerHTML = '';
+            filterSignature = '';
+            return;
+        }
         const bg = getComputedStyle(document.body).getPropertyValue('--color-bg').trim() || (options.theme === 'dark' ? '#2c2c2c' : '#ffffff');
         // Desktop tint is already drawn by the native window background.
         // Applying it again here makes 85% opacity effectively 98%.
@@ -480,16 +603,19 @@ function sidebarAppearance(options, stylesheet) {
         const tint = !translucent ? bg : options.sidebarBackdrop === 'desktop' ? 'transparent'
             : 'color-mix(in srgb, ' + bg + ' ' + options.opacity + '%, transparent)';
         const rail = panels.find(panel => panel.matches('[data-testid="navigation-bar"]'));
-        const leftPanel = panels.find(panel => panel.matches('[data-onboarding-key="unified-design-onboarding-left-panel"]'));
+        const leftPanel = panels.find(panel => panel.matches('[data-onboarding-key="unified-design-onboarding-left-panel"], [class*="left_panel_container--sizeContainer--"]'));
         const railBounds = rail?.getBoundingClientRect(), leftBounds = leftPanel?.getBoundingClientRect();
         const joined = options.floatingSidebars && railBounds?.width && leftBounds?.width
             && Math.abs(railBounds.right - leftBounds.left) < 3;
         const strength = options.sidebarShadowStrength || 0;
         const shadow = strength > 0 && options.sidebarShadowTransparency < 100
             ? '0 ' + strength / 10 + 'px ' + strength * 0.4 + 'px rgba(0,0,0,'
-                + (1 - options.sidebarShadowTransparency / 100) + ')' : 'none';
+                + (1 - options.sidebarShadowTransparency / 100) + ')' : '0 0 transparent';
         underlay.style.backgroundColor = (options.floatingSidebars || options.sidebarBackdrop === 'canvas') && canvases.length
             ? getComputedStyle(canvases[0]).backgroundColor : bg;
+        const glass = options.sidebarLiquidGlass;
+        const glassActive = translucent && options.sidebarBackdrop === 'canvas' && glass.enabled;
+        const filters = [];
         for (const panel of panels) {
             authoredSizes.set(panel, authoredSize(panel));
             panel.style.setProperty('--resketch-sidebar-tint', tint);
@@ -518,7 +644,7 @@ function sidebarAppearance(options, stylesheet) {
                 panel.style.setProperty('--resketch-sidebar-gap-vertical', margin + 'px');
                 panel.style.setProperty('--resketch-sidebar-gap-left', gapLeft + 'px');
                 panel.style.setProperty('--resketch-sidebar-gap-right', gapRight + 'px');
-                panel.style.setProperty('--resketch-sidebar-radius', options.sidebarCornerRadius + 'px');
+                panel.style.setProperty('--resketch-sidebar-radius', (glassActive ? glass.cornerRadius : options.sidebarCornerRadius) + 'px');
                 panel.style.setProperty('--resketch-sidebar-shadow', shadow);
                 panel.setAttribute('data-resketch-floating-sidebar', '');
                 if (joined && (panel === rail || panel === leftPanel))
@@ -528,6 +654,74 @@ function sidebarAppearance(options, stylesheet) {
             for (let node = panel.parentElement; node; node = node.parentElement) ancestors.add(node);
         }
         for (const ancestor of ancestors) ancestor.setAttribute('data-resketch-sidebar-ancestor', '');
+        let shared = false;
+        if ((options.floatingSidebars || translucent && options.sidebarBackdrop === 'canvas') && rail && leftPanel) {
+            const start = rail.getBoundingClientRect(), end = leftPanel.getBoundingClientRect();
+            shared = start.width > 0 && end.width > 0 && Math.abs(start.right - end.left) < 3
+                && Math.abs(start.top - end.top) < 3 && Math.abs(start.bottom - end.bottom) < 3;
+            if (shared) {
+                // Keep the native panels in place; one surface behind both avoids
+                // clipping and filtering the canvas again at their internal seam.
+                let parent = rail.parentElement;
+                while (parent && !parent.contains(leftPanel)) parent = parent.parentElement;
+                let branch = rail;
+                while (branch.parentElement !== parent) branch = branch.parentElement;
+                let leftBranch = leftPanel;
+                while (leftBranch.parentElement !== parent) leftBranch = leftBranch.parentElement;
+                if (branch.compareDocumentPosition(leftBranch) & 2) branch = leftBranch;
+                parent.insertBefore(sharedBackdrop, branch);
+                const stackLevel = panel => {
+                    for (let node = panel; node && node !== parent; node = node.parentElement) {
+                        const level = getComputedStyle(node).zIndex;
+                        if (level !== 'auto') return Number(level) || 0;
+                    }
+                    return 0;
+                };
+                Object.assign(sharedBackdrop.style, {display:'block', left:start.left + 'px', top:start.top + 'px',
+                    width:(end.right - start.left) + 'px', height:start.height + 'px',
+                    zIndex:String(Math.min(stackLevel(rail), stackLevel(leftPanel))),
+                    borderRadius:(options.floatingSidebars ? (glassActive ? glass.cornerRadius : options.sidebarCornerRadius) : 0) + 'px'});
+                sharedBackdrop.setAttribute('data-resketch-sidebar', '');
+                sharedBackdrop.style.setProperty('--resketch-sidebar-tint', tint);
+                sharedBackdrop.style.setProperty('--resketch-sidebar-blur', translucent && options.sidebarBackdrop === 'canvas'
+                    ? 'blur(' + options.sidebarCanvasBlur + 'px)' : 'none');
+                sharedBackdrop.style.setProperty('--resketch-sidebar-shadow', shadow);
+                for (const panel of [rail, leftPanel]) {
+                    panel.style.setProperty('--resketch-sidebar-tint', 'transparent');
+                    panel.style.setProperty('--resketch-sidebar-blur', 'none');
+                    panel.style.setProperty('--resketch-sidebar-shadow', '0 0 transparent');
+                }
+            }
+        }
+        // Measure after floating layout is applied, so refraction follows the visible surface.
+        const glassPanels = shared ? panels.filter(panel => panel !== rail && panel !== leftPanel).concat(sharedBackdrop) : panels;
+        for (const panel of glassPanels) if (glassActive) {
+            const bounds = panel.getBoundingClientRect();
+            const width = Math.round(bounds.width), height = Math.round(bounds.height);
+            if (!width || !height) continue;
+            const key = JSON.stringify([width, height, glass.noiseStrength, glass.refractionStrength,
+                glass.refractionMode, glass.refractionEdgeSize, glass.refractionFalloff,
+                glass.refractionCornerRadius, glass.rgbFringingStrength]);
+            let filter = glassFilters.get(panel);
+            if (!filter || filter.key !== key) {
+                const id = 'resketch-glass-' + ++glassSerial;
+                filter = {key, id, markup:glassFilter(width, height, glass, id)};
+                glassFilters.set(panel, filter);
+            }
+            filters.push(filter);
+            const outerShadow = getComputedStyle(panel).boxShadow;
+            panel.style.setProperty('--resketch-sidebar-outer-shadow', outerShadow === 'none' ? '0 0 transparent' : outerShadow);
+            panel.setAttribute('data-resketch-liquid-glass', '');
+            panel.style.setProperty('--resketch-sidebar-inner-shadow', glassInnerShadow(glass));
+            panel.style.setProperty('--resketch-sidebar-blur', 'blur(' + options.sidebarCanvasBlur + 'px) url(#'
+                + filter.id + ') brightness(' + glass.brightness / 100 + ') saturate(' + glass.saturation / 100
+                + ') contrast(' + glass.contrast / 100 + ')');
+        }
+        const signature = filters.map(filter => filter.id).join(',');
+        if (signature !== filterSignature) {
+            filterSvg.innerHTML = filters.map(filter => filter.markup).join('');
+            filterSignature = signature;
+        }
         const rects = panels.filter(panel => !joined || panel !== leftPanel).map(panel => {
             const bounds = panel.getBoundingClientRect();
             const right = joined && panel === rail ? leftPanel.getBoundingClientRect().right : bounds.right;
@@ -566,6 +760,8 @@ function sidebarAppearance(options, stylesheet) {
             clear();
             layout?.dispose();
             underlay.remove();
+            sharedBackdrop.remove();
+            filterSvg.remove();
         }
     };
     schedule();
@@ -689,7 +885,8 @@ function script(options, storeSource) {
         sidebarShadowTransparency: Math.max(0, Math.min(100, Number.isFinite(options.sidebarShadowTransparency) ? options.sidebarShadowTransparency : 65)),
         sidebarShadowStrength: Math.max(0, Math.min(100, Number.isFinite(options.sidebarShadowStrength) ? options.sidebarShadowStrength : 40)),
         sidebarBackdrop: options.sidebarBackdrop === "canvas" ? "canvas" : "desktop",
-        sidebarCanvasBlur: Math.max(0, Math.min(40, Number.isFinite(options.sidebarCanvasBlur) ? options.sidebarCanvasBlur : 0)),
+        sidebarCanvasBlur: Math.max(0, Math.min(40, Number.isFinite(options.sidebarCanvasBlur) ? options.sidebarCanvasBlur : 15)),
+        sidebarLiquidGlass: normalizedLiquidGlass(options.sidebarLiquidGlass),
         sidebarCanvasOpacity: Math.max(0, Math.min(100, Number.isFinite(options.sidebarCanvasOpacity) ? options.sidebarCanvasOpacity
             : Number.isFinite(options.opacity) ? options.opacity : 100)),
         opacity: Math.max(0, Math.min(100, Number.isFinite(options.opacity) ? options.opacity : 100))

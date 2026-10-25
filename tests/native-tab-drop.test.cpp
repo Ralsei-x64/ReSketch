@@ -25,6 +25,7 @@
 #include <QTcpSocket>
 #include <cassert>
 #include <QTest>
+#include "extensions.test.h"
 
 void checkUpdates();
 
@@ -46,7 +47,7 @@ void checkSettingsNavigation(QQuickWindow *window, AppSettings &settings)
         window->setProperty("selectedSection", 0);
         QTest::qWait(50);
         const qreal paneWidth = viewport->width();
-        for (int section = 0; section < 9; ++section) {
+        for (int section = 0; section < 10; ++section) {
             window->setProperty("selectedSection", section);
             QTest::qWait(30);
             assert(navigation->width() == 164);
@@ -770,7 +771,8 @@ ApplicationWindow {
         streamer->setMaximumEntries(99);
         assert(streamer->maximumEntries() == 32);
         const auto sections = settingsPage->property("sections").value<QJSValue>().toVariant().toList();
-        assert(sections[7].toMap().value("title") == "Streamer" && sections[8].toMap().value("title") == "Updates");
+        assert(sections[7].toMap().value("title") == "Streamer" && sections[8].toMap().value("title") == "Extensions"
+            && sections[9].toMap().value("title") == "Updates");
         streamer->setEnabled(true);
         QTest::keyClick(window, Qt::Key_D);
         settings.resetSettings();
@@ -832,7 +834,8 @@ ApplicationWindow {
         window->setProperty("selectedSection", 7);
         assert(window->findChild<QObject *>("streamerModeToggle")->property("visible").toBool());
         const auto sections = window->property("sections").value<QJSValue>().toVariant().toList();
-        assert(sections[7].toMap().value("title") == "Streamer" && sections[8].toMap().value("title") == "Updates");
+        assert(sections[7].toMap().value("title") == "Streamer" && sections[8].toMap().value("title") == "Extensions"
+            && sections[9].toMap().value("title") == "Updates");
         window->setProperty("selectedSection", 1);
         auto *systemCheck = window->findChild<QObject *>("useSystemColorsCheck");
         auto *combo = window->findChild<QObject *>("appThemeCombo");
@@ -878,10 +881,10 @@ ApplicationWindow {
     {
         AppSettings toolbar;
         const auto defaults = toolbar.toolbarItems();
-        assert(defaults.size() == 8);
+        assert(defaults.size() == 9);
         assert(std::count_if(defaults.cbegin(), defaults.cend(), [](const QVariant &item) {
             return item.toMap().value("enabled").toBool();
-        }) == 4);
+        }) == 5);
         auto configured = defaults;
         configured.move(4, 0);
         auto exports = configured.first().toMap();
@@ -1217,6 +1220,47 @@ ApplicationWindow {
         QTimer::singleShot(100, &loop, &QEventLoop::quit);
         loop.exec();
     };
+    if (app.arguments().contains(QStringLiteral("--clipboard-readers"))) {
+        class ClipboardProbe final : public QMimeData {
+        public:
+            mutable int textReads = 0;
+        protected:
+            QVariant retrieveData(const QString &type, QMetaType preferredType) const override {
+                if (type.startsWith("text/plain")) ++textReads;
+                return QMimeData::retrieveData(type, preferredType);
+            }
+        };
+        const auto changeClipboard = [&] {
+            auto *data = new ClipboardProbe;
+            data->setText("clipboard regression fixture");
+            app.clipboard()->setMimeData(data);
+            render();
+            return data;
+        };
+        evaluate("destination.homeView.stop();destination.dismissOverview()");
+        render();
+        assert(changeClipboard()->textReads == 0);
+        evaluate("destination.openOverview(false)");
+        render();
+        auto *search = destination->findChild<QObject *>("overviewSearch");
+        assert(search && !search->property("readOnly").toBool());
+        assert(changeClipboard()->textReads > 0);
+        evaluate("destination.dismissOverview()");
+        render();
+        assert(changeClipboard()->textReads == 0);
+        evaluate("destination.openTab('about:blank');destination.requestTabGroup(destination.activeView)");
+        render();
+        auto *name = destination->findChild<QObject *>("tabGroupNameEditor");
+        assert(name && !name->property("readOnly").toBool());
+        assert(changeClipboard()->textReads > 0);
+        auto *dialog = destination->findChild<QObject *>("tabGroupNameDialog");
+        assert(dialog && QMetaObject::invokeMethod(dialog, "reject"));
+        for (int i = 0; i < 10 && dialog->property("visible").toBool(); ++i) render();
+        assert(!dialog->property("visible").toBool() && name->property("readOnly").toBool());
+        assert(changeClipboard()->textReads == 0);
+        puts("Hidden native editors leave the clipboard unread; visible overview and group editors retain paste support");
+        return 0;
+    }
     settings.setWindowControlsInTabBar(true);
     evaluate("destination.homeView.stop(); destination.homeView.loadHtml('<html><body><input autofocus></body></html>'); destination.activateHome(false);");
     render();
