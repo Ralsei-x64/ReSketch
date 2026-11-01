@@ -16,7 +16,7 @@ makepkg -si
 resketch
 ```
 
-The PKGBUILD installs dependencies and builds the latest `resketch-cef` branch.
+The PKGBUILD installs dependencies and builds the latest `main` branch.
 
 ## Build from source
 
@@ -33,7 +33,7 @@ cmake --build build
 Install the app and register it for Figma desktop links:
 
 ```sh
-cmake --install build-cef --prefix ~/.local
+cmake --install build --prefix ~/.local
 xdg-mime default org.aether64.resketch.desktop x-scheme-handler/figma
 ```
 
