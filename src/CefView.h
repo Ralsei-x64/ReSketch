@@ -359,6 +359,7 @@ class CefQuickView : public QQuickItem {
     void sendKey(QKeyEvent *, bool release);
     void stopWheelScrolling();
     void advanceWheelScrolling();
+    QPoint scaleScrollDelta(const QPointF &delta);
     void sendWheelDelta(QPoint delta);
     int devTools(const QString &method, const QJsonObject &params = {}, QJSValue callback = {});
     QUrl m_url;

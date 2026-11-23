@@ -873,6 +873,9 @@ CefView {
         until([&] { return js("homeScroll.scrollTop").toInt() == sensitivityStart + wheelDistance * 2; }, "Mouse sensitivity scales Chromium wheel distance");
         homeWheel(QPoint(0, -12), Qt::ScrollUpdate);
         until([&] { return js("homeScroll.scrollTop").toInt() == sensitivityStart + wheelDistance * 2 + 24; }, "Scroll sensitivity scales trackpad pixels too");
+        const int replayStart = js("homeScroll.scrollTop").toInt();
+        view->replayWheel(QPointF(0, -12), QPointF(80, 160));
+        until([&] { return js("homeScroll.scrollTop").toInt() == replayStart + 24; }, "Replayed trackpad input uses scroll sensitivity");
         const int precisionStart = js("homeScroll.scrollTop").toInt();
         QWheelEvent precisionMouse(QPointF(80,160), QPointF(80,160), QPoint(0,-12), {}, Qt::NoButton,
                                   Qt::NoModifier, Qt::NoScrollPhase, false, Qt::MouseEventNotSynthesized, &fixtureMouse);

@@ -1860,6 +1860,14 @@ void CefQuickView::dropEvent(QDropEvent *event) {
     }
     m_dropAction = {};
 }
+QPoint CefQuickView::scaleScrollDelta(const QPointF &delta) {
+    // Preserve subpixel input at low speeds instead of dropping small steps.
+    const QPointF scaled = delta * (std::clamp(m_settings.mouseScrollSensitivity, 25, 500) / 100.0)
+        + m_scrollSensitivityRemainder;
+    const QPoint rounded = scaled.toPoint();
+    m_scrollSensitivityRemainder = scaled - rounded;
+    return rounded;
+}
 void CefQuickView::sendWheelDelta(QPoint delta) {
     if (m_browser && !delta.isNull())
         m_browser->GetHost()->SendMouseWheelEvent(m_wheelEvent, delta.x(), delta.y());
@@ -1912,7 +1920,7 @@ void CefQuickView::pinchZoom(qreal factor, const QPointF &position) {
 void CefQuickView::replayWheel(const QPointF &delta, const QPointF &position) {
     m_wheelEvent = mouse(position, {});
     m_wheelEvent.modifiers |= EVENTFLAG_PRECISION_SCROLLING_DELTA;
-    sendWheelDelta(delta.toPoint());
+    sendWheelDelta(scaleScrollDelta(delta));
 }
 void CefQuickView::wheelEvent(QWheelEvent *event) {
     const auto phase = event->phase();
@@ -1920,6 +1928,8 @@ void CefQuickView::wheelEvent(QWheelEvent *event) {
         ? event->angleDelta() * QGuiApplication::styleHints()->wheelScrollLines() / 3 : event->pixelDelta();
     const bool trackpad = event->pointingDevice()->type() == QInputDevice::DeviceType::TouchPad
         || phase != Qt::NoScrollPhase || !event->pixelDelta().isNull();
+    if (phase == Qt::ScrollBegin || event->modifiers().testFlag(Qt::ControlModifier))
+        m_scrollSensitivityRemainder = {};
     m_trackpadScrollAccepted = false;
     if (trackpad && event->modifiers() == Qt::NoModifier)
         emit trackpadScroll(delta.x(), delta.y(), int(phase), event->position());
@@ -1934,15 +1944,8 @@ void CefQuickView::wheelEvent(QWheelEvent *event) {
         return;
     }
     if (phase == Qt::ScrollBegin) stopWheelScrolling();
-    if (phase == Qt::ScrollBegin || event->modifiers().testFlag(Qt::ControlModifier))
-        m_scrollSensitivityRemainder = {};
-    if (!event->modifiers().testFlag(Qt::ControlModifier)) {
-        // Preserve subpixel input at low speeds instead of dropping small steps.
-        const QPointF scaled = QPointF(delta) * (std::clamp(m_settings.mouseScrollSensitivity, 25, 500) / 100.0)
-            + m_scrollSensitivityRemainder;
-        delta = scaled.toPoint();
-        m_scrollSensitivityRemainder = scaled - delta;
-    }
+    if (!event->modifiers().testFlag(Qt::ControlModifier))
+        delta = scaleScrollDelta(delta);
     if (!delta.isNull()) {
         if (event->modifiers().testFlag(Qt::ControlModifier) || (!trackpad && !m_settings.scrollAnimatorEnabled)) {
             stopWheelScrolling();

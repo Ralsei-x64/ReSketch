@@ -68,6 +68,7 @@ Kirigami.ApplicationWindow {
             sourceComponent: CefView {
                 settings.scrollAnimatorEnabled: appSettings.smoothScrolling && !appSettings.reduceMotion
                 settings.inertialScrollingEnabled: appSettings.inertialScrolling && !appSettings.reduceMotion
+                settings.mouseScrollSensitivity: appSettings.mouseScrollSensitivity
                 objectName: "chromiumDeveloperTools"
                 inspectedView: tools.inspectedView
                 backgroundColor: Kirigami.Theme.backgroundColor

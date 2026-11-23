@@ -11,6 +11,8 @@ CefView {
 
     profile: CefProfile { storageName: "resketch"; persistentStoragePath: appSettings.profileStoragePath }
 
+    settings.mouseScrollSensitivity: appSettings.mouseScrollSensitivity
+
     onNavigationRequested: request => {
         if (!request.isMainFrame) return
         const address = String(request.url)

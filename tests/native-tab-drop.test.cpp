@@ -1648,6 +1648,7 @@ ApplicationWindow {
         QCoreApplication::sendEvent(destination, &event);
     };
     settings.setMouseScrollSensitivity(200);
+    assert(evaluate("destination.activeView.settings.mouseScrollSensitivity === 200").toBool());
     sidebarWheel({}, Qt::ScrollBegin);
     render();
     assert(destination->property("sidebarSwipeAllowed").toBool());
