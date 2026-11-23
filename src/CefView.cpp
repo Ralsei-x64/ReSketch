@@ -1924,15 +1924,26 @@ void CefQuickView::replayWheel(const QPointF &delta, const QPointF &position) {
 }
 void CefQuickView::wheelEvent(QWheelEvent *event) {
     const auto phase = event->phase();
-    QPoint delta = event->pixelDelta().isNull()
-        ? event->angleDelta() * QGuiApplication::styleHints()->wheelScrollLines() / 3 : event->pixelDelta();
-    const bool trackpad = event->pointingDevice()->type() == QInputDevice::DeviceType::TouchPad
-        || phase != Qt::NoScrollPhase || !event->pixelDelta().isNull();
-    if (phase == Qt::ScrollBegin || event->modifiers().testFlag(Qt::ControlModifier))
+    const auto device = event->pointingDevice()->type();
+    const QPoint angles = event->angleDelta();
+    const QPoint pixels = event->pixelDelta();
+    // Wayland can report the seat's primary device for both sources. Its
+    // finger scroll updates are synthesized, while wheel rotation is native.
+    const bool mouseWheel = event->source() == Qt::MouseEventNotSynthesized
+        && (device == QInputDevice::DeviceType::Mouse
+            || (!angles.isNull() && QGuiApplication::platformName().startsWith("wayland")));
+    const bool trackpad = !mouseWheel && (device == QInputDevice::DeviceType::TouchPad
+        || phase != Qt::NoScrollPhase || !pixels.isNull());
+    const bool useAngles = !angles.isNull() && (mouseWheel || pixels.isNull());
+    const QPointF movement = useAngles
+        ? QPointF(angles) * (QGuiApplication::styleHints()->wheelScrollLines() / 3.0) : QPointF(pixels);
+    const bool ctrlWheel = event->modifiers().testFlag(Qt::ControlModifier);
+    const bool pinch = ctrlWheel && trackpad;
+    if (phase == Qt::ScrollBegin || pinch)
         m_scrollSensitivityRemainder = {};
     m_trackpadScrollAccepted = false;
     if (trackpad && event->modifiers() == Qt::NoModifier)
-        emit trackpadScroll(delta.x(), delta.y(), int(phase), event->position());
+        emit trackpadScroll(qRound(movement.x()), qRound(movement.y()), int(phase), event->position());
     if (m_trackpadScrollAccepted) {
         stopWheelScrolling();
         event->accept();
@@ -1944,13 +1955,12 @@ void CefQuickView::wheelEvent(QWheelEvent *event) {
         return;
     }
     if (phase == Qt::ScrollBegin) stopWheelScrolling();
-    if (!event->modifiers().testFlag(Qt::ControlModifier))
-        delta = scaleScrollDelta(delta);
+    const QPoint delta = pinch || movement.isNull() ? movement.toPoint() : scaleScrollDelta(movement);
     if (!delta.isNull()) {
-        if (event->modifiers().testFlag(Qt::ControlModifier) || (!trackpad && !m_settings.scrollAnimatorEnabled)) {
+        if (ctrlWheel || (!trackpad && (!m_settings.scrollAnimatorEnabled || !useAngles))) {
             stopWheelScrolling();
             m_wheelEvent = mouse(event->position(), event->modifiers(), event->buttons());
-            if (trackpad || !m_settings.scrollAnimatorEnabled) m_wheelEvent.modifiers |= EVENTFLAG_PRECISION_SCROLLING_DELTA;
+            m_wheelEvent.modifiers |= EVENTFLAG_PRECISION_SCROLLING_DELTA;
             sendWheelDelta(delta);
         } else if (trackpad) {
             // Follow fingers directly; add a tail only when the platform has no momentum.
@@ -1979,7 +1989,7 @@ void CefQuickView::wheelEvent(QWheelEvent *event) {
             if (!m_wheelTimer.isActive()) { m_wheelFrameClock.start(); m_wheelTimer.start(); }
         }
     }
-    if (phase == Qt::ScrollEnd) {
+    if (trackpad && phase == Qt::ScrollEnd) {
         if (m_platformMomentum) stopWheelScrolling();
         else if (m_settings.inertialScrollingEnabled) m_wheelEndTimer.start(40);
     }

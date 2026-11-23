@@ -1636,6 +1636,39 @@ ApplicationWindow {
         render();
     }
     assert(evaluate("zoomResult.some(delta=>delta<0)").toBool());
+    // Observe browser-delivered pan and Ctrl+wheel independently at the canvas.
+    evaluate("var wheelReady=false, canvasTotals=[];"
+             "destination.activeView.runJavaScript(\"window.wheelTotals=[0,0]; document.querySelector('.gpu-view-content')"
+             ".addEventListener('wheel',e=>{wheelTotals[Number(e.ctrlKey)]+=e.deltaY})\",()=>wheelReady=true)");
+    for (int i = 0; i < 20 && !evaluate("wheelReady").toBool(); ++i) render();
+    assert(evaluate("wheelReady").toBool());
+    QPointingDevice wheelMouse("Wheel mouse", 43, QInputDevice::DeviceType::Mouse,
+        QPointingDevice::PointerType::Generic, QInputDevice::Capability::Position | QInputDevice::Capability::Scroll, 1, 3);
+    auto *browserContent = qobject_cast<QQuickItem *>(destination->property("browserContent").value<QObject *>());
+    const QPointF canvasPoint = browserContent->mapToScene(QPointF(400, 300));
+    int expectedPan = 0, expectedZoom = 0;
+    for (bool smooth : {false, true}) {
+        settings.setSmoothScrolling(smooth);
+        for (int speed : {25, 500}) {
+            settings.setMouseScrollSensitivity(speed);
+            for (auto modifier : {Qt::NoModifier, Qt::ControlModifier}) {
+                // Some backends supply both a small pixel delta and a full wheel detent.
+                QWheelEvent event(canvasPoint, destination->mapToGlobal(canvasPoint), QPoint(0, -10), QPoint(0, -120),
+                    Qt::NoButton, modifier, Qt::NoScrollPhase, false, Qt::MouseEventNotSynthesized, &wheelMouse);
+                QCoreApplication::sendEvent(destination, &event);
+                (modifier == Qt::ControlModifier ? expectedZoom : expectedPan) +=
+                    40 * QGuiApplication::styleHints()->wheelScrollLines() * speed / 100;
+                const QString matches = QString("canvasTotals[0]===%1 && canvasTotals[1]===%2")
+                    .arg(expectedPan).arg(expectedZoom);
+                for (int i = 0; i < 20 && !evaluate(matches).toBool(); ++i) {
+                    evaluate("destination.activeView.runJavaScript('wheelTotals',v=>canvasTotals=v)");
+                    render();
+                }
+                assert(evaluate(matches).toBool());
+            }
+        }
+    }
+    puts("Canvas mouse wheel pan and Ctrl+wheel zoom sensitivity passed");
     // Deliver real Qt wheel events through the CEF item and its QML acceptance signal.
     auto *swipeView = qobject_cast<QQuickItem *>(destination->property("activeView").value<QObject *>());
     assert(swipeView);
